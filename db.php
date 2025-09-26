@@ -3,6 +3,7 @@
 require_once 'config.php';
 require_once 'firebase_config.php';
 require_once 'firebase_rest_client.php';
+require_once 'sql_db.php'; // Include SQL database class
 
 class Database {
     private static $instance = null;
@@ -223,8 +224,14 @@ $db = Database::getInstance();
 
 // Helper function to get database connection
 function getDB() {
-    global $db;
-    return $db;
+    // Return SQL database instance for SQL operations
+    try {
+        return getSQLDB();
+    } catch (Exception $e) {
+        // Fallback to Firebase database
+        global $db;
+        return $db;
+    }
 }
 
 // Test database connection
@@ -273,5 +280,10 @@ class Collections {
     const TRANSACTIONS = 'transactions';
     const ALERTS = 'alerts';
     const REPORTS = 'reports';
+}
+
+// Get SQL Database instance
+function getSQLDB() {
+    return SQLDatabase::getInstance();
 }
 ?>
