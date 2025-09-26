@@ -1,0 +1,40 @@
+# Vendor directory (Composer dependencies)
+/vendor/
+
+# Composer files (keep composer.json and composer.lock, exclude phar)
+/composer.phar
+/composer-setup.php
+
+# Environment configuration
+/config.php
+
+# Logs
+/storage/logs/
+*.log
+
+# Cache files
+/storage/cache/
+*.cache
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+*.tmp
+*.temp
+
+# Firebase private config (if contains sensitive data)
+# firebase_config.php (uncomment if this contains sensitive keys)
