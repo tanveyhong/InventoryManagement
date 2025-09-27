@@ -223,16 +223,6 @@ class Database {
 $db = Database::getInstance();
 
 // Helper function to get database connection
-function getDB() {
-    // Return SQL database instance for SQL operations
-    try {
-        return getSQLDB();
-    } catch (Exception $e) {
-        // Fallback to Firebase database
-        global $db;
-        return $db;
-    }
-}
 
 // Test database connection
 function testDatabaseConnection() {
