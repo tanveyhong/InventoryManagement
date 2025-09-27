@@ -9,49 +9,78 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
-// Load products from SQL database and map to template fields
+// Load products from Firebase and map to template fields
 $all_products = [];
 $stores = [];
 $categories = [];
 try {
-    $sqlDb = getSQLDB();
-    // Fetch products with store name if available
-    $rows = $sqlDb->fetchAll("SELECT p.*, s.name as store_name FROM products p LEFT JOIN stores s ON p.store_id = s.id ORDER BY p.name");
-    foreach ($rows as $r) {
+    $db = getDB();
+
+    // Fetch products from Firebase
+    $productDocs = $db->readAll('products', [], null, 1000); // fetch up to 1000 for now
+    foreach ($productDocs as $r) {
         $prod = [
             'id' => $r['id'] ?? null,
             'name' => $r['name'] ?? '',
             'sku' => $r['sku'] ?? '',
             'description' => $r['description'] ?? '',
             'quantity' => isset($r['quantity']) ? intval($r['quantity']) : 0,
-            // map reorder_level/min_stock_level
             'min_stock_level' => isset($r['reorder_level']) ? intval($r['reorder_level']) : (isset($r['min_stock_level']) ? intval($r['min_stock_level']) : 0),
-            // map price/unit_price
             'unit_price' => isset($r['price']) ? floatval($r['price']) : (isset($r['unit_price']) ? floatval($r['unit_price']) : 0.0),
             'expiry_date' => $r['expiry_date'] ?? null,
             'created_at' => $r['created_at'] ?? null,
             'category_name' => $r['category'] ?? ($r['category_name'] ?? null),
             'store_id' => $r['store_id'] ?? null,
-            'store_name' => $r['store_name'] ?? null,
+            'store_name' => null, // will be filled from stores lookup below if available
+            // keep original raw doc for debugging if needed
+            '_raw' => $r,
         ];
         $all_products[] = $prod;
     }
 
-    // Fetch stores for filter dropdown
+    // Fetch stores from Firebase (if collection exists)
     try {
-        $stores = $sqlDb->fetchAll("SELECT id, name FROM stores WHERE active = 1 ORDER BY name");
+        $storeDocs = $db->readAll('stores', [], null, 1000);
+        foreach ($storeDocs as $s) {
+            $stores[] = ['id' => $s['id'] ?? null, 'name' => $s['name'] ?? ($s['store_name'] ?? null)];
+        }
     } catch (Exception $e) {
         $stores = [];
     }
 
-    // Derive categories from products if categories table not present
-    $catNames = [];
-    foreach ($all_products as $p) {
-        if (!empty($p['category_name'])) $catNames[$p['category_name']] = true;
+    // Build quick store lookup to attach store_name to products
+    $storeLookup = [];
+    foreach ($stores as $s) {
+        if (!empty($s['id'])) $storeLookup[$s['id']] = $s['name'];
     }
-    $categories = array_map(fn($n) => ['name' => $n], array_keys($catNames));
+    foreach ($all_products as &$p) {
+        if (!empty($p['store_id']) && isset($storeLookup[$p['store_id']])) {
+            $p['store_name'] = $storeLookup[$p['store_id']];
+        }
+    }
+    unset($p);
+
+    // Fetch categories collection if present, else derive from products
+    try {
+        $catDocs = $db->readAll('categories', [], null, 1000);
+        if (!empty($catDocs)) {
+            foreach ($catDocs as $c) {
+                $categories[] = ['name' => $c['name'] ?? null];
+            }
+        }
+    } catch (Exception $e) {
+        // Derive categories from product data
+    }
+
+    if (empty($categories)) {
+        $catNames = [];
+        foreach ($all_products as $p) {
+            if (!empty($p['category_name'])) $catNames[$p['category_name']] = true;
+        }
+        $categories = array_map(fn($n) => ['name' => $n], array_keys($catNames));
+    }
 } catch (Exception $e) {
-    // If SQL DB not available, fall back to empty list
+    // If Firebase not available, fall back to empty lists
     $all_products = [];
     $stores = [];
     $categories = [];
