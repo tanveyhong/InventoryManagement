@@ -9,7 +9,22 @@ session_start();
 // Check if user is logged in
 if (!isLoggedIn()) {
     header('Location: ../users/login.php');
+    if (isset($_POST['demo_add'])) {
+        // Demo data for quick testing
+        $name = 'Demo Store ' . rand(1000,9999);
+        $code = 'DEMO' . rand(100,999);
+        $address = '123 Demo Street';
+        $city = 'Demo City';
+        $state = 'Demo State';
+        $zip_code = '12345';
+        $phone = '555-1234';
+        $email = 'demo' . rand(100,999) . '@example.com';
+        $manager_name = 'Demo Manager';
+        $description = 'This is a demo store added for testing.';
+        $errors = [];
+    } else {
     exit;
+    }
 }
 
 $db = getDB();
@@ -34,9 +49,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     
     if (!empty($code)) {
-        // Check if store code already exists
-        $existing_store = $db->fetch("SELECT id FROM stores WHERE code = ? AND active = 1", [$code]);
-        if ($existing_store) {
+        // Check if store code already exists (Firebase)
+        $existing_store = $db->readAll('stores', [['code', '==', $code], ['active', '==', 1]]);
+        if (!empty($existing_store)) {
             $errors[] = 'Store code already exists';
         }
     }
@@ -47,8 +62,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     // Check if store name already exists
     if (empty($errors)) {
-        $existing_store = $db->fetch("SELECT id FROM stores WHERE name = ? AND active = 1", [$name]);
-        if ($existing_store) {
+        $existing_store = $db->readAll('stores', [['name', '==', $name], ['active', '==', 1]]);
+        if (!empty($existing_store)) {
             $errors[] = 'Store name already exists';
         }
     }
@@ -56,25 +71,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Create store if no errors
     if (empty($errors)) {
         try {
-            $sql = "INSERT INTO stores (name, code, address, city, state, zip_code, phone, email, manager_name, description, created_by, created_at, updated_at) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())";
-            
-            $params = [
-                $name, $code, $address, $city, $state, $zip_code,
-                $phone, $email, $manager_name, $description, $_SESSION['user_id']
+            // Prepare store data for Firebase
+            $storeData = [
+                'name' => $name,
+                'code' => $code,
+                'address' => $address,
+                'city' => $city,
+                'state' => $state,
+                'zip_code' => $zip_code,
+                'phone' => $phone,
+                'email' => $email,
+                'manager_name' => $manager_name,
+                'description' => $description,
+                'created_by' => $_SESSION['user_id'],
+                'created_at' => date('c'),
+                'updated_at' => date('c'),
+                'active' => 1
             ];
-            
-            $result = $db->query($sql, $params);
-            
+            $result = $db->create('stores', $storeData);
             if ($result) {
-                $store_id = $db->lastInsertId();
                 addNotification('Store created successfully!', 'success');
                 header('Location: list.php');
                 exit;
             } else {
                 $errors[] = 'Failed to create store. Please try again.';
             }
-            
         } catch (Exception $e) {
             $errors[] = 'Database error: ' . $e->getMessage();
             debugLog('Store creation error', ['error' => $e->getMessage(), 'user_id' => $_SESSION['user_id']]);
@@ -92,27 +113,25 @@ $page_title = 'Add New Store - Inventory System';
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo $page_title; ?></title>
     <link rel="stylesheet" href="../../assets/css/style.css">
+    <!-- Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body>
     <div class="container">
-        <header>
-            <h1>Add New Store</h1>
-            <nav>
-                <ul>
-                    <li><a href="../../index.php">Dashboard</a></li>
-                    <li><a href="../stock/list.php">Stock</a></li>
-                    <li><a href="list.php">Stores</a></li>
-                    <li><a href="../reports/dashboard.php">Reports</a></li>
-                    <li><a href="../users/logout.php">Logout</a></li>
-                </ul>
-            </nav>
-        </header>
+        <?php 
+        $header_title = "Add New Store";
+        $header_subtitle = "Create a new store location and assign details.";
+        $header_icon = "fas fa-store";
+        $show_compact_toggle = false;
+        $header_stats = [];
+        include '../../includes/dashboard_header.php'; 
+        ?>
 
         <main>
             <div class="page-header">
-                <h2>Add New Store</h2>
+                <h2><i class="fas fa-store"></i> Add New Store</h2>
                 <div class="page-actions">
-                    <a href="list.php" class="btn btn-outline">Back to Stores</a>
+                    <a href="list.php" class="btn btn-outline"><i class="fas fa-arrow-left"></i> Back to Stores</a>
                 </div>
             </div>
 
@@ -222,6 +241,9 @@ $page_title = 'Add New Store - Inventory System';
 
                     <div class="form-actions">
                         <button type="submit" class="btn btn-primary">Create Store</button>
+                        <button type="submit" name="demo_add" class="btn btn-secondary" style="margin-left:10px;">
+                            <i class="fas fa-magic"></i> Demo Add Store
+                        </button>
                         <a href="list.php" class="btn btn-outline">Cancel</a>
                     </div>
                 </form>

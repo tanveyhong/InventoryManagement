@@ -96,28 +96,26 @@ $page_title = 'Edit Store - Inventory System';
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo $page_title; ?></title>
     <link rel="stylesheet" href="../../assets/css/style.css">
+    <!-- Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body>
     <div class="container">
-        <header>
-            <h1>Edit Store</h1>
-            <nav>
-                <ul>
-                    <li><a href="../../index.php">Dashboard</a></li>
-                    <li><a href="../stock/list.php">Stock</a></li>
-                    <li><a href="list.php">Stores</a></li>
-                    <li><a href="../reports/dashboard.php">Reports</a></li>
-                    <li><a href="../users/logout.php">Logout</a></li>
-                </ul>
-            </nav>
-        </header>
+        <?php 
+        $header_title = "Edit Store";
+        $header_subtitle = "Update store details and information.";
+        $header_icon = "fas fa-edit";
+        $show_compact_toggle = false;
+        $header_stats = [];
+        include '../../includes/dashboard_header.php'; 
+        ?>
 
         <main>
             <div class="page-header">
-                <h2>Edit Store: <?php echo htmlspecialchars($store['name']); ?></h2>
+                <h2><i class="fas fa-edit"></i> Edit Store: <?php echo htmlspecialchars($store['name']); ?></h2>
                 <div class="page-actions">
-                    <a href="list.php" class="btn btn-outline">Back to Stores</a>
-                </div>
+                    <a href="list.php" class="btn btn-outline"><i class="fas fa-arrow-left"></i> Back to Stores</a>
+                </div
             </div>
 
             <?php if (!empty($errors)): ?>
