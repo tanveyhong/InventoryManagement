@@ -69,7 +69,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // If no errors, insert product
     if (empty($errors)) {
         try {
-            // Map to SQL schema used by SQLite (products table uses 'category' and 'price'/'reorder_level')
             // Resolve category name from the categories list
             $category_name = null;
             if ($category_id > 0 && is_array($categories)) {
@@ -81,42 +80,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
 
-            $sql = "
-                INSERT INTO products (name, sku, description, category, store_id, quantity, price, reorder_level, expiry_date, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-            ";
+            // Use Firebase as the authoritative store for new products
+            $firebase = getDB();
 
-            $params = [
-                $name,
-                !empty($sku) ? $sku : null,
-                !empty($description) ? $description : null,
-                $category_name,
-                $store_id > 0 ? $store_id : null,
-                $quantity,
-                $unit_price,
-                $min_stock_level,
-                !empty($expiry_date) ? $expiry_date : null
-            ];
-            
-            // Use SQL DB for write operations (legacy path)
-            $sqlDb = getSQLDB();
-            $sqlDb->execute($sql, $params);
-            $product_id = $sqlDb->lastInsertId();
-            
-            // Log stock movement if initial quantity > 0 (SQL)
-            if ($quantity > 0) {
-                $movement_sql = "
-                    INSERT INTO stock_movements (product_id, store_id, movement_type, quantity, reference, notes, user_id, created_at) 
-                    VALUES (?, ?, 'in', ?, 'Initial stock', 'Product created with initial stock', ?, CURRENT_TIMESTAMP)
-                ";
-                $sqlDb->execute($movement_sql, [$product_id, $store_id > 0 ? $store_id : null, $quantity, $_SESSION['user_id']]);
+            // Check SKU uniqueness in Firebase
+            if (!empty($sku)) {
+                try {
+                    $existing = $firebase->readAll('products', [['sku', '==', $sku]]);
+                    if (!empty($existing)) {
+                        $errors[] = 'SKU already exists';
+                    }
+                } catch (Exception $e) {
+                    // Non-fatal: log and continue
+                    error_log('Firebase SKU uniqueness check failed: ' . $e->getMessage());
+                }
             }
 
-            // Sync to Firebase (best-effort, don't block user flow)
-            try {
-                $firebase = getDB();
-
-                // Prepare product document for Firebase
+            if (!empty($errors)) {
+                // don't proceed if SKU conflict detected
+            } else {
                 $productDoc = [
                     'name' => $name,
                     'sku' => !empty($sku) ? $sku : null,
@@ -131,10 +113,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'updated_at' => date('c')
                 ];
 
-                // Use SQL product_id as the Firebase document ID for mapping
-                $firebase->create('products', $productDoc, (string)$product_id);
+                // Create product document in Firebase; let Firebase generate the ID
+                $product_id = $firebase->create('products', $productDoc);
 
-                // Create a stock movement record in Firebase as well
+                if (!$product_id) {
+                    throw new Exception('Failed to create product in Firebase');
+                }
+
+                // Create a stock movement record in Firebase if initial quantity > 0
                 if ($quantity > 0) {
                     $movementData = [
                         'product_id' => $product_id,
@@ -148,30 +134,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ];
                     $firebase->create('stock_movements', $movementData);
                 }
-            } catch (Exception $e) {
-                // Log but don't block the user
-                error_log('Firebase sync failed when adding product: ' . $e->getMessage());
+
+                $success = true;
+                $success_message = "Product '{$name}' added successfully!";
+
+                // Redirect after successful creation
+                header("Location: list.php?success=" . urlencode($success_message));
+                exit;
             }
-            
-            $success = true;
-            $success_message = "Product '{$name}' added successfully!";
-            
-            // Redirect after successful creation
-            header("Location: list.php?success=" . urlencode($success_message));
-            exit;
-            
+
         } catch (Exception $e) {
-            $msg = $e->getMessage();
-            // Detect SQLite UNIQUE constraint violation on products.sku and show a friendly message
-            if (stripos($msg, 'unique constraint failed') !== false || stripos($msg, 'UNIQUE constraint failed') !== false || stripos($msg, 'Integrity constraint violation') !== false) {
-                if (stripos($msg, 'products.sku') !== false || stripos($msg, 'products."sku"') !== false) {
-                    $errors[] = 'SKU already exists';
-                } else {
-                    $errors[] = 'Database integrity error: ' . $msg;
-                }
-            } else {
-                $errors[] = "Error creating product: " . $msg;
-            }
+            $errors[] = "Error creating product (Firebase): " . $e->getMessage();
         }
     }
 }
