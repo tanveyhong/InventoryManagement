@@ -39,22 +39,19 @@ $confirmation_required = !isset($_POST['confirm_delete']);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_delete'])) {
     try {
-        $db->getConnection()->beginTransaction();
-        
-        // Delete related stock movements first (foreign key constraint)
-        $db->execute("DELETE FROM stock_movements WHERE product_id = ?", [$product_id]);
-        
+        // Delete related stock movements (Firebase style)
+        $movements = $db->readAll('stock_movements', [['product_id', '==', $product_id]]);
+        foreach ($movements as $movement) {
+            $db->delete('stock_movements', $movement['id']);
+        }
+
         // Delete the product
-        $db->execute("DELETE FROM products WHERE id = ?", [$product_id]);
-        
-        $db->getConnection()->commit();
-        
+        $db->delete('products', $product_id);
+
         // Redirect with success message
         header("Location: list.php?success=" . urlencode("Product '{$product['name']}' has been deleted successfully"));
         exit;
-        
     } catch (Exception $e) {
-        $db->getConnection()->rollback();
         $errors[] = "Error deleting product: " . $e->getMessage();
     }
 }
@@ -71,6 +68,7 @@ $page_title = 'Delete Product - ' . htmlspecialchars($product['name']);
     <link rel="stylesheet" href="../../assets/css/style.css">
 </head>
 <body>
+    <?php include '../../includes/dashboard_header.php'; ?>
     <div class="container">
         <header>
             <h1>Delete Product</h1>

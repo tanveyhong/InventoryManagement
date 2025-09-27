@@ -130,6 +130,7 @@ $page_title = 'Adjust Stock - ' . $product['name'];
     <link rel="stylesheet" href="../../assets/css/style.css">
 </head>
 <body>
+    <?php include '../../includes/dashboard_header.php'; ?>
     <div class="container">
         <header>
             <h1>Stock Adjustment</h1>

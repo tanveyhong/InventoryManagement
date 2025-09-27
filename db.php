@@ -153,13 +153,72 @@ class Database {
     }
     
     // Fetch a single document (alias for read)
-    public function fetch($collection, $documentId) {
-        return $this->read($collection, $documentId);
+    public function fetch($collectionOrSql, $params = []) {
+        // Support legacy SQL-style calls like: "SELECT ... FROM products WHERE p.id = ?", [$id]
+        if (is_string($collectionOrSql) && preg_match('/\bFROM\b\s+([a-zA-Z0-9_]+)/i', $collectionOrSql, $m)) {
+            $collection = $m[1];
+
+            // Try to extract a simple WHERE field = ? pattern
+            if (preg_match('/\bWHERE\b\s+([a-zA-Z0-9_.]+)\s*=\s*\?/i', $collectionOrSql, $m2)) {
+                $field = $m2[1];
+                // Remove any alias prefix (e.g. p.id -> id)
+                if (strpos($field, '.') !== false) {
+                    $field = substr($field, strpos($field, '.') + 1);
+                }
+
+                $value = is_array($params) ? ($params[0] ?? null) : $params;
+
+                $results = $this->readAll($collection, [[$field, '==', $value]], null, 1);
+                return !empty($results) ? $results[0] : null;
+            }
+
+            // Fallback: return first document from collection
+            $results = $this->readAll($collection);
+            return !empty($results) ? $results[0] : null;
+        }
+
+        // If caller passed (collection, documentId) directly
+        return $this->read($collectionOrSql, $params);
     }
     
     // Fetch all documents (alias for readAll)
-    public function fetchAll($collection, $conditions = [], $orderBy = null, $limit = null) {
-        return $this->readAll($collection, $conditions, $orderBy, $limit);
+    public function fetchAll($collectionOrSql, $params = [], $orderBy = null, $limit = null) {
+        // Support legacy SQL-style calls
+        if (is_string($collectionOrSql) && preg_match('/\bFROM\b\s+([a-zA-Z0-9_]+)/i', $collectionOrSql, $m)) {
+            $collection = $m[1];
+
+            $conditions = [];
+
+            // WHERE field = ? patterns (supports multiple occurrences, maps params in order)
+            if (preg_match_all('/\bWHERE\b\s+(.+)/is', $collectionOrSql, $whereMatch)) {
+                $whereClause = $whereMatch[1][0];
+
+                // Find all "field = ?" occurrences
+                if (preg_match_all('/([a-zA-Z0-9_.]+)\s*=\s*\?/i', $whereClause, $fieldMatches)) {
+                    $fields = $fieldMatches[1];
+                    $paramIndex = 0;
+                    foreach ($fields as $f) {
+                        $fieldName = $f;
+                        if (strpos($fieldName, '.') !== false) {
+                            $fieldName = substr($fieldName, strpos($fieldName, '.') + 1);
+                        }
+                        $value = is_array($params) ? ($params[$paramIndex] ?? null) : ($paramIndex === 0 ? $params : null);
+                        $conditions[] = [$fieldName, '==', $value];
+                        $paramIndex++;
+                    }
+                }
+            }
+
+            // Try to extract LIMIT n
+            if (preg_match('/\bLIMIT\b\s+(\d+)/i', $collectionOrSql, $limm)) {
+                $limit = (int)$limm[1];
+            }
+
+            // We ignore ORDER BY for now (Firestore query mapping is limited)
+            return $this->readAll($collection, $conditions, $orderBy, $limit);
+        }
+
+        return $this->readAll($collectionOrSql, $params, $orderBy, $limit);
     }
     
     // Get the last inserted document ID (stored after create operation)
