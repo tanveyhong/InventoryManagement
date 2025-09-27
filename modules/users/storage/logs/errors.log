@@ -1,0 +1,19 @@
+[2025-09-27 05:26:00] Error: require_once(../../classes/UserManager.php): Failed to open stream: No such file or directory in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 6
+[2025-09-27 05:28:25] Error: require_once(../../classes/UserManager.php): Failed to open stream: No such file or directory in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 6
+[2025-09-27 05:28:26] Error: require_once(../../classes/UserManager.php): Failed to open stream: No such file or directory in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 6
+[2025-09-27 05:28:37] Error: require_once(../../classes/UserManager.php): Failed to open stream: No such file or directory in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 6
+[2025-09-27 05:29:22] Error: Undefined variable $roleManager in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 24
+[2025-09-27 05:30:04] Error: Undefined variable $roleManager in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 24
+[2025-09-27 05:38:32] Error: Undefined array key "role_id" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 133
+[2025-09-27 05:39:11] Error: Undefined array key "last_login" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1236
+[2025-09-27 05:39:11] Error: Undefined array key "active" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1238
+[2025-09-27 05:39:11] Error: Undefined array key "active" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1239
+[2025-09-27 05:41:08] Error: Undefined array key "last_login" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1237
+[2025-09-27 05:41:08] Error: Undefined array key "active" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1239
+[2025-09-27 05:41:08] Error: Undefined array key "active" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1240
+[2025-09-27 05:41:25] Error: Undefined array key "last_login" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1237
+[2025-09-27 05:41:25] Error: Undefined array key "active" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1239
+[2025-09-27 05:41:25] Error: Undefined array key "active" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1240
+[2025-09-27 05:41:53] Error: Undefined array key "last_login" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1237
+[2025-09-27 05:41:53] Error: Undefined array key "active" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1239
+[2025-09-27 05:41:53] Error: Undefined array key "active" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1240
