@@ -20,43 +20,36 @@ $page = isset($_GET['page']) ? max(1, intval($_GET['page'])) : 1;
 $per_page = 20;
 $search = sanitizeInput($_GET['search'] ?? '');
 
-// Build search condition
-$where_clause = "WHERE s.active = 1";
-$params = [];
-
+// Firebase-style: Get all stores and filter in PHP
+$all_stores = $db->readAll('stores', [['active', '==', 1]]);
+$stores = [];
 if (!empty($search)) {
-    $where_clause .= " AND (s.name LIKE ? OR s.address LIKE ? OR s.phone LIKE ?)";
-    $search_param = "%{$search}%";
-    $params = [$search_param, $search_param, $search_param];
-}
-
-// Get total count using Firebase
-$stores = $db->readAll('stores', [['active', '==', 1]]);
-if (!empty($search)) {
-    $filtered = [];
-    foreach ($stores as $store) {
-        if (
-            stripos($store['name'], $search) !== false ||
-            stripos($store['address'], $search) !== false ||
-            stripos($store['phone'], $search) !== false
-        ) {
-            $filtered[] = $store;
+    $search_lower = mb_strtolower($search);
+    foreach ($all_stores as $store) {
+        $fields = [
+            mb_strtolower($store['name'] ?? ''),
+            mb_strtolower($store['address'] ?? ''),
+            mb_strtolower($store['phone'] ?? '')
+        ];
+        $found = false;
+        foreach ($fields as $field) {
+            if (strpos($field, $search_lower) !== false) {
+                $found = true;
+                break;
+            }
         }
+        if ($found) $stores[] = $store;
     }
-    $stores = $filtered;
+} else {
+    $stores = $all_stores;
 }
+
 $total_records = count($stores);
-
-// Calculate pagination
 $pagination = paginate($page, $per_page, $total_records);
-
-
-// Get paginated stores from filtered list
-$stores_paginated = array_slice($stores, $pagination['offset'], $pagination['per_page']);
+$stores = array_slice($stores, $pagination['offset'], $pagination['per_page']);
 
 // For each store, aggregate product_count and total_stock using Firebase
-require_once '../../modules/stock/list.php'; // If you have a Firebase product listing function, use it here
-foreach ($stores_paginated as &$store) {
+foreach ($stores as &$store) {
     $products = $db->readAll('products', [['store_id', '==', $store['id']], ['active', '==', 1]]);
     $store['product_count'] = count($products);
     $store['total_stock'] = 0;
@@ -64,7 +57,7 @@ foreach ($stores_paginated as &$store) {
         $store['total_stock'] += isset($product['quantity']) ? (int)$product['quantity'] : 0;
     }
 }
-$stores = $stores_paginated;
+unset($store);
 
 $page_title = 'Store Management - Inventory System';
 ?>

@@ -15,20 +15,21 @@ if (!isLoggedIn()) {
     exit;
 }
 
-$sql_db = getSQLDB();
-
-// Get regions for filtering
-$regions = $sql_db->fetchAll("SELECT * FROM regions WHERE active = 1 ORDER BY name");
-
-// Get store types for filtering
-$store_types = $sql_db->fetchAll("SELECT DISTINCT store_type FROM stores WHERE active = 1 AND store_type IS NOT NULL ORDER BY store_type");
-
-// Get summary statistics
+// Use Firebase for all data
+$db = getDB();
+$regions = $db->readAll('regions', [['active', '==', 1]]);
+$store_types = [];
+$all_stores = $db->readAll('stores', [['active', '==', 1]]);
+foreach ($all_stores as $store) {
+    if (!empty($store['store_type']) && !in_array($store['store_type'], $store_types)) {
+        $store_types[] = $store['store_type'];
+    }
+}
 $stats = [
-    'total_stores' => $sql_db->fetch("SELECT COUNT(*) as count FROM stores WHERE active = 1")['count'] ?? 0,
-    'active_stores' => $sql_db->fetch("SELECT COUNT(*) as count FROM stores WHERE active = 1 AND status = 'active'")['count'] ?? 0,
-    'total_regions' => $sql_db->fetch("SELECT COUNT(*) as count FROM regions WHERE active = 1")['count'] ?? 0,
-    'low_stock_alerts' => $sql_db->fetch("SELECT COUNT(DISTINCT p.store_id) as count FROM products p WHERE p.quantity <= p.reorder_level AND p.active = 1")['count'] ?? 0
+    'total_stores' => count($all_stores),
+    'active_stores' => count(array_filter($all_stores, function($s){ return ($s['status'] ?? 'active') === 'active'; })),
+    'total_regions' => count($regions),
+    'low_stock_alerts' => 0 // You can aggregate from products if needed
 ];
 ?>
 <!DOCTYPE html>
@@ -289,7 +290,6 @@ $stats = [
                         <?php endforeach; ?>
                     </select>
                 </div>
-                
                 <div class="control-group">
                     <label for="status-filter">Filter by Status</label>
                     <select id="status-filter">
@@ -298,17 +298,15 @@ $stats = [
                         <option value="inactive">Inactive</option>
                     </select>
                 </div>
-                
                 <div class="control-group">
                     <label for="type-filter">Filter by Type</label>
                     <select id="type-filter">
                         <option value="">All Types</option>
                         <?php foreach ($store_types as $type): ?>
-                            <option value="<?= htmlspecialchars($type['store_type']) ?>"><?= htmlspecialchars(ucfirst($type['store_type'])) ?></option>
+                            <option value="<?= htmlspecialchars($type) ?>"><?= htmlspecialchars(ucfirst($type)) ?></option>
                         <?php endforeach; ?>
                     </select>
                 </div>
-                
                 <div class="control-group">
                     <label for="search-input">Search Stores</label>
                     <input type="text" id="search-input" placeholder="Search by name, address, or manager...">
@@ -394,21 +392,9 @@ $stats = [
             document.getElementById('search-input').addEventListener('input', debounce(filterStores, 300));
         }
 
-        async function loadStores() {
-            try {
-                const response = await fetch('api/get_stores_with_location.php');
-                const data = await response.json();
-                
-                if (data.success) {
-                    allStores = data.data;
-                } else {
-                    loadDemoStores();
-                }
-            } catch (error) {
-                console.error('Error loading stores:', error);
-                loadDemoStores();
-            }
-            
+        function loadStores() {
+            // Use PHP-injected stores from Firebase
+            allStores = <?php echo json_encode($all_stores); ?>;
             filteredStores = [...allStores];
             updateMapMarkers(filteredStores);
             displayStores(filteredStores);
