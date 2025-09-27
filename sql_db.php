@@ -124,6 +124,41 @@ class SQLDatabase {
                     FOREIGN KEY (store_id) REFERENCES stores(id)
                 )
             ");
+
+                // Create stock_movements table (basic schema)
+                $this->pdo->exec("
+                    CREATE TABLE IF NOT EXISTS stock_movements (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        product_id INTEGER NOT NULL,
+                        user_id INTEGER,
+                        store_id INTEGER,
+                        movement_type VARCHAR(50) NOT NULL,
+                        quantity INTEGER NOT NULL,
+                        reference VARCHAR(100),
+                        notes TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (product_id) REFERENCES products(id)
+                    )
+                ");
+
+                // Ensure compatibility: if an existing table lacks `store_id`, add it
+                try {
+                    $cols = $this->pdo->query("PRAGMA table_info(stock_movements)")->fetchAll(PDO::FETCH_ASSOC);
+                    $hasStoreId = false;
+                    foreach ($cols as $col) {
+                        if (isset($col['name']) && $col['name'] === 'store_id') {
+                            $hasStoreId = true;
+                            break;
+                        }
+                    }
+
+                    if (!$hasStoreId) {
+                        $this->pdo->exec("ALTER TABLE stock_movements ADD COLUMN store_id INTEGER");
+                    }
+                } catch (PDOException $e) {
+                    // Non-fatal: log and continue
+                    error_log('Failed to ensure stock_movements.store_id column: ' . $e->getMessage());
+                }
             
             // Create store_performance table for analytics
             $this->pdo->exec("

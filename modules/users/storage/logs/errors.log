@@ -17,3 +17,6 @@
 [2025-09-27 05:41:53] Error: Undefined array key "last_login" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1237
 [2025-09-27 05:41:53] Error: Undefined array key "active" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1239
 [2025-09-27 05:41:53] Error: Undefined array key "active" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1240
+[2025-09-27 05:53:59] Error: Undefined array key "last_login" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1237
+[2025-09-27 05:53:59] Error: Undefined array key "active" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1239
+[2025-09-27 05:53:59] Error: Undefined array key "active" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1240

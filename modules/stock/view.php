@@ -81,6 +81,7 @@ $page_title = htmlspecialchars($product['name']) . ' - Product Details';
     <link rel="stylesheet" href="../../assets/css/style.css">
 </head>
 <body>
+    <?php include '../../includes/dashboard_header.php'; ?>
     <div class="container">
         <header>
             <h1>Product Details</h1>

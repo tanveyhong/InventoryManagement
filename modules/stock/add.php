@@ -37,10 +37,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     
     if (!empty($sku)) {
-        // Check if SKU already exists
-        $existing = $db->fetch("SELECT id FROM products WHERE sku = ?", [$sku]);
-        if ($existing) {
-            $errors[] = 'SKU already exists';
+        // Check if SKU already exists using SQL DB (reliable for unique constraints)
+        try {
+            $sqlDb = getSQLDB();
+            $existing = $sqlDb->fetch("SELECT id FROM products WHERE sku = ?", [$sku]);
+            if ($existing) {
+                $errors[] = 'SKU already exists';
+            }
+        } catch (Exception $e) {
+            // If check fails, fall back to generic check (do not block flow)
+            error_log('SKU uniqueness check failed: ' . $e->getMessage());
         }
     }
     
@@ -63,16 +69,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // If no errors, insert product
     if (empty($errors)) {
         try {
+            // Map to SQL schema used by SQLite (products table uses 'category' and 'price'/'reorder_level')
+            // Resolve category name from the categories list
+            $category_name = null;
+            if ($category_id > 0 && is_array($categories)) {
+                foreach ($categories as $cat) {
+                    if (isset($cat['id']) && $cat['id'] == $category_id) {
+                        $category_name = $cat['name'];
+                        break;
+                    }
+                }
+            }
+
             $sql = "
-                INSERT INTO products (name, sku, description, category_id, store_id, quantity, unit_price, min_stock_level, expiry_date, created_at, updated_at) 
+                INSERT INTO products (name, sku, description, category, store_id, quantity, price, reorder_level, expiry_date, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             ";
-            
+
             $params = [
                 $name,
                 !empty($sku) ? $sku : null,
                 !empty($description) ? $description : null,
-                $category_id > 0 ? $category_id : null,
+                $category_name,
                 $store_id > 0 ? $store_id : null,
                 $quantity,
                 $unit_price,
@@ -80,16 +98,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 !empty($expiry_date) ? $expiry_date : null
             ];
             
-            $db->execute($sql, $params);
-            $product_id = $db->getConnection()->lastInsertId();
+            // Use SQL DB for write operations (legacy path)
+            $sqlDb = getSQLDB();
+            $sqlDb->execute($sql, $params);
+            $product_id = $sqlDb->lastInsertId();
             
-            // Log stock movement if initial quantity > 0
+            // Log stock movement if initial quantity > 0 (SQL)
             if ($quantity > 0) {
                 $movement_sql = "
                     INSERT INTO stock_movements (product_id, store_id, movement_type, quantity, reference, notes, user_id, created_at) 
                     VALUES (?, ?, 'in', ?, 'Initial stock', 'Product created with initial stock', ?, CURRENT_TIMESTAMP)
                 ";
-                $db->execute($movement_sql, [$product_id, $store_id > 0 ? $store_id : null, $quantity, $_SESSION['user_id']]);
+                $sqlDb->execute($movement_sql, [$product_id, $store_id > 0 ? $store_id : null, $quantity, $_SESSION['user_id']]);
+            }
+
+            // Sync to Firebase (best-effort, don't block user flow)
+            try {
+                $firebase = getDB();
+
+                // Prepare product document for Firebase
+                $productDoc = [
+                    'name' => $name,
+                    'sku' => !empty($sku) ? $sku : null,
+                    'description' => !empty($description) ? $description : null,
+                    'category' => $category_name,
+                    'store_id' => $store_id > 0 ? $store_id : null,
+                    'quantity' => $quantity,
+                    'price' => $unit_price,
+                    'reorder_level' => $min_stock_level,
+                    'expiry_date' => !empty($expiry_date) ? $expiry_date : null,
+                    'created_at' => date('c'),
+                    'updated_at' => date('c')
+                ];
+
+                // Use SQL product_id as the Firebase document ID for mapping
+                $firebase->create('products', $productDoc, (string)$product_id);
+
+                // Create a stock movement record in Firebase as well
+                if ($quantity > 0) {
+                    $movementData = [
+                        'product_id' => $product_id,
+                        'store_id' => $store_id > 0 ? $store_id : null,
+                        'movement_type' => 'in',
+                        'quantity' => $quantity,
+                        'reference' => 'Initial stock',
+                        'notes' => 'Product created with initial stock',
+                        'user_id' => $_SESSION['user_id'] ?? null,
+                        'created_at' => date('c')
+                    ];
+                    $firebase->create('stock_movements', $movementData);
+                }
+            } catch (Exception $e) {
+                // Log but don't block the user
+                error_log('Firebase sync failed when adding product: ' . $e->getMessage());
             }
             
             $success = true;
@@ -100,7 +161,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
             
         } catch (Exception $e) {
-            $errors[] = "Error creating product: " . $e->getMessage();
+            $msg = $e->getMessage();
+            // Detect SQLite UNIQUE constraint violation on products.sku and show a friendly message
+            if (stripos($msg, 'unique constraint failed') !== false || stripos($msg, 'UNIQUE constraint failed') !== false || stripos($msg, 'Integrity constraint violation') !== false) {
+                if (stripos($msg, 'products.sku') !== false || stripos($msg, 'products."sku"') !== false) {
+                    $errors[] = 'SKU already exists';
+                } else {
+                    $errors[] = 'Database integrity error: ' . $msg;
+                }
+            } else {
+                $errors[] = "Error creating product: " . $msg;
+            }
         }
     }
 }
@@ -117,6 +188,7 @@ $page_title = 'Add Product - Inventory System';
     <link rel="stylesheet" href="../../assets/css/style.css">
 </head>
 <body>
+    <?php include '../../includes/dashboard_header.php'; ?>
     <div class="container">
         <header>
             <h1>Add New Product</h1>

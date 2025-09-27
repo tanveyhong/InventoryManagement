@@ -65,7 +65,12 @@ class FirebaseRestClient {
     }
     
     public function getDocument($collection, $documentId) {
-        $url = $this->baseUrl . '/' . $collection . '/' . urlencode($documentId);
+        if (is_array($documentId) || is_object($documentId)) {
+            error_log("Firebase getDocument called with invalid documentId (array/object) for collection: {$collection}");
+            return null;
+        }
+
+        $url = $this->baseUrl . '/' . $collection . '/' . urlencode((string)$documentId);
         
         try {
             $response = $this->makeRequest('GET', $url);
@@ -77,7 +82,12 @@ class FirebaseRestClient {
     }
     
     public function updateDocument($collection, $documentId, $data) {
-        $url = $this->baseUrl . '/' . $collection . '/' . urlencode($documentId);
+        if (is_array($documentId) || is_object($documentId)) {
+            error_log("Firebase updateDocument called with invalid documentId (array/object) for collection: {$collection}");
+            return false;
+        }
+
+        $url = $this->baseUrl . '/' . $collection . '/' . urlencode((string)$documentId);
         
         // Convert data to Firestore format
         $firestoreData = $this->convertToFirestoreFormat($data);
@@ -92,7 +102,12 @@ class FirebaseRestClient {
     }
     
     public function deleteDocument($collection, $documentId) {
-        $url = $this->baseUrl . '/' . $collection . '/' . urlencode($documentId);
+        if (is_array($documentId) || is_object($documentId)) {
+            error_log("Firebase deleteDocument called with invalid documentId (array/object) for collection: {$collection}");
+            return false;
+        }
+
+        $url = $this->baseUrl . '/' . $collection . '/' . urlencode((string)$documentId);
         
         try {
             $this->makeRequest('DELETE', $url);

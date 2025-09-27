@@ -1,178 +1,221 @@
 <?php
-// Stock Management - List All Products
 require_once '../../config.php';
-require_once '../../db.php';
 require_once '../../functions.php';
-require_once '../../redis.php';
-
 session_start();
 
-if (!isLoggedIn()) {
+// Auth check - redirect to login if not authenticated
+if (!isset($_SESSION['user_id'])) {
     header('Location: ../users/login.php');
     exit;
 }
 
-$db = getDB();
-$redis = new RedisConnection();
+// Load products from SQL database and map to template fields
+$all_products = [];
+$stores = [];
+$categories = [];
+try {
+    $sqlDb = getSQLDB();
+    // Fetch products with store name if available
+    $rows = $sqlDb->fetchAll("SELECT p.*, s.name as store_name FROM products p LEFT JOIN stores s ON p.store_id = s.id ORDER BY p.name");
+    foreach ($rows as $r) {
+        $prod = [
+            'id' => $r['id'] ?? null,
+            'name' => $r['name'] ?? '',
+            'sku' => $r['sku'] ?? '',
+            'description' => $r['description'] ?? '',
+            'quantity' => isset($r['quantity']) ? intval($r['quantity']) : 0,
+            // map reorder_level/min_stock_level
+            'min_stock_level' => isset($r['reorder_level']) ? intval($r['reorder_level']) : (isset($r['min_stock_level']) ? intval($r['min_stock_level']) : 0),
+            // map price/unit_price
+            'unit_price' => isset($r['price']) ? floatval($r['price']) : (isset($r['unit_price']) ? floatval($r['unit_price']) : 0.0),
+            'expiry_date' => $r['expiry_date'] ?? null,
+            'created_at' => $r['created_at'] ?? null,
+            'category_name' => $r['category'] ?? ($r['category_name'] ?? null),
+            'store_id' => $r['store_id'] ?? null,
+            'store_name' => $r['store_name'] ?? null,
+        ];
+        $all_products[] = $prod;
+    }
 
-// Get filters
-$store_filter = isset($_GET['store']) ? intval($_GET['store']) : null;
-$category_filter = isset($_GET['category']) ? $_GET['category'] : null;
-$status_filter = isset($_GET['status']) ? $_GET['status'] : null;
-$search_query = isset($_GET['search']) ? trim($_GET['search']) : null;
+    // Fetch stores for filter dropdown
+    try {
+        $stores = $sqlDb->fetchAll("SELECT id, name FROM stores WHERE active = 1 ORDER BY name");
+    } catch (Exception $e) {
+        $stores = [];
+    }
+
+    // Derive categories from products if categories table not present
+    $catNames = [];
+    foreach ($all_products as $p) {
+        if (!empty($p['category_name'])) $catNames[$p['category_name']] = true;
+    }
+    $categories = array_map(fn($n) => ['name' => $n], array_keys($catNames));
+} catch (Exception $e) {
+    // If SQL DB not available, fall back to empty list
+    $all_products = [];
+    $stores = [];
+    $categories = [];
+}
+
+$store_filter = $_GET['store'] ?? '';
+$category_filter = $_GET['category'] ?? '';
+$search_query = $_GET['search'] ?? '';
+$status_filter = $_GET['status'] ?? '';
 $sort_by = isset($_GET['sort']) ? $_GET['sort'] : 'name';
-$sort_order = isset($_GET['order']) && $_GET['order'] === 'desc' ? 'DESC' : 'ASC';
-
-// Pagination
+$sort_order = (isset($_GET['order']) && strtolower($_GET['order']) === 'desc') ? 'DESC' : 'ASC';
 $page = isset($_GET['page']) ? max(1, intval($_GET['page'])) : 1;
-$per_page = 25;
+$per_page = 20;
 $offset = ($page - 1) * $per_page;
 
-// Build query
-$where_conditions = [];
-$params = [];
-
-if ($store_filter) {
-    $where_conditions[] = 'p.store_id = ?';
-    $params[] = $store_filter;
-}
-
-if ($category_filter) {
-    $where_conditions[] = 'c.name = ?';
-    $params[] = $category_filter;
-}
-
-if ($search_query) {
-    $where_conditions[] = '(p.name ILIKE ? OR p.sku ILIKE ? OR p.description ILIKE ?)';
-    $search_param = '%' . $search_query . '%';
-    $params[] = $search_param;
-    $params[] = $search_param;
-    $params[] = $search_param;
-}
-
-if ($status_filter) {
-    switch ($status_filter) {
-        case 'low_stock':
-            $where_conditions[] = 'p.quantity <= p.min_stock_level';
-            break;
-        case 'out_of_stock':
-            $where_conditions[] = 'p.quantity = 0';
-            break;
-        case 'expiring':
-            $where_conditions[] = 'p.expiry_date <= CURRENT_DATE + INTERVAL \'30 days\'';
-            break;
-        case 'expired':
-            $where_conditions[] = 'p.expiry_date < CURRENT_DATE';
-            break;
+// Filtering
+$filtered_products = array_filter($all_products, function($p) use ($store_filter, $category_filter, $search_query, $status_filter) {
+    if ($store_filter && (!isset($p['store_id']) || $p['store_id'] != $store_filter)) return false;
+    if ($category_filter && (!isset($p['category_name']) || $p['category_name'] != $category_filter)) return false;
+    if ($search_query) {
+        $q = strtolower($search_query);
+        $fields = [$p['name'] ?? '', $p['sku'] ?? '', $p['description'] ?? ''];
+        if (!array_filter($fields, fn($f) => strpos(strtolower($f), $q) !== false)) return false;
     }
-}
+    if ($status_filter) {
+        switch ($status_filter) {
+            case 'low_stock':
+                if (!isset($p['quantity'], $p['min_stock_level']) || $p['quantity'] > $p['min_stock_level']) return false;
+                break;
+            case 'out_of_stock':
+                if (!isset($p['quantity']) || $p['quantity'] != 0) return false;
+                break;
+            case 'expiring':
+                if (empty($p['expiry_date']) || strtotime($p['expiry_date']) > strtotime('+30 days')) return false;
+                break;
+            case 'expired':
+                if (empty($p['expiry_date']) || strtotime($p['expiry_date']) >= time()) return false;
+                break;
+        }
+    }
+    return true;
+});
 
-$where_clause = !empty($where_conditions) ? 'WHERE ' . implode(' AND ', $where_conditions) : '';
-
-// Valid sort columns
+// Sorting
 $valid_sorts = ['name', 'sku', 'quantity', 'unit_price', 'expiry_date', 'created_at', 'category_name', 'store_name'];
 if (!in_array($sort_by, $valid_sorts)) {
     $sort_by = 'name';
 }
+$sort_func = function($a, $b) use ($sort_by, $sort_order) {
+    $av = $a[$sort_by] ?? '';
+    $bv = $b[$sort_by] ?? '';
+    if ($av == $bv) return 0;
+    if ($sort_order === 'ASC') return ($av < $bv) ? -1 : 1;
+    return ($av > $bv) ? -1 : 1;
+};
+usort($filtered_products, $sort_func);
 
-// Main query
-$sql = "
-    SELECT 
-        p.id,
-        p.name,
-        p.sku,
-        p.description,
-        p.quantity,
-        p.unit_price,
-        p.min_stock_level,
-        p.expiry_date,
-        p.created_at,
-        p.updated_at,
-        c.name as category_name,
-        s.name as store_name,
-        CASE 
-            WHEN p.quantity = 0 THEN 'out_of_stock'
-            WHEN p.quantity <= p.min_stock_level THEN 'low_stock'
-            WHEN p.expiry_date < CURRENT_DATE THEN 'expired'
-            WHEN p.expiry_date <= CURRENT_DATE + INTERVAL '7 days' THEN 'expiring_soon'
-            ELSE 'normal'
-        END as status
-    FROM products p
-    LEFT JOIN categories c ON p.category_id = c.id
-    LEFT JOIN stores s ON p.store_id = s.id
-    {$where_clause}
-    ORDER BY {$sort_by} {$sort_order}
-    LIMIT {$per_page} OFFSET {$offset}
-";
+// Pagination
+$total_count = count($filtered_products);
+$page_title = 'Stock Management - Inventory System';
 
-$products = $db->fetchAll($sql, $params);
-
-// Count query for pagination
-$count_sql = "
-    SELECT COUNT(*) as total
-    FROM products p
-    LEFT JOIN categories c ON p.category_id = c.id
-    LEFT JOIN stores s ON p.store_id = s.id
-    {$where_clause}
-";
-
-$total_count = $db->fetchOne($count_sql, $params)['total'];
 $pagination = paginate($page, $per_page, $total_count);
+$products = array_slice($filtered_products, $offset, $per_page);
 
-// Get stores and categories for filters
-$stores = $db->fetchAll("SELECT id, name FROM stores ORDER BY name");
-$categories = $db->fetchAll("SELECT DISTINCT name FROM categories ORDER BY name");
+// Compute status for products so templates can render status-based classes safely
+foreach ($products as &$prod) {
+    $qty = isset($prod['quantity']) ? intval($prod['quantity']) : 0;
+    $min = isset($prod['min_stock_level']) ? intval($prod['min_stock_level']) : 0;
+    $status = 'normal';
+    if ($qty === 0) {
+        $status = 'out_of_stock';
+    } elseif ($min > 0 && $qty <= $min) {
+        $status = 'low_stock';
+    }
+    if (!empty($prod['expiry_date'])) {
+        $exp = strtotime($prod['expiry_date']);
+        if ($exp !== false) {
+            if ($exp < time()) {
+                $status = 'expired';
+            } elseif ($exp <= strtotime('+30 days')) {
+                // only mark expiring_soon if not already expired
+                if ($status !== 'expired') $status = 'expiring_soon';
+            }
+        }
+    }
+    $prod['status'] = $status;
+}
+unset($prod);
 
-// Get summary statistics (cached)
-$cache_key = 'stock_summary:' . md5($where_clause . serialize($params));
-$summary_stats = $redis->get($cache_key);
+// Fallback mock stores and categories for filters (only if none loaded from DB)
+if (empty($stores)) {
+    $stores = [
+        ['id' => 'S1', 'name' => 'Main Store'],
+        ['id' => 'S2', 'name' => 'Branch Store'],
+    ];
+}
+if (empty($categories)) {
+    $categories = [
+        ['name' => 'Fruits'],
+        ['name' => 'Dairy'],
+    ];
+}
 
-if (!$summary_stats) {
-    $stats_sql = "
-        SELECT 
-            COUNT(*) as total_products,
-            SUM(CASE WHEN quantity = 0 THEN 1 ELSE 0 END) as out_of_stock,
-            SUM(CASE WHEN quantity <= min_stock_level THEN 1 ELSE 0 END) as low_stock,
-            SUM(CASE WHEN expiry_date < CURRENT_DATE THEN 1 ELSE 0 END) as expired,
-            SUM(quantity * unit_price) as total_value
-        FROM products p
-        LEFT JOIN categories c ON p.category_id = c.id
-        LEFT JOIN stores s ON p.store_id = s.id
-        {$where_clause}
-    ";
-    
-    $summary_stats = $db->fetchOne($stats_sql, $params);
-    $redis->setex($cache_key, 300, json_encode($summary_stats)); // Cache for 5 minutes
-} else {
-    $summary_stats = json_decode($summary_stats, true);
+// Summary statistics
+$summary_stats = [
+    'total_products' => $total_count,
+    'out_of_stock' => 0,
+    'low_stock' => 0,
+    'expired' => 0,
+    'total_value' => 0
+];
+foreach ($filtered_products as $p) {
+    if ($p['quantity'] == 0) $summary_stats['out_of_stock']++;
+    if ($p['quantity'] <= $p['min_stock_level']) $summary_stats['low_stock']++;
+    if (!empty($p['expiry_date']) && strtotime($p['expiry_date']) < time()) $summary_stats['expired']++;
+    $summary_stats['total_value'] += $p['quantity'] * $p['unit_price'];
 }
 
 $page_title = 'Stock Management - Inventory System';
 ?>
-
+<?php
+// Prepare dashboard header variables
+$header_title = 'Stock Inventory';
+$header_subtitle = 'Manage products, stock levels, and expiries';
+$header_icon = 'fas fa-boxes';
+$show_compact_toggle = true;
+$header_stats = [
+    [
+        'value' => number_format($summary_stats['total_products']),
+        'label' => 'Total Products',
+        'icon' => 'fas fa-boxes',
+        'type' => 'primary',
+    ],
+    [
+        'value' => number_format($summary_stats['low_stock']),
+        'label' => 'Low Stock',
+        'icon' => 'fas fa-exclamation-triangle',
+        'type' => 'warning',
+    ],
+    [
+        'value' => number_format($summary_stats['out_of_stock']),
+        'label' => 'Out of Stock',
+        'icon' => 'fas fa-times-circle',
+        'type' => 'alert',
+    ],
+    [
+        'value' => '$' . number_format($summary_stats['total_value'], 2),
+        'label' => 'Total Value',
+        'icon' => 'fas fa-dollar-sign',
+        'type' => 'success',
+    ],
+];
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo $page_title; ?></title>
+    <title><?php echo htmlspecialchars($page_title); ?></title>
     <link rel="stylesheet" href="../../assets/css/style.css">
 </head>
 <body>
+    <?php include '../../includes/dashboard_header.php'; ?>
     <div class="container">
-        <header>
-            <h1>Stock Management</h1>
-            <nav>
-                <ul>
-                    <li><a href="../../index.php">Dashboard</a></li>
-                    <li><a href="list.php" class="active">Stock</a></li>
-                    <li><a href="../stores/list.php">Stores</a></li>
-                    <li><a href="../reports/dashboard.php">Reports</a></li>
-                    <li><a href="../alerts/low_stock.php">Alerts</a></li>
-                    <li><a href="../users/logout.php">Logout</a></li>
-                </ul>
-            </nav>
-        </header>
 
         <main>
             <div class="page-header">
@@ -372,17 +415,17 @@ $page_title = 'Stock Management - Inventory System';
                 <?php if ($pagination['total_pages'] > 1): ?>
                     <div class="pagination">
                         <?php if ($pagination['has_previous']): ?>
-                            <a href="?<?php echo http_build_query(array_merge($_GET, ['page' => $pagination['page'] - 1])); ?>" 
+                            <a href="?<?php echo http_build_query(array_merge($_GET, ['page' => $pagination['current_page'] - 1])); ?>" 
                                class="btn btn-sm btn-outline">Previous</a>
                         <?php endif; ?>
 
                         <span class="pagination-info">
-                            Page <?php echo $pagination['page']; ?> of <?php echo $pagination['total_pages']; ?>
+                            Page <?php echo $pagination['current_page']; ?> of <?php echo $pagination['total_pages']; ?>
                             (<?php echo number_format($total_count); ?> total products)
                         </span>
 
                         <?php if ($pagination['has_next']): ?>
-                            <a href="?<?php echo http_build_query(array_merge($_GET, ['page' => $pagination['page'] + 1])); ?>" 
+                            <a href="?<?php echo http_build_query(array_merge($_GET, ['page' => $pagination['current_page'] + 1])); ?>" 
                                class="btn btn-sm btn-outline">Next</a>
                         <?php endif; ?>
                     </div>
