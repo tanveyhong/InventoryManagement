@@ -2,6 +2,7 @@
 // Common Helper Functions
 require_once 'config.php';
 require_once 'db.php';
+require_once 'getDB.php';
 
 // Authentication Functions
 function isLoggedIn() {
@@ -53,19 +54,17 @@ function createFirebaseUser($userData) {
 
 function findUserByUsernameOrEmail($usernameOrEmail) {
     $db = getDB();
-    
+    // Always use Firebase-style queries
     // Try to find by username first
     $users = $db->readAll('users', [['username', '==', $usernameOrEmail]], null, 1);
     if (!empty($users)) {
         return $users[0];
     }
-    
     // Try to find by email
     $users = $db->readAll('users', [['email', '==', $usernameOrEmail]], null, 1);
     if (!empty($users)) {
         return $users[0];
     }
-    
     return null;
 }
 
