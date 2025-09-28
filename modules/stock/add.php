@@ -19,12 +19,30 @@ $success = false;
 $stores = $db->fetchAll("SELECT id, name FROM stores WHERE is_active = 1 ORDER BY name");
 $categories = $db->fetchAll("SELECT id, name FROM categories ORDER BY name");
 
+$CATEGORY_OPTIONS = [
+  'General',
+  'Beverages',
+  'Snacks',
+  'Personal Care',
+  'Household',
+  'Electronics',
+  'Stationery',
+  'Fresh Produce',
+  'Frozen',
+  'Bakery',
+];
+
+// Keep the user’s selection on postback (default to General)
+$selectedCategory = isset($_POST['category']) && $_POST['category'] !== ''
+  ? (string)$_POST['category']
+  : 'General';
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Validate input
     $name = sanitizeInput($_POST['name'] ?? '');
     $sku = sanitizeInput($_POST['sku'] ?? '');
     $description = sanitizeInput($_POST['description'] ?? '');
-    $category_id = intval($_POST['category_id'] ?? 0);
+    $category = sanitizeInput($_POST['category'] ?? '');
     $store_id = intval($_POST['store_id'] ?? 0);
     $quantity = intval($_POST['quantity'] ?? 0);
     $unit_price = floatval($_POST['unit_price'] ?? 0);
@@ -50,11 +68,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
     
-    if ($quantity < 0) {
+    if ($quantity <= 0) {
         $errors[] = 'Quantity cannot be negative';
     }
     
-    if ($unit_price < 0) {
+    if ($unit_price <= 0) {
         $errors[] = 'Unit price cannot be negative';
     }
     
@@ -69,6 +87,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // If no errors, insert product
     if (empty($errors)) {
         try {
+            // Map to SQL schema used by SQLite (products table uses 'category' and 'price'/'reorder_level')
             // Resolve category name from the categories list
             $category_name = null;
             if ($category_id > 0 && is_array($categories)) {
@@ -80,30 +99,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
 
-            // Use Firebase as the authoritative store for new products
-            $firebase = getDB();
+            $sql = "
+                INSERT INTO products (name, sku, description, category, store_id, quantity, price, reorder_level, expiry_date, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ";
 
-            // Check SKU uniqueness in Firebase
-            if (!empty($sku)) {
-                try {
-                    $existing = $firebase->readAll('products', [['sku', '==', $sku]]);
-                    if (!empty($existing)) {
-                        $errors[] = 'SKU already exists';
-                    }
-                } catch (Exception $e) {
-                    // Non-fatal: log and continue
-                    error_log('Firebase SKU uniqueness check failed: ' . $e->getMessage());
-                }
+            $params = [
+                $name,
+                !empty($sku) ? $sku : null,
+                !empty($description) ? $description : null,
+                $category,
+                $store_id > 0 ? $store_id : null,
+                $quantity,
+                $unit_price,
+                $min_stock_level,
+                !empty($expiry_date) ? $expiry_date : null
+            ];
+            
+            // Use SQL DB for write operations (legacy path)
+            $sqlDb = getSQLDB();
+            $sqlDb->execute($sql, $params);
+            $product_id = $sqlDb->lastInsertId();
+            
+            // Log stock movement if initial quantity > 0 (SQL)
+            if ($quantity > 0) {
+                $movement_sql = "
+                    INSERT INTO stock_movements (product_id, store_id, movement_type, quantity, reference, notes, user_id, created_at) 
+                    VALUES (?, ?, 'in', ?, 'Initial stock', 'Product created with initial stock', ?, CURRENT_TIMESTAMP)
+                ";
+                $sqlDb->execute($movement_sql, [$product_id, $store_id > 0 ? $store_id : null, $quantity, $_SESSION['user_id']]);
             }
 
-            if (!empty($errors)) {
-                // don't proceed if SKU conflict detected
-            } else {
+            // Sync to Firebase (best-effort, don't block user flow)
+            try {
+                $firebase = getDB();
+
+                // Prepare product document for Firebase
                 $productDoc = [
                     'name' => $name,
                     'sku' => !empty($sku) ? $sku : null,
                     'description' => !empty($description) ? $description : null,
-                    'category' => $category_name,
+                    'category' => $category,
                     'store_id' => $store_id > 0 ? $store_id : null,
                     'quantity' => $quantity,
                     'price' => $unit_price,
@@ -113,14 +149,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'updated_at' => date('c')
                 ];
 
-                // Create product document in Firebase; let Firebase generate the ID
-                $product_id = $firebase->create('products', $productDoc);
+                // Use SQL product_id as the Firebase document ID for mapping
+                $firebase->create('products', $productDoc, (string)$product_id);
 
-                if (!$product_id) {
-                    throw new Exception('Failed to create product in Firebase');
-                }
-
-                // Create a stock movement record in Firebase if initial quantity > 0
+                // Create a stock movement record in Firebase as well
                 if ($quantity > 0) {
                     $movementData = [
                         'product_id' => $product_id,
@@ -134,17 +166,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ];
                     $firebase->create('stock_movements', $movementData);
                 }
-
-                $success = true;
-                $success_message = "Product '{$name}' added successfully!";
-
-                // Redirect after successful creation
-                header("Location: list.php?success=" . urlencode($success_message));
-                exit;
+            } catch (Exception $e) {
+                // Log but don't block the user
+                error_log('Firebase sync failed when adding product: ' . $e->getMessage());
             }
-
+            
+            $success = true;
+            $success_message = "Product '{$name}' added successfully!";
+            
+            // Redirect after successful creation
+            header("Location: list.php?success=" . urlencode($success_message));
+            exit;
+            
         } catch (Exception $e) {
-            $errors[] = "Error creating product (Firebase): " . $e->getMessage();
+            $msg = $e->getMessage();
+            // Detect SQLite UNIQUE constraint violation on products.sku and show a friendly message
+            if (stripos($msg, 'unique constraint failed') !== false || stripos($msg, 'UNIQUE constraint failed') !== false || stripos($msg, 'Integrity constraint violation') !== false) {
+                if (stripos($msg, 'products.sku') !== false || stripos($msg, 'products."sku"') !== false) {
+                    $errors[] = 'SKU already exists';
+                } else {
+                    $errors[] = 'Database integrity error: ' . $msg;
+                }
+            } else {
+                $errors[] = "Error creating product: " . $msg;
+            }
         }
     }
 }
@@ -159,23 +204,12 @@ $page_title = 'Add Product - Inventory System';
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo $page_title; ?></title>
     <link rel="stylesheet" href="../../assets/css/style.css">
+    <!-- Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body>
-    <?php include '../../includes/dashboard_header.php'; ?>
+    <?php include '../../includes/dashboard_header2.php'; ?>
     <div class="container">
-        <header>
-            <h1>Add New Product</h1>
-            <nav>
-                <ul>
-                    <li><a href="../../index.php">Dashboard</a></li>
-                    <li><a href="list.php">Stock</a></li>
-                    <li><a href="../stores/list.php">Stores</a></li>
-                    <li><a href="../reports/dashboard.php">Reports</a></li>
-                    <li><a href="../alerts/low_stock.php">Alerts</a></li>
-                    <li><a href="../users/logout.php">Logout</a></li>
-                </ul>
-            </nav>
-        </header>
 
         <main>
             <div class="page-header">
@@ -231,15 +265,14 @@ $page_title = 'Add Product - Inventory System';
                             <div class="form-row">
                                 <div class="form-group">
                                     <label for="category_id">Category:</label>
-                                    <select id="category_id" name="category_id">
-                                        <option value="">Select Category</option>
-                                        <?php foreach ($categories as $category): ?>
-                                            <option value="<?php echo $category['id']; ?>" 
-                                                    <?php echo (isset($_POST['category_id']) && $_POST['category_id'] == $category['id']) ? 'selected' : ''; ?>>
-                                                <?php echo htmlspecialchars($category['name']); ?>
-                                            </option>
-                                        <?php endforeach; ?>
-                                    </select>
+<select id="category" name="category" class="form-control" required>
+  <?php foreach ($CATEGORY_OPTIONS as $opt): ?>
+    <option value="<?php echo htmlspecialchars($opt); ?>"
+      <?php echo ($opt === $selectedCategory) ? 'selected' : ''; ?>>
+      <?php echo htmlspecialchars($opt); ?>
+    </option>
+  <?php endforeach; ?>
+</select>
                                     <small>Product category for organization</small>
                                 </div>
                                 
@@ -351,13 +384,13 @@ $page_title = 'Add Product - Inventory System';
                 return false;
             }
             
-            if (quantity < 0) {
+            if (quantity <= 0) {
                 alert('Quantity cannot be negative');
                 e.preventDefault();
                 return false;
             }
             
-            if (unitPrice < 0) {
+            if (unitPrice <= 0) {
                 alert('Unit price cannot be negative');
                 e.preventDefault();
                 return false;
