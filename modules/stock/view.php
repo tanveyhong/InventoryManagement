@@ -1,6 +1,7 @@
 <?php
 /**
  * modules/stock/view.php — product detail from Firestore "products"
+ * Enhanced with modern design elements
  */
 declare(strict_types=1);
 session_start();
@@ -8,7 +9,6 @@ session_start();
 require_once __DIR__ . '/../../config.php';
 require_once __DIR__ . '/../../functions.php';
 
-// Accept id (doc id) or sku
 // Accept id (doc id) or sku
 $stockKey = '';
 if (!empty($_GET['id']))  $stockKey = trim((string)$_GET['id']);
@@ -33,36 +33,49 @@ if (isset($_GET['debug']) && $_GET['debug'] == '1') {
 $stock = fs_get_product($stockKey);
 if (!$stock) { http_response_code(404); echo 'Stock not found'; exit; }
 
-
 // Derived/status
 $qty        = (int)$stock['quantity'];
 $reorder    = (int)$stock['reorder_level'];
 $unit       = $stock['unit'] ?? '';
-$price      = (float)$stock['price'];     // <- price field
+$price      = (float)$stock['price'];
 $totalValue = $qty * $price;
 $status     = $qty <= 0 ? 'Out of stock' : ($qty <= max(0, $reorder) ? 'Low stock' : 'In stock');
 $statusType = $qty <= 0 ? 'alert' : ($qty <= max(0, $reorder) ? 'warning' : 'success');
 
 // Header vars for shared header
-$header_title        = $stock['name'];
+$header_title        = $stock['name'] ?? 'Untitled Product';
 $header_subtitle     = 'SKU: '.($stock['sku'] ?: '—').' • Category: '.($stock['category'] ?: 'General');
 $header_icon         = 'fas fa-box-open';
 $show_compact_toggle = false;
 $header_stats = [
-    ['value' => number_format($qty) . ($unit ? " {$unit}" : ''), 'label' => 'Quantity',    'icon' => 'fas fa-cubes',        'type' => $statusType],
-    ['value' => 'RM ' . number_format($price, 2),               'label' => 'Unit Price',  'icon' => 'fas fa-dollar-sign',  'type' => 'primary'],
-    ['value' => 'RM ' . number_format($totalValue, 2),          'label' => 'Total Value', 'icon' => 'fas fa-sack-dollar',  'type' => 'success'],
-    ['value' => $reorder > 0 ? number_format($reorder) : '—',   'label' => 'Reorder Lv',  'icon' => 'fas fa-level-down-alt','type' => $reorder > 0 ? 'warning' : 'neutral'],
+  ['value' => number_format($qty) . ($unit ? " {$unit}" : ''), 'label' => 'Quantity',    'icon' => 'fas fa-cubes',        'type' => $statusType],
+  ['value' => 'RM ' . number_format($price, 2),               'label' => 'Unit Price',  'icon' => 'fas fa-dollar-sign',  'type' => 'primary'],
+  ['value' => 'RM ' . number_format($totalValue, 2),          'label' => 'Total Value', 'icon' => 'fas fa-sack-dollar',  'type' => 'success'],
+  ['value' => $reorder > 0 ? number_format($reorder) : '—',   'label' => 'Reorder Lv',  'icon' => 'fas fa-level-down-alt','type' => $reorder > 0 ? 'warning' : 'neutral'],
 ];
 
-$imageUrl   = $stock['image_url'] ?? ''; // not in schema; will be empty
+$imageUrl   = $stock['image_url'] ?? '';
 $barcode    = $stock['barcode']   ?? '';
-$notes      = $stock['description'] ?? ''; // show description here
+$notes      = $stock['description'] ?? '';
 $location   = $stock['location']  ?? '—';
 $supplier   = $stock['supplier']  ?? '—';
 $expiry     = $stock['expiry_date'] ?: '—';
 $created    = $stock['created_at']  ?: '—';
 $updated    = $stock['updated_at']  ?: '—';
+
+// Format times for display (human friendly)
+function _fmt_date($ts) {
+  if (!$ts) return '—';
+  try {
+    $d = new DateTime($ts);
+    return $d->format('Y-m-d H:i');
+  } catch (Exception $e) {
+    return $ts;
+  }
+}
+
+$created_display = _fmt_date($created);
+$updated_display = _fmt_date($updated);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -73,10 +86,301 @@ $updated    = $stock['updated_at']  ?: '—';
   <link rel="stylesheet" href="../../assets/css/app.css" />
   <link rel="stylesheet" href="../../assets/css/dashboard.css" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  
+  <style>
+    /* Enhanced Design Styles */
+    .product-header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 2rem;
+      border-radius: 16px;
+      margin-bottom: 2rem;
+      position: relative;
+      overflow: hidden;
+    }
+    
+    .product-header::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><pattern id="grain" width="100" height="100" patternUnits="userSpaceOnUse"><circle cx="25" cy="25" r="1" fill="rgba(255,255,255,0.1)"/><circle cx="75" cy="75" r="1" fill="rgba(255,255,255,0.1)"/><circle cx="50" cy="10" r="0.5" fill="rgba(255,255,255,0.05)"/></pattern></defs><rect width="100%" height="100%" fill="url(%23grain)"/></svg>');
+      opacity: 0.3;
+    }
+    
+    .product-header-content {
+      position: relative;
+      z-index: 1;
+    }
+    
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1.25rem;
+      border-radius: 50px;
+      font-weight: 600;
+      font-size: 0.9rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      backdrop-filter: blur(10px);
+    }
+    
+    .status-badge.success {
+      background: rgba(34, 197, 94, 0.9);
+      color: white;
+    }
+    
+    .status-badge.warning {
+      background: rgba(245, 158, 11, 0.9);
+      color: white;
+    }
+    
+    .status-badge.alert {
+      background: rgba(239, 68, 68, 0.9);
+      color: white;
+    }
+    
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1.5rem;
+      margin-top: 2rem;
+    }
+    
+    .stat-card {
+      background: rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 12px;
+      padding: 1.5rem;
+      text-align: center;
+      transition: all 0.3s ease;
+    }
+    
+    .stat-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+    }
+    
+    .stat-card .icon {
+      font-size: 2rem;
+      margin-bottom: 0.5rem;
+      opacity: 0.8;
+    }
+    
+    .stat-card .value {
+      font-size: 1.75rem;
+      font-weight: 700;
+      margin-bottom: 0.25rem;
+      color: #1e293b;
+    }
+    
+    .stat-card .label {
+      font-size: 0.875rem;
+      opacity: 0.9;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #1e293b;
+    }
+    
+    .product-image-container {
+      position: relative;
+      border-radius: 16px;
+      overflow: hidden;
+      background: linear-gradient(45deg, #f3f4f6, #e5e7eb);
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+    }
+    
+    .product-image {
+      width: 100%;
+      height: 300px;
+      object-fit: cover;
+      transition: transform 0.3s ease;
+    }
+    
+    .product-image:hover {
+      transform: scale(1.05);
+    }
+    
+    .no-image {
+      width: 100%;
+      height: 300px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(45deg, #f8fafc, #f1f5f9);
+      color: #64748b;
+    }
+    
+    .details-card {
+      background: white;
+      border-radius: 16px;
+      padding: 2rem;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+      border: 1px solid rgba(0, 0, 0, 0.05);
+    }
+    
+    .details-grid {
+      display: grid;
+      gap: 1.5rem;
+      margin-top: 1.5rem;
+    }
+    
+    .detail-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1rem;
+      background: #f8fafc;
+      border-radius: 8px;
+      border-left: 4px solid #e2e8f0;
+      transition: all 0.2s ease;
+    }
+    
+    .detail-item:hover {
+      background: #f1f5f9;
+      border-left-color: #3b82f6;
+    }
+    
+    .detail-label {
+      font-weight: 600;
+      color: #475569;
+      font-size: 0.875rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    
+    .detail-value {
+      font-weight: 500;
+      color: #1e293b;
+      font-size: 1rem;
+    }
+    
+    .description-card {
+      background: white;
+      border-radius: 16px;
+      padding: 2rem;
+      margin-top: 2rem;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+      border: 1px solid rgba(0, 0, 0, 0.05);
+    }
+    
+    .action-buttons {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+    
+    .btn-enhanced {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.875rem 1.5rem;
+      border-radius: 10px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.2s ease;
+      border: none;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+    
+    .btn-primary {
+      background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+      color: white;
+      box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4);
+    }
+    
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
+    }
+    
+    .btn-secondary {
+      background: white;
+      color: #6b7280;
+      border: 2px solid #e5e7eb;
+    }
+    
+    .btn-secondary:hover {
+      background: #f9fafb;
+      border-color: #d1d5db;
+      transform: translateY(-1px);
+    }
+    
+    .breadcrumb {
+      background: white;
+      padding: 1rem 1.5rem;
+      border-radius: 10px;
+      margin-bottom: 2rem;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+      border: 1px solid rgba(0, 0, 0, 0.05);
+    }
+    
+    .breadcrumb a {
+      color: #3b82f6;
+      text-decoration: none;
+      font-weight: 500;
+    }
+    
+    .breadcrumb a:hover {
+      color: #1d4ed8;
+    }
+    
+    .breadcrumb .sep {
+      margin: 0 0.75rem;
+      color: #9ca3af;
+    }
+    
+    .breadcrumb .current {
+      color: #6b7280;
+      font-weight: 600;
+    }
+    
+    .barcode-display {
+      background: linear-gradient(45deg, #f8fafc, #f1f5f9);
+      border: 2px dashed #cbd5e1;
+      border-radius: 8px;
+      padding: 1rem;
+      margin-top: 1rem;
+      text-align: center;
+      font-family: 'Courier New', monospace;
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: #475569;
+    }
+    
+    @media (max-width: 768px) {
+      .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 1rem;
+      }
+      
+      .stat-card {
+        padding: 1rem;
+      }
+      
+      .stat-card .value {
+        font-size: 1.25rem;
+      }
+      
+      .action-buttons {
+        flex-direction: column;
+      }
+      
+      .product-header {
+        padding: 1.5rem;
+      }
+    }
+  </style>
 </head>
 <body>
 
-<?php require_once __DIR__ . '/../../dashboard_header.php'; ?>
+<?php require_once __DIR__ . '/../../includes/dashboard_header.php'; ?>
 
 <div class="container">
   <main>
@@ -89,59 +393,143 @@ $updated    = $stock['updated_at']  ?: '—';
       <span class="current"><?php echo htmlspecialchars($header_title); ?></span>
     </nav>
 
-    <div class="page-actions" style="margin-bottom: 1rem;">
-      <a class="btn" href="./edit.php?id=<?php echo urlencode($stock['id']); ?>"><i class="fas fa-edit"></i> Edit</a>
-      <a class="btn btn-secondary" href="./list.php"><i class="fas fa-arrow-left"></i> Back to List</a>
+    <div class="action-buttons">
+      <a class="btn-enhanced btn-primary" href="./edit.php?id=<?php echo urlencode($stock['id']); ?>">
+        <i class="fas fa-edit"></i> Edit Product
+      </a>
+      <a class="btn-enhanced btn-secondary" href="./list.php">
+        <i class="fas fa-arrow-left"></i> Back to List
+      </a>
     </div>
 
-    <div class="grid-2 gap-lg">
-
-      <!-- Left: image/summary -->
-      <section class="card p-lg">
-        <div class="flex items-start gap-md">
-          <div class="thumb-xl">
-            <?php if ($imageUrl): ?>
-              <img src="<?php echo htmlspecialchars($imageUrl); ?>" alt="<?php echo htmlspecialchars($header_title); ?>" style="max-width:160px;border-radius:12px;object-fit:cover;">
-            <?php else: ?>
-              <div class="no-image" style="width:160px;height:160px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:#f3f4f6;color:#6b7280;">
-                <i class="fas fa-image fa-2x"></i>
-              </div>
-            <?php endif; ?>
+    <!-- Product Header with Status -->
+    <div class="product-header">
+      <div class="product-header-content">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem;">
+          <div>
+            <h1 style="margin: 0 0 0.5rem 0; font-size: 2.5rem; font-weight: 700;">
+              <?php echo htmlspecialchars($header_title); ?>
+            </h1>
+            <p style="margin: 0; font-size: 1.1rem; opacity: 0.9;">
+              <?php echo htmlspecialchars($header_subtitle); ?>
+            </p>
           </div>
-          <div class="grow">
-            <div class="badge badge-<?php echo $statusType; ?>" style="margin-bottom:.5rem;">
-              <i class="fas fa-circle"></i> <?php echo htmlspecialchars($status); ?>
+          <div class="status-badge <?php echo $statusType; ?>">
+            <i class="fas fa-circle"></i>
+            <?php echo htmlspecialchars($status); ?>
+          </div>
+        </div>
+        
+        <div class="stats-grid">
+          <?php foreach ($header_stats as $s): ?>
+            <div class="stat-card">
+              <div class="icon">
+                <i class="<?php echo $s['icon']; ?>"></i>
+              </div>
+              <div class="value"><?php echo htmlspecialchars($s['value']); ?></div>
+              <div class="label"><?php echo htmlspecialchars($s['label']); ?></div>
             </div>
-            <h2 class="mt-0"><?php echo htmlspecialchars($header_title); ?></h2>
-            <p class="muted">Created: <?php echo htmlspecialchars($created); ?> • Updated: <?php echo htmlspecialchars($updated); ?></p>
-            <?php if ($barcode): ?><p class="muted"><i class="fas fa-barcode"></i> <?php echo htmlspecialchars($barcode); ?></p><?php endif; ?>
-            <?php if ($notes): ?>
-              <div class="mt-md">
-                <h4 class="mb-sm">Description</h4>
-                <p><?php echo nl2br(htmlspecialchars($notes)); ?></p>
+          <?php endforeach; ?>
+        </div>
+        
+        <div style="margin-top: 1.5rem; font-size: 0.9rem; opacity: 0.8;">
+          <i class="fas fa-clock"></i> Created: <?php echo htmlspecialchars($created_display); ?> • 
+          <i class="fas fa-sync-alt"></i> Updated: <?php echo htmlspecialchars($updated_display); ?>
+        </div>
+      </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-bottom: 2rem;">
+      
+      <!-- Product Image -->
+      <div class="details-card">
+        <h3 style="margin: 0 0 1.5rem 0; font-size: 1.5rem; font-weight: 700; color: #1e293b;">
+          <i class="fas fa-image"></i> Product Image
+        </h3>
+        <div class="product-image-container">
+          <?php if ($imageUrl): ?>
+            <img src="<?php echo htmlspecialchars($imageUrl); ?>" 
+                 alt="<?php echo htmlspecialchars($header_title); ?>" 
+                 class="product-image">
+          <?php else: ?>
+            <div class="no-image">
+              <div style="text-align: center;">
+                <i class="fas fa-image fa-4x" style="margin-bottom: 1rem;"></i>
+                <p style="margin: 0; font-weight: 600;">No image available</p>
               </div>
-            <?php endif; ?>
+            </div>
+          <?php endif; ?>
+        </div>
+        
+        <?php if ($barcode): ?>
+          <div class="barcode-display">
+            <i class="fas fa-barcode"></i> <?php echo htmlspecialchars($barcode); ?>
+          </div>
+        <?php endif; ?>
+      </div>
+
+      <!-- Product Details -->
+      <div class="details-card">
+        <h3 style="margin: 0 0 1.5rem 0; font-size: 1.5rem; font-weight: 700; color: #1e293b;">
+          <i class="fas fa-info-circle"></i> Product Details
+        </h3>
+        <div class="details-grid">
+          <div class="detail-item">
+            <span class="detail-label">SKU</span>
+            <span class="detail-value"><?php echo htmlspecialchars($stock['sku'] ?: '—'); ?></span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Category</span>
+            <span class="detail-value"><?php echo htmlspecialchars($stock['category']); ?></span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Quantity</span>
+            <span class="detail-value"><?php echo number_format($qty) . ($unit ? " {$unit}" : ''); ?></span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Reorder Level</span>
+            <span class="detail-value"><?php echo $reorder > 0 ? number_format($reorder) : '—'; ?></span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Unit Price</span>
+            <span class="detail-value">RM <?php echo number_format($price, 2); ?></span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Total Value</span>
+            <span class="detail-value">RM <?php echo number_format($totalValue, 2); ?></span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Store ID</span>
+            <span class="detail-value"><?php echo htmlspecialchars($stock['store_id'] ?: '—'); ?></span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Location</span>
+            <span class="detail-value"><?php echo htmlspecialchars($location); ?></span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Supplier</span>
+            <span class="detail-value"><?php echo htmlspecialchars($supplier); ?></span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Expiry Date</span>
+            <span class="detail-value"><?php echo htmlspecialchars($expiry ?: '—'); ?></span>
           </div>
         </div>
-      </section>
+      </div>
 
-      <!-- Right: key facts -->
-      <section class="card p-lg">
-        <h3 class="mt-0 mb-md">Details</h3>
-        <div class="details-grid">
-          <div><span class="label">SKU</span><span class="value"><?php echo htmlspecialchars($stock['sku'] ?: '—'); ?></span></div>
-          <div><span class="label">Category</span><span class="value"><?php echo htmlspecialchars($stock['category']); ?></span></div>
-          <div><span class="label">Quantity</span><span class="value"><?php echo number_format($qty) . ($unit ? " {$unit}" : ''); ?></span></div>
-          <div><span class="label">Reorder Level</span><span class="value"><?php echo $reorder > 0 ? number_format($reorder) : '—'; ?></span></div>
-          <div><span class="label">Unit Price</span><span class="value">RM <?php echo number_format($price, 2); ?></span></div>
-          <div><span class="label">Total Value</span><span class="value">RM <?php echo number_format($totalValue, 2); ?></span></div>
-          <div><span class="label">Store ID</span><span class="value"><?php echo htmlspecialchars($stock['store_id'] ?: '—'); ?></span></div>
-          <div><span class="label">Location</span><span class="value"><?php echo htmlspecialchars($location); ?></span></div>
-          <div><span class="label">Supplier</span><span class="value"><?php echo htmlspecialchars($supplier); ?></span></div>
-          <div><span class="label">Expiry Date</span><span class="value"><?php echo htmlspecialchars($expiry ?: '—'); ?></span></div>
-        </div>
-      </section>
     </div>
+
+    <!-- Description Section -->
+    <?php if ($notes): ?>
+    <div class="description-card">
+      <h3 style="margin: 0 0 1.5rem 0; font-size: 1.5rem; font-weight: 700; color: #1e293b;">
+        <i class="fas fa-file-alt"></i> Product Description
+      </h3>
+      <div style="background: #f8fafc; padding: 1.5rem; border-radius: 10px; border-left: 4px solid #3b82f6; font-size: 1rem; line-height: 1.6;">
+        <?php echo nl2br(htmlspecialchars($notes)); ?>
+      </div>
+    </div>
+    <?php endif; ?>
 
   </main>
 </div>
