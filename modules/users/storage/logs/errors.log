@@ -175,3 +175,16 @@
 [2025-09-28 10:13:06] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1338
 [2025-09-28 10:13:06] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1364
 [2025-09-28 10:13:06] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1400
+[2025-09-28 10:14:52] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1338
+[2025-09-28 10:14:52] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1364
+[2025-09-28 10:14:52] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1400
+[2025-09-28 10:18:08] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1345
+[2025-09-28 10:18:08] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1371
+[2025-09-28 10:18:08] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1407
+[2025-09-28 10:21:18] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1377
+[2025-09-28 10:21:18] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1403
+[2025-09-28 10:21:18] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1439
+[2025-09-28 10:40:15] Failed login attempt Context: {"username":"test1","found_user":false,"user_id":null}
+[2025-09-28 10:40:20] Failed login attempt Context: {"username":"wow","found_user":false,"user_id":null}
+[2025-09-28 10:40:49] Failed login attempt Context: {"username":"owo","found_user":false,"user_id":null}
+[2025-09-28 10:42:59] Failed login attempt Context: {"username":"wow","found_user":false,"user_id":null,"probe":[]}

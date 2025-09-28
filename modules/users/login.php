@@ -13,6 +13,8 @@ if (isLoggedIn()) {
 }
 
 $errors = [];
+$login_probe = null;
+$login_found_user = null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = sanitizeInput($_POST['username'] ?? '');
@@ -28,17 +30,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     
     if (empty($errors)) {
-        $user = findUserByUsernameOrEmail($username);
+    // Normalize lookup key to handle case/whitespace differences
+    $lookup = trim(strtolower($username));
+    $user = findUserByUsernameOrEmail($lookup);
         
-        if ($user && isset($user['password_hash']) && verifyPassword($password, $user['password_hash'])) {
+        $auth_ok = false;
+        if ($user) {
+            // Try common hash fields: password_hash (modern), password (legacy), pass
+            $possible_hashes = [
+                'password_hash' => $user['password_hash'] ?? null,
+                'password' => $user['password'] ?? null,
+                'pass' => $user['pass'] ?? null
+            ];
+            foreach ($possible_hashes as $fieldName => $h) {
+                if (!empty($h) && verifyPassword($password, $h)) {
+                    $auth_ok = true;
+                    break;
+                }
+            }
+        }
+
+        if ($auth_ok) {
             // Check if user is active
             if (isset($user['is_active']) && $user['is_active'] == false) {
                 $errors[] = 'Your account has been deactivated. Please contact administrator.';
             } else {
                 // Login successful
-                $_SESSION['user_id'] = $user['id'];
-                $_SESSION['username'] = $user['username'];
-                $_SESSION['email'] = $user['email'];
+                // Normalize session user id to Firestore document id when possible
+                $db = getDB();
+                $sessionUserId = $user['id'];
+
+                // If the returned id looks numeric (legacy SQL), try to find the Firestore doc by email
+                if (is_numeric($sessionUserId)) {
+                    try {
+                        $possible = $db->read('users', $sessionUserId);
+                        if ($possible && isset($possible['id'])) {
+                            $sessionUserId = $possible['id'];
+                        } else {
+                            // Try lookup by email
+                            $found = $db->readAll('users', [['email', '==', $user['email']]], null, 1);
+                            if (!empty($found) && isset($found[0]['id'])) {
+                                $sessionUserId = $found[0]['id'];
+                            }
+                        }
+                    } catch (Exception $e) {
+                        // ignore and keep original id
+                    }
+                }
+
+                $_SESSION['user_id'] = $sessionUserId;
+                $_SESSION['username'] = $user['username'] ?? ($user['email'] ?? '');
+                $_SESSION['email'] = $user['email'] ?? '';
                 $_SESSION['role'] = $user['role'] ?? 'user';
                 $_SESSION['login_time'] = time();
                 
@@ -47,8 +89,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $token = generateToken();
                     $expires = date('c', strtotime('+30 days'));
                     
-                    // Store remember token in Firestore
-                    updateUserRememberToken($user['id'], $token, $expires);
+                    // Store remember token in Firestore using normalized session id if available
+                    updateUserRememberToken($_SESSION['user_id'] ?? $user['id'], $token, $expires);
                     
                     // Set cookie
                     setcookie('remember_token', $token, strtotime('+30 days'), '/', '', false, true);
@@ -60,6 +102,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 exit;
             }
         } else {
+            // Probe which hash fields exist and whether they matched (do not log passwords)
+            $probe = [];
+            if ($user) {
+                foreach (['password_hash','password','pass'] as $f) {
+                    $probe[$f] = isset($user[$f]) ? (verifyPassword($password, $user[$f]) ? 'match' : 'no-match') : 'missing';
+                }
+            }
+            // Save probe for on-page debug when in DEBUG_MODE
+            $login_probe = $probe;
+            $login_found_user = $user ? array_filter($user, function($k){ return $k !== 'password_hash' && $k !== 'password' && $k !== 'pass'; }, ARRAY_FILTER_USE_KEY) : null;
+
+            logError('Failed login attempt', ['username' => $username, 'found_user' => $user ? true : false, 'user_id' => $user['id'] ?? null, 'probe' => $probe]);
             $errors[] = 'Invalid username or password';
         }
     }
@@ -70,9 +124,28 @@ if (isset($_COOKIE['remember_token']) && !isLoggedIn()) {
     $user = findUserByRememberToken($_COOKIE['remember_token']);
     
     if ($user) {
-        $_SESSION['user_id'] = $user['id'];
-        $_SESSION['username'] = $user['username'];
-        $_SESSION['email'] = $user['email'];
+        // Normalize session id to Firestore doc id if possible
+        $sessionUserId = $user['id'];
+        $db = getDB();
+        if (is_numeric($sessionUserId)) {
+            try {
+                $possible = $db->read('users', $sessionUserId);
+                if ($possible && isset($possible['id'])) {
+                    $sessionUserId = $possible['id'];
+                } else {
+                    $found = $db->readAll('users', [['email', '==', $user['email']]], null, 1);
+                    if (!empty($found) && isset($found[0]['id'])) {
+                        $sessionUserId = $found[0]['id'];
+                    }
+                }
+            } catch (Exception $e) {
+                // ignore
+            }
+        }
+
+        $_SESSION['user_id'] = $sessionUserId;
+        $_SESSION['username'] = $user['username'] ?? ($user['email'] ?? '');
+        $_SESSION['email'] = $user['email'] ?? '';
         $_SESSION['role'] = $user['role'] ?? 'user';
         $_SESSION['login_time'] = time();
         
@@ -145,5 +218,12 @@ $page_title = 'Login - Inventory System';
             </div>
         </div>
     </div>
+    <?php if (defined('DEBUG_MODE') && DEBUG_MODE && !empty($login_probe)): ?>
+        <div style="position:fixed; right:10px; bottom:10px; background:#fff; border:1px solid #ccc; padding:10px; max-width:320px; font-size:12px; z-index:9999;">
+            <strong>Login debug</strong>
+            <div><em>probe:</em> <?php echo htmlspecialchars(json_encode($login_probe)); ?></div>
+            <div><em>found_user:</em> <?php echo htmlspecialchars(json_encode($login_found_user)); ?></div>
+        </div>
+    <?php endif; ?>
 </body>
 </html>
