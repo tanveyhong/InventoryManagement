@@ -445,20 +445,14 @@ function fs_fetch_all_products(): array {
     $items = [];
     if (!function_exists('getDB')) return $items;
 
-    $raw = @getDB('products');
+    $db = @getDB();
+    if (!is_object($db) || !method_exists($db, 'readAll')) return $items;
+
+    // Read all product documents using the Database wrapper
+    $raw = $db->readAll('products');
     if (!is_array($raw)) return $items;
 
-    // A) Keyed map: id => doc
-    $isAssoc = array_keys($raw) !== range(0, count($raw) - 1);
-    if ($isAssoc && !isset($raw['documents'])) {
-        foreach ($raw as $docId => $doc) {
-            if (!is_array($doc)) continue;
-            $items[] = _fs_normalize_product((string)$docId, $doc);
-        }
-        return $items;
-    }
-
-    // B) Firestore REST "documents" shape
+    // If Firestore REST returned the "documents" shape
     if (isset($raw['documents']) && is_array($raw['documents'])) {
         foreach ($raw['documents'] as $doc) {
             if (!is_array($doc) || empty($doc['name'])) continue;
@@ -470,14 +464,23 @@ function fs_fetch_all_products(): array {
         return $items;
     }
 
-    // C) Indexed list with id inside each row
-    if (!$isAssoc) {
-        foreach ($raw as $doc) {
+    // If readAll returned an indexed array of documents or associative map
+    $isAssoc = array_keys($raw) !== range(0, count($raw) - 1);
+    if ($isAssoc) {
+        // keyed map: id => doc
+        foreach ($raw as $docId => $doc) {
             if (!is_array($doc)) continue;
-            $docId = $doc['id'] ?? $doc['docId'] ?? $doc['name'] ?? '';
-            if ($docId === '') continue;
             $items[] = _fs_normalize_product((string)$docId, $doc);
         }
+        return $items;
+    }
+
+    // indexed list with id inside each row
+    foreach ($raw as $doc) {
+        if (!is_array($doc)) continue;
+        $docId = $doc['id'] ?? $doc['docId'] ?? $doc['name'] ?? '';
+        if ($docId === '') continue;
+        $items[] = _fs_normalize_product((string)$docId, $doc);
     }
 
     return $items;
@@ -492,11 +495,14 @@ function fs_get_product(string $key): ?array {
     @require_once __DIR__ . '/firebase_rest_client.php';
     @require_once __DIR__ . '/getDB.php';
 
-    // 1) direct fetch if your getDB supports document path
+    // 1) direct fetch using Database API (collection, documentId)
     if (function_exists('getDB')) {
-        $single = @getDB('products/' . $key);
-        if (is_array($single) && !empty($single)) {
-            return _fs_normalize_product($key, $single);
+        $db = @getDB();
+        if (is_object($db) && method_exists($db, 'read')) {
+            $single = $db->read('products', $key);
+            if (is_array($single) && !empty($single)) {
+                return _fs_normalize_product($key, $single);
+            }
         }
     }
 
