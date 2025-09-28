@@ -24,7 +24,24 @@ function verifyPassword($password, $hash) {
     if (empty($hash)) {
         return false;
     }
-    return password_verify($password, $hash);
+    // If this looks like a modern password_hash output (starts with $), use password_verify
+    if (is_string($hash) && strlen($hash) > 0 && $hash[0] === '$') {
+        return password_verify($password, $hash);
+    }
+
+    // Fallbacks for legacy hashing schemes
+    // MD5 (32 hex chars)
+    if (is_string($hash) && preg_match('/^[0-9a-f]{32}$/i', $hash)) {
+        return hash_equals(strtolower($hash), strtolower(md5($password)));
+    }
+
+    // SHA1 (40 hex chars)
+    if (is_string($hash) && preg_match('/^[0-9a-f]{40}$/i', $hash)) {
+        return hash_equals(strtolower($hash), strtolower(sha1($password)));
+    }
+
+    // As a last resort, do a simple comparison (not recommended)
+    return hash_equals((string)$hash, (string)$password);
 }
 
 function generateToken($length = 32) {
@@ -65,6 +82,50 @@ function findUserByUsernameOrEmail($usernameOrEmail) {
     $users = $db->readAll('users', [['email', '==', $usernameOrEmail]], null, 1);
     if (!empty($users)) {
         return $users[0];
+    }
+    
+    // Fallback: if Firebase doesn't have the user, try legacy SQL DB (for migrated setups)
+    try {
+        $sql_db = getSQLDB();
+        $row = $sql_db->fetch("SELECT * FROM users WHERE username = ? OR email = ? LIMIT 1", [$usernameOrEmail, $usernameOrEmail]);
+        if ($row) {
+            // Map SQL row to Firebase-like structure
+            return [
+                'id' => $row['id'],
+                'username' => $row['username'],
+                'email' => $row['email'],
+                'first_name' => $row['first_name'] ?? '',
+                'last_name' => $row['last_name'] ?? '',
+                'password_hash' => $row['password_hash'] ?? '',
+                'role' => $row['role'] ?? 'user',
+                'is_active' => isset($row['active']) ? (bool)$row['active'] : true,
+                'created_at' => $row['created_at'] ?? null,
+                'updated_at' => $row['updated_at'] ?? null
+            ];
+        }
+    } catch (Exception $e) {
+        // ignore SQL errors
+    }
+
+    // If direct lookups failed above, try a scan-based normalized match as a last resort
+    // (This is slower but helpful during migration; remove or optimize later)
+    $scan = findUserByUsernameOrEmail_scan($usernameOrEmail);
+    return $scan !== null ? $scan : null;
+}
+
+// Robust fallback: try scanning all user docs and perform normalized comparisons
+function findUserByUsernameOrEmail_scan($usernameOrEmail) {
+    $db = getDB();
+    $all = $db->readAll('users');
+    if (!is_array($all)) return null;
+
+    $needle = trim(strtolower($usernameOrEmail));
+    foreach ($all as $u) {
+        $uname = trim(strtolower($u['username'] ?? ''));
+        $email = trim(strtolower($u['email'] ?? ''));
+        if ($uname === $needle || $email === $needle) {
+            return $u;
+        }
     }
     return null;
 }

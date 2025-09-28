@@ -69,19 +69,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     // Create user if no errors
     if (empty($errors)) {
+        // Normalize email to lowercase for consistent lookups
+        $email_norm = strtolower(trim($email));
+
         $userData = [
             'username' => $username,
-            'email' => $email,
+            'email' => $email_norm,
             'password_hash' => hashPassword($password),
             'first_name' => $first_name,
             'last_name' => $last_name,
             'role' => 'user',
             'is_active' => true
         ];
-        
+
         $userId = createFirebaseUser($userData);
-        
+
         if ($userId) {
+            // Auto-login the newly created user (helps UX and avoids immediate login mismatch)
+            $db = getDB();
+            $createdUser = $db->read('users', $userId);
+            if (!$createdUser) {
+                $found = $db->readAll('users', [['email', '==', $email_norm]], null, 1);
+                $createdUser = $found[0] ?? null;
+            }
+            if ($createdUser) {
+                session_regenerate_id(true);
+                $_SESSION['user_id'] = $createdUser['id'];
+                $_SESSION['username'] = $createdUser['username'] ?? ($createdUser['email'] ?? '');
+                $_SESSION['email'] = $createdUser['email'] ?? '';
+                $_SESSION['role'] = $createdUser['role'] ?? 'user';
+                $_SESSION['login_time'] = time();
+
+                header('Location: ../../index.php');
+                exit;
+            }
+
             $success = true;
             addNotification('Registration successful! You can now log in.', 'success');
         } else {
