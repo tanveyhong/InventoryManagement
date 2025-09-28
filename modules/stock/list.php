@@ -201,50 +201,23 @@ foreach ($filtered_products as $p) {
 
 $page_title = 'Stock Management - Inventory System';
 ?>
-<?php
-// Prepare dashboard header variables
-$header_title = 'Stock Inventory';
-$header_subtitle = 'Manage products, stock levels, and expiries';
-$header_icon = 'fas fa-boxes';
-$show_compact_toggle = true;
-$header_stats = [
-    [
-        'value' => number_format($summary_stats['total_products']),
-        'label' => 'Total Products',
-        'icon' => 'fas fa-boxes',
-        'type' => 'primary',
-    ],
-    [
-        'value' => number_format($summary_stats['low_stock']),
-        'label' => 'Low Stock',
-        'icon' => 'fas fa-exclamation-triangle',
-        'type' => 'warning',
-    ],
-    [
-        'value' => number_format($summary_stats['out_of_stock']),
-        'label' => 'Out of Stock',
-        'icon' => 'fas fa-times-circle',
-        'type' => 'alert',
-    ],
-    [
-        'value' => '$' . number_format($summary_stats['total_value'], 2),
-        'label' => 'Total Value',
-        'icon' => 'fas fa-dollar-sign',
-        'type' => 'success',
-    ],
-];
-?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo htmlspecialchars($page_title); ?></title>
+    <title><?php echo $page_title; ?></title>
     <link rel="stylesheet" href="../../assets/css/style.css">
+    <!-- Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body>
-    <?php include '../../includes/dashboard_header.php'; ?>
+
     <div class="container">
+        <?php
+            include '../../includes/dashboard_header2.php'; 
+        ?>
 
         <main>
             <div class="page-header">
@@ -427,7 +400,13 @@ $header_stats = [
                                     </td>
                                     <td>
                                         <div class="action-buttons">
-                                            <a href="view.php?id=<?php echo $product['id']; ?>" class="btn btn-sm btn-info" title="View Details">View</a>
+                                            <a class="btn btn-small" href="./view.php?id=<?php echo urlencode($p['id']); ?>">
+  <i class="fas fa-eye"></i> View
+</a>
+
+
+
+
                                             <a href="edit.php?id=<?php echo $product['id']; ?>" class="btn btn-sm btn-primary" title="Edit Product">Edit</a>
                                             <a href="adjust.php?id=<?php echo $product['id']; ?>" class="btn btn-sm btn-warning" title="Adjust Stock">Adjust</a>
                                             <a href="delete.php?id=<?php echo $product['id']; ?>" class="btn btn-sm btn-danger" 

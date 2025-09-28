@@ -1,4 +1,5 @@
 <?php
+
 // Common Helper Functions
 require_once 'config.php';
 require_once 'db.php';
@@ -386,4 +387,131 @@ function paginate($page, $per_page, $total_records) {
         'showing_end' => min($offset + $per_page, $total_records)
     ];
 }
+
+
+// ---------- Normalizer ----------
+function _fs_normalize_product(string $docId, array $d): array {
+    return [
+        'id'            => $docId,
+        'sku'           => $d['sku']           ?? '',
+        'name'          => $d['name']          ?? '(no name)',
+        'category'      => $d['category']      ?? 'General',
+        'description'   => $d['description']   ?? '',
+        'quantity'      => isset($d['quantity']) ? (int)$d['quantity'] : 0,
+        'reorder_level' => isset($d['reorder_level']) ? (int)$d['reorder_level'] : 0,
+        'price'         => isset($d['price']) ? (float)$d['price'] : 0.0,
+        'store_id'      => $d['store_id']      ?? '',
+        'created_at'    => $d['created_at']    ?? null,
+        'updated_at'    => $d['updated_at']    ?? null,
+        'expiry_date'   => $d['expiry_date']   ?? null,
+        // extras (safe defaults)
+        'image_url'     => $d['image_url']     ?? '',
+        'barcode'       => $d['barcode']       ?? '',
+        'supplier'      => $d['supplier']      ?? '',
+        'location'      => $d['location']      ?? '',
+        'unit'          => $d['unit']          ?? '',
+    ];
+}
+
+// Unwrap Firestore REST typed field
+function _fs_unwrap($v) {
+    if (is_array($v)) {
+        foreach (['stringValue','integerValue','doubleValue','booleanValue','timestampValue'] as $k) {
+            if (array_key_exists($k, $v)) {
+                if ($k === 'integerValue') return (int)$v[$k];
+                if ($k === 'doubleValue')  return (float)$v[$k];
+                if ($k === 'booleanValue') return (bool)$v[$k];
+                return $v[$k];
+            }
+        }
+    }
+    return $v;
+}
+
+function _fs_fields_to_assoc(array $fields): array {
+    $out = [];
+    foreach ($fields as $k => $v) $out[$k] = _fs_unwrap($v);
+    return $out;
+}
+
+/**
+ * Load ALL products using the same helpers your list uses.
+ */
+function fs_fetch_all_products(): array {
+    @require_once __DIR__ . '/firebase_config.php';
+    @require_once __DIR__ . '/firebase_rest_client.php';
+    @require_once __DIR__ . '/getDB.php';
+
+    $items = [];
+    if (!function_exists('getDB')) return $items;
+
+    $raw = @getDB('products');
+    if (!is_array($raw)) return $items;
+
+    // A) Keyed map: id => doc
+    $isAssoc = array_keys($raw) !== range(0, count($raw) - 1);
+    if ($isAssoc && !isset($raw['documents'])) {
+        foreach ($raw as $docId => $doc) {
+            if (!is_array($doc)) continue;
+            $items[] = _fs_normalize_product((string)$docId, $doc);
+        }
+        return $items;
+    }
+
+    // B) Firestore REST "documents" shape
+    if (isset($raw['documents']) && is_array($raw['documents'])) {
+        foreach ($raw['documents'] as $doc) {
+            if (!is_array($doc) || empty($doc['name'])) continue;
+            $name  = $doc['name'];                       // .../documents/products/{docId}
+            $docId = substr($name, strrpos($name, '/')+1);
+            $fields = isset($doc['fields']) ? _fs_fields_to_assoc($doc['fields']) : [];
+            $items[] = _fs_normalize_product($docId, $fields);
+        }
+        return $items;
+    }
+
+    // C) Indexed list with id inside each row
+    if (!$isAssoc) {
+        foreach ($raw as $doc) {
+            if (!is_array($doc)) continue;
+            $docId = $doc['id'] ?? $doc['docId'] ?? $doc['name'] ?? '';
+            if ($docId === '') continue;
+            $items[] = _fs_normalize_product((string)$docId, $doc);
+        }
+    }
+
+    return $items;
+}
+
+/**
+ * Get ONE product by Firestore document id or by SKU.
+ * Tries direct path first (products/<id>), then falls back to scanning.
+ */
+function fs_get_product(string $key): ?array {
+    @require_once __DIR__ . '/firebase_config.php';
+    @require_once __DIR__ . '/firebase_rest_client.php';
+    @require_once __DIR__ . '/getDB.php';
+
+    // 1) direct fetch if your getDB supports document path
+    if (function_exists('getDB')) {
+        $single = @getDB('products/' . $key);
+        if (is_array($single) && !empty($single)) {
+            return _fs_normalize_product($key, $single);
+        }
+    }
+
+    // 2) fallback: scan the same dataset as list.php
+    $all = fs_fetch_all_products();
+    if (!$all) return null;
+
+    foreach ($all as $p) {
+        if (!empty($p['id']) && (string)$p['id'] === (string)$key) return $p;
+    }
+    foreach ($all as $p) {
+        if (!empty($p['sku']) && (string)$p['sku'] === (string)$key) return $p;
+    }
+    return null;
+}
+
+
 ?>

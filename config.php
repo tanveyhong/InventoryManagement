@@ -60,6 +60,14 @@ if (DEBUG_MODE) {
     ini_set('display_errors', 0);
 }
 
+// ---- Safe error logging setup ----
+$logDir = __DIR__ . '/storage/logs';
+if (!is_dir($logDir)) {
+    mkdir($logDir, 0775, true);
+}
+ini_set('log_errors', '1');
+ini_set('error_log', $logDir . '/errors.log');
+
 // Custom error handler
 function customErrorHandler($severity, $message, $file, $line) {
     if (LOG_ERRORS) {
