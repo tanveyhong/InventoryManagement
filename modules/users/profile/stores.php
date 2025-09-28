@@ -27,9 +27,14 @@
                         <input type="checkbox" name="store_ids[]" value="<?php echo htmlspecialchars($store['id']); ?>" <?php echo $store['accessible'] ? 'checked' : ''; ?>>
                         Grant Access
                     </label>
-                    <?php if ($store['accessible']): ?>
-                        <div style="margin-top: 6px;"><small>Role: <?php echo htmlspecialchars($store['role']); ?></small></div>
-                    <?php endif; ?>
+                    <div style="margin-top:8px;">
+                        <label style="font-size:12px;">Assign Role:</label>
+                        <select name="store_roles[<?php echo htmlspecialchars($store['id']); ?>]">
+                            <option value="employee" <?php echo ($store['role'] ?? '') === 'employee' ? 'selected' : ''; ?>>Employee</option>
+                            <option value="manager" <?php echo ($store['role'] ?? '') === 'manager' ? 'selected' : ''; ?>>Manager</option>
+                            <option value="owner" <?php echo ($store['role'] ?? '') === 'owner' ? 'selected' : ''; ?>>Owner</option>
+                        </select>
+                    </div>
                 </div>
             </div>
             <?php endforeach; ?>

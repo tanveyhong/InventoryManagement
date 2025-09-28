@@ -298,8 +298,10 @@ class ActivityLogger {
     
     public function getUserActivity($userId, $limit = 10) {
         try {
+            // Exclude soft-deleted activities
             $activities = $this->db->readAll('user_activities', [
-                ['user_id', '==', $userId]
+                ['user_id', '==', $userId],
+                ['deleted_at', '==', null]
             ], ['created_at', 'DESC'], $limit);
             
             return array_map([$this, 'formatActivity'], $activities);
@@ -311,7 +313,8 @@ class ActivityLogger {
     
     public function getAllUserActivity($limit = 20) {
         try {
-            $activities = $this->db->readAll('user_activities', [], ['created_at', 'DESC'], $limit);
+            // Exclude soft-deleted activities
+            $activities = $this->db->readAll('user_activities', [['deleted_at', '==', null]], ['created_at', 'DESC'], $limit);
             
             // Join with user data
             foreach ($activities as &$activity) {
@@ -417,7 +420,17 @@ class StoreRouter {
                 'role' => $role,
                 'created_at' => date('c')
             ];
-            
+            // If an assignment already exists for this user/store, update role instead of creating duplicate
+            $existing = $this->db->readAll('user_stores', [
+                ['user_id', '==', $userId],
+                ['store_id', '==', $storeId]
+            ], null, 1);
+
+            if (!empty($existing)) {
+                $docId = $existing[0]['id'];
+                return $this->db->update('user_stores', $docId, array_merge($assignment, ['updated_at' => date('c')]));
+            }
+
             return $this->db->create('user_stores', $assignment);
         } catch (Exception $e) {
             error_log("Assign user to store error: " . $e->getMessage());
@@ -427,12 +440,67 @@ class StoreRouter {
     
     public function removeUserFromStore($userId, $storeId) {
         try {
-            return $this->db->delete('user_stores', [
+            // Find matching assignments and delete them
+            $existing = $this->db->readAll('user_stores', [
                 ['user_id', '==', $userId],
                 ['store_id', '==', $storeId]
             ]);
+
+            $ok = true;
+            foreach ($existing as $e) {
+                $ok = $ok && $this->db->delete('user_stores', $e['id']);
+            }
+            return $ok;
         } catch (Exception $e) {
             error_log("Remove user from store error: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    // Sync a user's store access to exactly the provided list of {id=>role} pairs.
+    public function syncUserStores($userId, $storesWithRoles) {
+        try {
+            $existing = $this->db->readAll('user_stores', [
+                ['user_id', '==', $userId]
+            ]);
+
+            $existingById = [];
+            foreach ($existing as $e) {
+                $existingById[(string)$e['store_id']] = $e;
+            }
+
+            $toAdd = [];
+            $toUpdate = [];
+
+            foreach ($storesWithRoles as $sid => $role) {
+                if (isset($existingById[$sid])) {
+                    // update role if changed
+                    if (($existingById[$sid]['role'] ?? '') !== $role) {
+                        $toUpdate[] = ['id' => $existingById[$sid]['id'], 'role' => $role];
+                    }
+                    unset($existingById[$sid]);
+                } else {
+                    $toAdd[] = ['store_id' => $sid, 'role' => $role];
+                }
+            }
+
+            $toRemove = array_values($existingById);
+
+            foreach ($toUpdate as $u) {
+                $this->db->update('user_stores', $u['id'], ['role' => $u['role'], 'updated_at' => date('c')]);
+            }
+
+            foreach ($toAdd as $a) {
+                $this->assignUserToStore($userId, $a['store_id'], $a['role']);
+            }
+
+            foreach ($toRemove as $r) {
+                $this->db->delete('user_stores', $r['id']);
+            }
+
+            return true;
+        } catch (Exception $e) {
+            error_log('Sync user stores error: ' . $e->getMessage());
             return false;
         }
     }
@@ -603,6 +671,15 @@ function handlePermissionUpdate($data, $roleManager, $activityLogger) {
             }
         }
 
+        // handle permission overrides (perm_override[name] => 1)
+        $permOverrides = [];
+        if (!empty($data['perm_override']) && is_array($data['perm_override'])) {
+            foreach ($data['perm_override'] as $k => $v) {
+                $permOverrides[$k] = true;
+            }
+            $update['permission_overrides'] = $permOverrides;
+        }
+
         $res = $dbLocal->update('users', $userId, $update);
         if ($res) {
             $activityLogger->log($_SESSION['user_id'], 'permission_changed', "Updated role for user {$userId}", ['role_id' => $roleId]);
@@ -639,24 +716,19 @@ function handleStoreAccessUpdate($data, $storeRouter, $activityLogger, $roleMana
         $dbLocal = getDB();
 
         // Get current assignments
-        $existing = $dbLocal->readAll('user_stores', [['user_id', '==', $userId]]);
-        $existingIds = array_map(function($r){ return (string)$r['store_id']; }, $existing ?: []);
-
+        // Build a map of storeId => role from submitted store_roles for selected stores
         $selected = array_map('strval', (array)$storeIds);
+        $storeRolesSubmitted = is_array($data['store_roles'] ?? []) ? $data['store_roles'] : [];
 
-        // Determine to add and to remove
-        $toAdd = array_values(array_diff($selected, $existingIds));
-        $toRemove = array_values(array_diff($existingIds, $selected));
-
-        foreach ($toAdd as $sid) {
-            $storeRouter->assignUserToStore($userId, $sid, 'employee');
+        $storesWithRoles = [];
+        foreach ($selected as $sid) {
+            $roleFor = isset($storeRolesSubmitted[$sid]) ? $storeRolesSubmitted[$sid] : 'employee';
+            $storesWithRoles[$sid] = $roleFor;
         }
 
-        foreach ($toRemove as $sid) {
-            $storeRouter->removeUserFromStore($userId, $sid);
-        }
+        $ok = $storeRouter->syncUserStores($userId, $storesWithRoles);
 
-        $activityLogger->log($_SESSION['user_id'], 'store_access_updated', "Updated store access for user {$userId}", ['added' => $toAdd, 'removed' => $toRemove]);
+        $activityLogger->log($_SESSION['user_id'], 'store_access_updated', "Updated store access for user {$userId}", ['submitted' => $storesWithRoles]);
         addNotification('Store access updated successfully!', 'success');
         return ['success' => true, 'errors' => []];
     } catch (Exception $e) {
@@ -684,9 +756,14 @@ function handleClearActivity($data, $activityLogger, $roleManager) {
 
     try {
         $dbLocal = getDB();
-        // Delete activities matching user_id
-        $dbLocal->delete('user_activities', [['user_id', '==', $userId]]);
-        $activityLogger->log($_SESSION['user_id'], 'activity_cleared', "Cleared activity for user {$userId}");
+        // Soft-delete activities matching user_id by setting deleted_at
+        $activities = $dbLocal->readAll('user_activities', [['user_id', '==', $userId]]);
+        foreach ($activities as $act) {
+            if (isset($act['id'])) {
+                $dbLocal->update('user_activities', $act['id'], ['deleted_at' => date('c')]);
+            }
+        }
+        $activityLogger->log($_SESSION['user_id'], 'activity_cleared', "Cleared activity for user {$userId}", ['count' => count($activities)]);
         addNotification('Activity cleared successfully', 'success');
         return ['success' => true, 'errors' => []];
     } catch (Exception $e) {
