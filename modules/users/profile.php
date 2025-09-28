@@ -130,19 +130,48 @@ class RoleManager {
     public function getUserRole($userId): array {
         try {
             $user = $this->db->read('users', $userId);
+
+            // If user document provides a simple role string (e.g. 'admin'), honor it first
+            if (!empty($user['role']) && is_string($user['role'])) {
+                $roleStr = strtolower($user['role']);
+
+                // Define permission sets
+                $allPerms = ['view_inventory','manage_inventory','view_reports','manage_users','manage_stores','admin_access'];
+                $managerPerms = ['view_inventory','manage_inventory','view_reports','manage_stores'];
+                $userPerms = ['view_inventory'];
+
+                switch ($roleStr) {
+                    case 'admin':
+                        $perms = $allPerms;
+                        break;
+                    case 'manager':
+                        $perms = $managerPerms;
+                        break;
+                    default:
+                        $perms = $userPerms;
+                        break;
+                }
+
+                return ['role_name' => ucfirst($roleStr), 'permissions' => json_encode($perms)];
+            }
+
+            // Fallback to legacy role_id-based lookup
             if (!$user || !isset($user['role_id']) || !$user['role_id']) {
                 return ['role_name' => 'User', 'permissions' => '[]'];
             }
+
             $role = $this->db->read('roles', $user['role_id']);
             if (!$role) {
                 return ['role_name' => 'User', 'permissions' => '[]'];
             }
+
             // Ensure permissions is a string
             if (isset($role['permissions']) && is_array($role['permissions'])) {
                 $role['permissions'] = json_encode($role['permissions']);
             } elseif (!isset($role['permissions']) || !is_string($role['permissions'])) {
                 $role['permissions'] = '[]';
             }
+
             return $role;
         } catch (Exception $e) {
             error_log("Get user role error: " . $e->getMessage());
@@ -433,8 +462,24 @@ function handleProfileUpdate($data, $userId, $userManager, $activityLogger) {
             'phone' => $phone,
             'updated_at' => date('c')
         ];
-        
-        if ($userManager->updateUser($userId, $updateData)) {
+        // Ensure we update an existing Firebase document. If the session user_id doesn't resolve,
+        // try to locate the user by email and use that document id. This prevents creating a new
+        // user document accidentally when updating.
+        $dbLocal = getDB();
+        $targetId = $userId;
+
+        $existing = $dbLocal->read('users', $targetId);
+        if (!$existing || $existing === false) {
+            // try to find by email
+            if (!empty($email)) {
+                $found = $dbLocal->readAll('users', [['email', '==', $email]], null, 1);
+                if (!empty($found)) {
+                    $targetId = $found[0]['id'];
+                }
+            }
+        }
+
+        if ($userManager->updateUser($targetId, $updateData)) {
             $activityLogger->log($userId, 'profile_updated', 'User updated profile information');
             addNotification('Profile updated successfully!', 'success');
             $_SESSION['email'] = $email; // Update session
@@ -629,7 +674,12 @@ $recentActivity = null;
 
 // Always resolve a lightweight role summary (so UI shows role immediately)
 try {
-    $userRole = $roleManager->getUserRole($_SESSION['user_id']);
+    // If user document contains a role string (e.g. 'user', 'admin'), use it directly
+    if (!empty($user['role']) && is_string($user['role'])) {
+        $userRole = ['role_name' => ucfirst($user['role']), 'permissions' => '[]'];
+    } else {
+        $userRole = $roleManager->getUserRole($_SESSION['user_id']);
+    }
 } catch (Exception $e) {
     error_log('Failed to resolve user role: ' . $e->getMessage());
     $userRole = ['role_name' => 'User', 'permissions' => '[]'];
@@ -1167,9 +1217,18 @@ $page_title = 'Enhanced User Profile - Inventory System';
 </head>
 <body>
     <?php 
+        // Normalize display name and fallback values for the header
+        $display_name = trim((($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? '')));
+        if (empty($display_name)) {
+            $display_name = $user['username'] ?? $user['email'] ?? 'User';
+        }
+
+        // Normalize subtitle (email or username)
+        $display_subtitle = $user['email'] ?? $user['username'] ?? '';
+
         // Provide header variables for the shared header include
-        $header_title = trim((($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? '')) ?: ($user['username'] ?? 'User'));
-        $header_subtitle = $user['email'] ?? '';
+        $header_title = $display_name;
+        $header_subtitle = $display_subtitle;
         $header_icon = 'fas fa-user';
         $show_compact_toggle = false;
         $header_stats = [];
@@ -1184,15 +1243,25 @@ $page_title = 'Enhanced User Profile - Inventory System';
                 </div>
                 <div class="profile-info">
                     <?php
-                        $user_first = isset($user['first_name']) ? $user['first_name'] : '';
-                        $user_last = isset($user['last_name']) ? $user['last_name'] : '';
-                        $user_email = isset($user['email']) ? $user['email'] : '';
-                        $user_created = isset($user['created_at']) ? $user['created_at'] : null;
-                        $user_last_login = isset($user['last_login']) ? $user['last_login'] : null;
-                        $user_active = isset($user['active']) ? (bool)$user['active'] : false;
-                        $stores_count = is_array($availableStores) ? count($availableStores) : 0;
+                        // Preserve individual name parts for form fields
+                        $user_first = $user['first_name'] ?? '';
+                        $user_last = $user['last_name'] ?? '';
+                        $user_email = $user['email'] ?? ($user['username'] ?? '');
+
+                        // Normalize created_at and last_login with common alternate keys
+                        $user_created = $user['created_at'] ?? $user['createdAt'] ?? $user['user_created'] ?? null;
+                        $user_last_login = $user['last_login'] ?? $user['lastLogin'] ?? null;
+                        // Support both Firestore boolean `is_active` and legacy `active` fields
+                        if (array_key_exists('is_active', $user)) {
+                            $user_active = (bool)$user['is_active'];
+                        } elseif (array_key_exists('active', $user)) {
+                            $user_active = (bool)$user['active'];
+                        } else {
+                            $user_active = false;
+                        }
+                        $stores_count = is_array($availableStores) ? count($availableStores) : $stores_count ?? 0;
                     ?>
-                    <h1><?php echo htmlspecialchars(trim($user_first . ' ' . $user_last) ?: 'User'); ?></h1>
+                    <h1><?php echo htmlspecialchars($display_name); ?></h1>
                     <div class="profile-meta">
                         <div class="meta-item">
                             <i class="fas fa-user-tag"></i>
