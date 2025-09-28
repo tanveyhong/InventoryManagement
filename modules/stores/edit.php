@@ -110,13 +110,46 @@ $page_title = 'Edit Store - Inventory System';
         include '../../includes/dashboard_header.php'; 
         ?>
 
-        <main>
-            <div class="page-header">
-                <h2><i class="fas fa-edit"></i> Edit Store: <?php echo htmlspecialchars($store['name']); ?></h2>
-                <div class="page-actions">
-                    <a href="list.php" class="btn btn-outline"><i class="fas fa-arrow-left"></i> Back to Stores</a>
-                </div
+        <!-- Page header -->
+        <div class="page-header">
+            <div class="header-left">
+                <div class="header-icon"><i class="<?php echo htmlspecialchars($header_icon ?? 'fas fa-edit'); ?>"></i></div>
+                <div class="header-text">
+                    <h1><?php echo htmlspecialchars($header_title ?? 'Edit Store'); ?>: <?php echo htmlspecialchars($store['name']); ?></h1>
+                    <p><?php echo htmlspecialchars($header_subtitle ?? 'Update store details and information.'); ?></p>
+                </div>
             </div>
+            <?php if (!empty($show_compact_toggle)): ?>
+            <div class="header-actions">
+                <button class="btn-compact-toggle" onclick="toggleCompactView()">
+                    <i class="fas fa-compress"></i>
+                    <span>Compact View</span>
+                </button>
+            </div>
+            <?php endif; ?>
+        </div>
+
+        <?php if (!empty($header_stats)): ?>
+        <div class="stats-grid">
+            <?php foreach ($header_stats as $stat): ?>
+            <div class="stat-card">
+                <div class="stat-card-inner">
+                    <div class="stat-icon-wrapper">
+                        <div class="stat-icon <?php echo htmlspecialchars($stat['type'] ?? 'primary'); ?>">
+                            <i class="<?php echo htmlspecialchars($stat['icon'] ?? 'fas fa-info'); ?>"></i>
+                        </div>
+                    </div>
+                    <div class="stat-content">
+                        <div class="stat-number"><?php echo htmlspecialchars($stat['value']); ?></div>
+                        <div class="stat-label"><?php echo htmlspecialchars($stat['label']); ?></div>
+                    </div>
+                </div>
+            </div>
+            <?php endforeach; ?>
+        </div>
+        <?php endif; ?>
+
+        <main>
 
             <?php if (!empty($errors)): ?>
                 <div class="alert alert-error">

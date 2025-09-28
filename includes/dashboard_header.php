@@ -4,12 +4,7 @@
  * Provides consistent navigation and header styling across all dashboard modules
  */
 
-// Default values - can be overridden when including this file
-$header_title = $header_title ?? 'Dashboard';
-$header_subtitle = $header_subtitle ?? 'System overview and analytics';
-$header_icon = $header_icon ?? 'fas fa-tachometer-alt';
-$show_compact_toggle = $show_compact_toggle ?? true;
-$header_stats = $header_stats ?? [];
+// Header values should be provided by the including file or fall back to global defaults elsewhere.
 
 ?>
 
@@ -126,59 +121,7 @@ $header_stats = $header_stats ?? [];
         </div>
     </nav>
 
-    <!-- Dashboard Content Area -->
-    <div class="dashboard-content">
-        <!-- Page Header Section -->
-        <div class="page-header">
-            <div class="header-content">
-                <div class="header-left">
-                    <div class="header-icon">
-                        <i class="<?php echo $header_icon; ?>"></i>
-                    </div>
-                    <div class="header-text">
-                        <h1><?php echo htmlspecialchars($header_title); ?></h1>
-                        <p><?php echo htmlspecialchars($header_subtitle); ?></p>
-                    </div>
-                </div>
-                <?php if ($show_compact_toggle): ?>
-                <div class="header-actions">
-                    <button class="btn-compact-toggle" onclick="toggleCompactView()">
-                        <i class="fas fa-compress"></i>
-                        <span>Compact View</span>
-                    </button>
-                </div>
-                <?php endif; ?>
-            </div>
-        </div>
-
-        <!-- Statistics Cards Section -->
-        <?php if (!empty($header_stats)): ?>
-        <div class="stats-grid">
-            <?php foreach ($header_stats as $stat): ?>
-            <div class="stat-card">
-                <div class="stat-card-inner">
-                    <div class="stat-icon-wrapper">
-                        <div class="stat-icon <?php echo $stat['type'] ?? 'primary'; ?>">
-                            <i class="<?php echo $stat['icon']; ?>"></i>
-                        </div>
-                    </div>
-                    <div class="stat-content">
-                        <div class="stat-number"><?php echo $stat['value']; ?></div>
-                        <div class="stat-label"><?php echo $stat['label']; ?></div>
-                        <?php if (isset($stat['trend'])): ?>
-                        <div class="stat-trend <?php echo $stat['trend']['type'] ?? 'neutral'; ?>">
-                            <i class="fas fa-<?php echo $stat['trend']['icon'] ?? 'minus'; ?>"></i>
-                            <span><?php echo $stat['trend']['text']; ?></span>
-                        </div>
-                        <?php endif; ?>
-                    </div>
-                </div>
-            </div>
-            <?php endforeach; ?>
-        </div>
-        <?php endif; ?>
-    </div>
-</div>
+<!-- Page content should be rendered by the including page immediately after this include. -->
 
 <!-- Modern Header Styles -->
 <style>
@@ -197,7 +140,8 @@ body {
 }
 
 .dashboard-wrapper {
-    min-height: 100vh;
+    /* Let page content determine height; avoid forcing full-viewport spacer that creates gaps */
+    min-height: auto;
     background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
 }
 

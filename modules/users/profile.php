@@ -127,7 +127,7 @@ class RoleManager {
         $this->db = $database;
     }
     
-    public function getUserRole($userId) {
+    public function getUserRole($userId): array {
         try {
             $user = $this->db->read('users', $userId);
             if (!$user || !isset($user['role_id']) || !$user['role_id']) {
@@ -150,7 +150,7 @@ class RoleManager {
         }
     }
     
-    public function getUserPermissions($userId) {
+    public function getUserPermissions($userId): array {
         $role = $this->getUserRole($userId);
         $permissionsRaw = $role['permissions'] ?? '[]';
         if (is_array($permissionsRaw)) {
@@ -1127,7 +1127,15 @@ $page_title = 'Enhanced User Profile - Inventory System';
     </style>
 </head>
 <body>
-    <?php include '../../includes/dashboard_header.php'; ?>
+    <?php 
+        // Provide header variables for the shared header include
+        $header_title = trim((($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? '')) ?: ($user['username'] ?? 'User'));
+        $header_subtitle = $user['email'] ?? '';
+        $header_icon = 'fas fa-user';
+        $show_compact_toggle = false;
+        $header_stats = [];
+        include '../../includes/dashboard_header.php'; 
+    ?>
     <div class="container">
         <div class="profile-container">
             <!-- Profile Header -->
@@ -1219,31 +1227,36 @@ $page_title = 'Enhanced User Profile - Inventory System';
                         </div>
                         <form method="POST" action="">
                             <input type="hidden" name="action" value="update_profile">
-                            
+                            <?php
+                                // defensive form values to avoid undefined index notices
+                                $user_username = isset($user['username']) ? $user['username'] : '';
+                                $user_phone = isset($user['phone']) ? $user['phone'] : '';
+                            ?>
+
                             <div class="form-group">
                                 <label for="username">Username:</label>
-                                <input type="text" id="username" value="<?php echo htmlspecialchars($user['username']); ?>" disabled>
+                                <input type="text" id="username" value="<?php echo htmlspecialchars($user_username); ?>" disabled>
                                 <small>Username cannot be changed</small>
                             </div>
-                            
+
                             <div class="form-group">
                                 <label for="first_name">First Name:</label>
-                                <input type="text" id="first_name" name="first_name" value="<?php echo htmlspecialchars($user['first_name']); ?>" required>
+                                <input type="text" id="first_name" name="first_name" value="<?php echo htmlspecialchars($user_first); ?>" required>
                             </div>
-                            
+
                             <div class="form-group">
                                 <label for="last_name">Last Name:</label>
-                                <input type="text" id="last_name" name="last_name" value="<?php echo htmlspecialchars($user['last_name']); ?>" required>
+                                <input type="text" id="last_name" name="last_name" value="<?php echo htmlspecialchars($user_last); ?>" required>
                             </div>
-                            
+
                             <div class="form-group">
                                 <label for="email">Email:</label>
-                                <input type="email" id="email" name="email" value="<?php echo htmlspecialchars($user['email']); ?>" required>
+                                <input type="email" id="email" name="email" value="<?php echo htmlspecialchars($user_email); ?>" required>
                             </div>
-                            
+
                             <div class="form-group">
                                 <label for="phone">Phone:</label>
-                                <input type="text" id="phone" name="phone" value="<?php echo htmlspecialchars($user['phone'] ?? ''); ?>">
+                                <input type="text" id="phone" name="phone" value="<?php echo htmlspecialchars($user_phone); ?>">
                             </div>
                             
                             <div class="form-group">

@@ -278,6 +278,45 @@ $stats = [
         include '../../includes/dashboard_header.php'; 
         ?>
 
+        <!-- Page header -->
+        <div class="page-header">
+            <div class="header-left">
+                <div class="header-icon"><i class="<?php echo htmlspecialchars($header_icon ?? 'fas fa-map-marked-alt'); ?>"></i></div>
+                <div class="header-text">
+                    <h1><?php echo htmlspecialchars($header_title ?? 'Store Map'); ?></h1>
+                    <p><?php echo htmlspecialchars($header_subtitle ?? 'Interactive store locations using OpenStreetMap'); ?></p>
+                </div>
+            </div>
+            <?php if (!empty($show_compact_toggle)): ?>
+            <div class="header-actions">
+                <button class="btn-compact-toggle" onclick="toggleCompactView()">
+                    <i class="fas fa-compress"></i>
+                    <span>Compact View</span>
+                </button>
+            </div>
+            <?php endif; ?>
+        </div>
+
+        <?php if (!empty($header_stats)): ?>
+        <div class="stats-grid">
+            <?php foreach ($header_stats as $stat): ?>
+            <div class="stat-card">
+                <div class="stat-card-inner">
+                    <div class="stat-icon-wrapper">
+                        <div class="stat-icon <?php echo htmlspecialchars($stat['type'] ?? 'primary'); ?>">
+                            <i class="<?php echo htmlspecialchars($stat['icon'] ?? 'fas fa-info'); ?>"></i>
+                        </div>
+                    </div>
+                    <div class="stat-content">
+                        <div class="stat-number"><?php echo htmlspecialchars($stat['value']); ?></div>
+                        <div class="stat-label"><?php echo htmlspecialchars($stat['label']); ?></div>
+                    </div>
+                </div>
+            </div>
+            <?php endforeach; ?>
+        </div>
+        <?php endif; ?>
+
         <main class="main-content">
             <!-- Filter Controls -->
             <div class="enhanced-controls">
