@@ -602,6 +602,21 @@ $storeRouter = new StoreRouter($db);
 
 // Load user record using cached read (avoid calling global getUserInfo which may re-query)
 $user = $db->read('users', $_SESSION['user_id']);
+
+// If Firebase read fails or returns empty, try legacy helper as a graceful fallback
+if (!$user || $user === false) {
+    if (function_exists('getUserInfo')) {
+        try {
+            $user = getUserInfo($_SESSION['user_id']);
+        } catch (Exception $e) {
+            error_log('Fallback getUserInfo failed: ' . $e->getMessage());
+            $user = [];
+        }
+    } else {
+        $user = [];
+    }
+}
+
 $errors = [];
 $success = false;
 $activeTab = $_GET['tab'] ?? 'profile';
@@ -611,6 +626,23 @@ $userPermissions = null;
 $userRole = null;
 $availableStores = null;
 $recentActivity = null;
+
+// Always resolve a lightweight role summary (so UI shows role immediately)
+try {
+    $userRole = $roleManager->getUserRole($_SESSION['user_id']);
+} catch (Exception $e) {
+    error_log('Failed to resolve user role: ' . $e->getMessage());
+    $userRole = ['role_name' => 'User', 'permissions' => '[]'];
+}
+
+// Compute number of store access entries for the user (fast, small query)
+try {
+    $userStoresForCount = $db->readAll('user_stores', [['user_id', '==', $_SESSION['user_id']]]);
+    $stores_count = is_array($userStoresForCount) ? count($userStoresForCount) : 0;
+} catch (Exception $e) {
+    error_log('Failed to read user_stores for count: ' . $e->getMessage());
+    $stores_count = 0;
+}
 
 // If there was a successful POST that changed profile, refresh $user from cached DB
 if (isset($result) && !empty($result['success'])) {
@@ -673,7 +705,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors = $result['errors'] ?? [];
         $success = $result['success'] ?? false;
         if ($success) {
-            $user = getUserInfo($_SESSION['user_id']); // Refresh user data
+            // Refresh user data from the Firebase-backed DB using the request-scoped cache
+            try {
+                $user = $db->read('users', $_SESSION['user_id']);
+            } catch (Exception $e) {
+                // Fall back to previous helper if DB read fails for any reason
+                error_log('Failed to refresh user from Firebase DB: ' . $e->getMessage());
+                $user = getUserInfo($_SESSION['user_id']);
+            }
         }
     }
 }
