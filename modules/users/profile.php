@@ -1374,7 +1374,7 @@ $page_title = 'Enhanced User Profile - Inventory System';
                         <h3>Role & Permissions</h3>
                     </div>
                     <div class="permissions-grid">
-                        <?php foreach ($userPermissions as $permission): ?>
+                        <?php foreach ((array)$userPermissions as $permission): ?>
                             <div class="permission-card <?php echo $permission['granted'] ? 'granted' : ''; ?>">
                                 <h4>
                                     <i class="fas fa-<?php echo $permission['icon']; ?>"></i>
@@ -1400,7 +1400,7 @@ $page_title = 'Enhanced User Profile - Inventory System';
                         <h3>Recent Activity</h3>
                     </div>
                     <div class="activity-list">
-                        <?php foreach ($recentActivity as $activity): ?>
+                        <?php foreach ((array)$recentActivity as $activity): ?>
                             <div class="activity-item">
                                 <div class="activity-icon <?php echo $activity['action_type']; ?>">
                                     <i class="fas fa-<?php echo $activity['icon']; ?>"></i>
@@ -1436,7 +1436,7 @@ $page_title = 'Enhanced User Profile - Inventory System';
                         <h3>Store Access Management</h3>
                     </div>
                     <div class="store-access-grid">
-                        <?php foreach ($availableStores as $store): ?>
+                        <?php foreach ((array)$availableStores as $store): ?>
                             <div class="store-card <?php echo $store['accessible'] ? 'accessible' : ''; ?>">
                                 <div class="store-icon">
                                     <i class="fas fa-store"></i>
