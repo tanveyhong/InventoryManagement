@@ -122,11 +122,17 @@ function verifyCSRF($token) {
 
 // Date and Time Functions
 function formatDate($date, $format = 'Y-m-d H:i:s') {
-    return date($format, strtotime($date));
+    if (empty($date)) return '—';
+    $ts = @strtotime($date);
+    if ($ts === false || $ts === -1) return $date;
+    return date($format, $ts);
 }
 
 function timeAgo($datetime) {
-    $time = time() - strtotime($datetime);
+    if (empty($datetime)) return 'unknown';
+    $ts = @strtotime($datetime);
+    if ($ts === false || $ts === -1) return 'unknown';
+    $time = time() - $ts;
     
     if ($time < 60) return 'just now';
     if ($time < 3600) return floor($time / 60) . ' min ago';

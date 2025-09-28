@@ -1136,7 +1136,16 @@ $page_title = 'Enhanced User Profile - Inventory System';
                     <i class="fas fa-user"></i>
                 </div>
                 <div class="profile-info">
-                    <h1><?php echo htmlspecialchars($user['first_name'] . ' ' . $user['last_name']); ?></h1>
+                    <?php
+                        $user_first = isset($user['first_name']) ? $user['first_name'] : '';
+                        $user_last = isset($user['last_name']) ? $user['last_name'] : '';
+                        $user_email = isset($user['email']) ? $user['email'] : '';
+                        $user_created = isset($user['created_at']) ? $user['created_at'] : null;
+                        $user_last_login = isset($user['last_login']) ? $user['last_login'] : null;
+                        $user_active = isset($user['active']) ? (bool)$user['active'] : false;
+                        $stores_count = is_array($availableStores) ? count($availableStores) : 0;
+                    ?>
+                    <h1><?php echo htmlspecialchars(trim($user_first . ' ' . $user_last) ?: 'User'); ?></h1>
                     <div class="profile-meta">
                         <div class="meta-item">
                             <i class="fas fa-user-tag"></i>
@@ -1144,11 +1153,11 @@ $page_title = 'Enhanced User Profile - Inventory System';
                         </div>
                         <div class="meta-item">
                             <i class="fas fa-envelope"></i>
-                            <?php echo htmlspecialchars($user['email']); ?>
+                            <?php echo htmlspecialchars($user_email ?: '—'); ?>
                         </div>
                         <div class="meta-item">
                             <i class="fas fa-calendar"></i>
-                            Member since <?php echo formatDate($user['created_at'], 'M Y'); ?>
+                            Member since <?php echo $user_created ? formatDate($user_created, 'M Y') : '—'; ?>
                         </div>
                     </div>
                 </div>
@@ -1290,14 +1299,14 @@ $page_title = 'Enhanced User Profile - Inventory System';
                         </div>
                         <div class="account-info">
                             <p><strong>Role:</strong> <?php echo htmlspecialchars($userRole['role_name'] ?? 'User'); ?></p>
-                            <p><strong>Member Since:</strong> <?php echo formatDate($user['created_at'], 'F j, Y'); ?></p>
-                            <p><strong>Last Login:</strong> <?php echo $user['last_login'] ? formatDate($user['last_login'], 'F j, Y g:i A') : 'Never'; ?></p>
+                            <p><strong>Member Since:</strong> <?php echo $user_created ? formatDate($user_created, 'F j, Y') : '—'; ?></p>
+                            <p><strong>Last Login:</strong> <?php echo $user_last_login ? formatDate($user_last_login, 'F j, Y g:i A') : 'Never'; ?></p>
                             <p><strong>Account Status:</strong> 
-                                <span class="permission-status <?php echo $user['active'] ? 'status-granted' : 'status-denied'; ?>">
-                                    <?php echo $user['active'] ? 'Active' : 'Inactive'; ?>
+                                <span class="permission-status <?php echo $user_active ? 'status-granted' : 'status-denied'; ?>">
+                                    <?php echo $user_active ? 'Active' : 'Inactive'; ?>
                                 </span>
                             </p>
-                            <p><strong>Total Stores Access:</strong> <?php echo count($availableStores); ?></p>
+                            <p><strong>Total Stores Access:</strong> <?php echo $stores_count; ?></p>
                         </div>
                     </div>
                 </div>
