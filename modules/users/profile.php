@@ -557,22 +557,79 @@ function handleStoreAccessUpdate($data, $storeRouter, $activityLogger) {
 
 // ==================== MAIN EXECUTION ====================
 
-$db = getDB();
+$rawDb = getDB();
+
+// Lightweight request-scoped cache wrapper to avoid duplicate remote/DB calls
+class CachingDB {
+    private $inner;
+    private $cache = [];
+
+    public function __construct($inner) {
+        $this->inner = $inner;
+    }
+
+    private function key($method, $args) {
+        return md5($method . ':' . serialize($args));
+    }
+
+    public function read($collection, $documentId) {
+        $k = $this->key('read', [$collection, $documentId]);
+        if (array_key_exists($k, $this->cache)) return $this->cache[$k];
+        $res = $this->inner->read($collection, $documentId);
+        $this->cache[$k] = $res;
+        return $res;
+    }
+
+    public function readAll($collection, $conditions = [], $orderBy = null, $limit = null) {
+        $k = $this->key('readAll', [$collection, $conditions, $orderBy, $limit]);
+        if (array_key_exists($k, $this->cache)) return $this->cache[$k];
+        $res = $this->inner->readAll($collection, $conditions, $orderBy, $limit);
+        $this->cache[$k] = $res;
+        return $res;
+    }
+
+    // Pass-through for write operations (do not cache)
+    public function create($collection, $data, $documentId = null) { return $this->inner->create($collection, $data, $documentId); }
+    public function update($collection, $documentId, $data) { return $this->inner->update($collection, $documentId, $data); }
+    public function delete($collection, $documentId) { return $this->inner->delete($collection, $documentId); }
+}
+
+$db = new CachingDB($rawDb);
 $userManager = new UserManager($db);
 $roleManager = new RoleManager($db);
 $activityLogger = new ActivityLogger($db);
 $storeRouter = new StoreRouter($db);
 
-$user = getUserInfo($_SESSION['user_id']);
+// Load user record using cached read (avoid calling global getUserInfo which may re-query)
+$user = $db->read('users', $_SESSION['user_id']);
 $errors = [];
 $success = false;
 $activeTab = $_GET['tab'] ?? 'profile';
 
-// Get user's permissions and role details
-$userPermissions = $roleManager->getUserPermissions($_SESSION['user_id']);
-$userRole = $roleManager->getUserRole($_SESSION['user_id']);
-$availableStores = $storeRouter->getUserStores($_SESSION['user_id']);
-$recentActivity = $activityLogger->getUserActivity($_SESSION['user_id'], 10);
+// Lazy-load data per tab to avoid unnecessary DB reads on every request
+$userPermissions = null;
+$userRole = null;
+$availableStores = null;
+$recentActivity = null;
+
+// If there was a successful POST that changed profile, refresh $user from cached DB
+if (isset($result) && !empty($result['success'])) {
+    $user = $db->read('users', $_SESSION['user_id']);
+}
+
+// Only load heavy lists when the tab requests them
+if ($activeTab === 'permissions' || $activeTab === 'admin') {
+    $userPermissions = $roleManager->getUserPermissions($_SESSION['user_id']);
+    $userRole = $roleManager->getUserRole($_SESSION['user_id']);
+}
+
+if ($activeTab === 'stores' || $activeTab === 'admin') {
+    $availableStores = $storeRouter->getUserStores($_SESSION['user_id']);
+}
+
+if ($activeTab === 'activity' || $activeTab === 'admin') {
+    $recentActivity = $activityLogger->getUserActivity($_SESSION['user_id'], 10);
+}
 
 // Handle form submissions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
