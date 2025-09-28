@@ -8,8 +8,11 @@
         </div>
         <h3>Store Access Management</h3>
     </div>
-    <div class="store-access-grid">
-        <?php foreach ((array)$availableStores as $store): ?>
+    <form method="POST" action="">
+        <input type="hidden" name="action" value="update_store_access">
+        <input type="hidden" name="user_id" value="<?php echo htmlspecialchars($_SESSION['user_id']); ?>">
+        <div class="store-access-grid">
+            <?php foreach ((array)$availableStores as $store): ?>
             <div class="store-card <?php echo $store['accessible'] ? 'accessible' : ''; ?>">
                 <div class="store-icon">
                     <i class="fas fa-store"></i>
@@ -19,14 +22,28 @@
                 <span class="permission-status <?php echo $store['accessible'] ? 'status-granted' : 'status-denied'; ?>">
                     <?php echo $store['accessible'] ? 'Access Granted' : 'No Access'; ?>
                 </span>
-                <?php if ($store['accessible']): ?>
-                    <div style="margin-top: 10px;">
-                        <small>Role: <?php echo htmlspecialchars($store['role']); ?></small>
-                    </div>
-                <?php endif; ?>
+                <div style="margin-top:10px;">
+                    <label>
+                        <input type="checkbox" name="store_ids[]" value="<?php echo htmlspecialchars($store['id']); ?>" <?php echo $store['accessible'] ? 'checked' : ''; ?>>
+                        Grant Access
+                    </label>
+                    <?php if ($store['accessible']): ?>
+                        <div style="margin-top: 6px;"><small>Role: <?php echo htmlspecialchars($store['role']); ?></small></div>
+                    <?php endif; ?>
+                </div>
             </div>
-        <?php endforeach; ?>
-        <?php if (empty($availableStores)): ?>
+            <?php endforeach; ?>
+        </div>
+
+        <?php if (!empty($availableStores)): ?>
+            <div style="margin-top:12px;">
+                <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Update Store Access</button>
+            </div>
+        <?php endif; ?>
+
+    </form>
+
+    <?php if (empty($availableStores)): ?>
             <div class="store-card">
                 <div class="store-icon">
                     <i class="fas fa-info-circle"></i>

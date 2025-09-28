@@ -570,33 +570,130 @@ function handleUserCreation($data, $userManager, $roleManager, $activityLogger) 
 
 function handlePermissionUpdate($data, $roleManager, $activityLogger) {
     $errors = [];
-    $userId = (int)($data['user_id'] ?? 0);
-    $roleId = (int)($data['role_id'] ?? 0);
-    
+    $userId = $data['user_id'] ?? '';
+    $roleId = $data['role_id'] ?? '';
+
     if (empty($userId) || empty($roleId)) {
         $errors[] = 'User and role selection required';
         return ['success' => false, 'errors' => $errors];
     }
-    
-    // This would update user role in the database
-    // Implementation depends on your specific needs
-    $errors[] = 'Permission updates feature coming soon';
+
+    // Only allow if current user can manage roles
+    if (!$roleManager->canManageRoles($_SESSION['user_id'])) {
+        $errors[] = 'You do not have permission to update roles';
+        return ['success' => false, 'errors' => $errors];
+    }
+
+    try {
+        // Update the user's role_id and updated_at timestamp
+        $dbLocal = getDB();
+        $update = [
+            'role_id' => $roleId,
+            'updated_at' => date('c')
+        ];
+
+        // If roles are stored as strings in some docs, also attempt to set role string for convenience
+        $roles = $roleManager->getAllRoles();
+        foreach ($roles as $r) {
+            if ((string)($r['id'] ?? '') === (string)$roleId) {
+                if (isset($r['role_name'])) {
+                    $update['role'] = strtolower($r['role_name']);
+                }
+                break;
+            }
+        }
+
+        $res = $dbLocal->update('users', $userId, $update);
+        if ($res) {
+            $activityLogger->log($_SESSION['user_id'], 'permission_changed', "Updated role for user {$userId}", ['role_id' => $roleId]);
+            addNotification('User role updated successfully!', 'success');
+            return ['success' => true, 'errors' => []];
+        } else {
+            $errors[] = 'Failed to update user role';
+        }
+    } catch (Exception $e) {
+        error_log('Permission update error: ' . $e->getMessage());
+        $errors[] = 'An error occurred while updating permissions';
+    }
+
     return ['success' => false, 'errors' => $errors];
 }
 
-function handleStoreAccessUpdate($data, $storeRouter, $activityLogger) {
+function handleStoreAccessUpdate($data, $storeRouter, $activityLogger, $roleManager) {
     $errors = [];
-    $userId = (int)($data['user_id'] ?? 0);
+    $userId = $data['user_id'] ?? '';
     $storeIds = $data['store_ids'] ?? [];
-    
+
     if (empty($userId)) {
         $errors[] = 'User selection required';
         return ['success' => false, 'errors' => $errors];
     }
-    
-    // This would update user store access in the database
-    // Implementation depends on your specific needs
-    $errors[] = 'Store access updates feature coming soon';
+
+    // Permission check: only allow if manager/admin or owner
+    if (!($roleManager->canManageStores($_SESSION['user_id']) || $_SESSION['user_id'] === $userId)) {
+        $errors[] = 'You do not have permission to update store access for this user';
+        return ['success' => false, 'errors' => $errors];
+    }
+
+    try {
+        $dbLocal = getDB();
+
+        // Get current assignments
+        $existing = $dbLocal->readAll('user_stores', [['user_id', '==', $userId]]);
+        $existingIds = array_map(function($r){ return (string)$r['store_id']; }, $existing ?: []);
+
+        $selected = array_map('strval', (array)$storeIds);
+
+        // Determine to add and to remove
+        $toAdd = array_values(array_diff($selected, $existingIds));
+        $toRemove = array_values(array_diff($existingIds, $selected));
+
+        foreach ($toAdd as $sid) {
+            $storeRouter->assignUserToStore($userId, $sid, 'employee');
+        }
+
+        foreach ($toRemove as $sid) {
+            $storeRouter->removeUserFromStore($userId, $sid);
+        }
+
+        $activityLogger->log($_SESSION['user_id'], 'store_access_updated', "Updated store access for user {$userId}", ['added' => $toAdd, 'removed' => $toRemove]);
+        addNotification('Store access updated successfully!', 'success');
+        return ['success' => true, 'errors' => []];
+    } catch (Exception $e) {
+        error_log('Store access update error: ' . $e->getMessage());
+        $errors[] = 'An error occurred while updating store access';
+    }
+
+    return ['success' => false, 'errors' => $errors];
+}
+
+function handleClearActivity($data, $activityLogger, $roleManager) {
+    $errors = [];
+    $userId = $data['user_id'] ?? '';
+
+    if (empty($userId)) {
+        $errors[] = 'User selection required';
+        return ['success' => false, 'errors' => $errors];
+    }
+
+    // Only allow owner or admin/roles manager
+    if ($_SESSION['user_id'] !== $userId && !$roleManager->canManageRoles($_SESSION['user_id'])) {
+        $errors[] = 'Not authorized to clear activity';
+        return ['success' => false, 'errors' => $errors];
+    }
+
+    try {
+        $dbLocal = getDB();
+        // Delete activities matching user_id
+        $dbLocal->delete('user_activities', [['user_id', '==', $userId]]);
+        $activityLogger->log($_SESSION['user_id'], 'activity_cleared', "Cleared activity for user {$userId}");
+        addNotification('Activity cleared successfully', 'success');
+        return ['success' => true, 'errors' => []];
+    } catch (Exception $e) {
+        error_log('Clear activity error: ' . $e->getMessage());
+        $errors[] = 'Failed to clear activity';
+    }
+
     return ['success' => false, 'errors' => $errors];
 }
 
@@ -735,11 +832,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             break;
             
         case 'update_store_access':
-            if ($roleManager->canManageStores($_SESSION['user_id'])) {
-                $result = handleStoreAccessUpdate($_POST, $storeRouter, $activityLogger);
+            // allow owner to update their own stores or users with manage_stores permission
+            $targetUser = $_POST['user_id'] ?? $_SESSION['user_id'];
+            if ($roleManager->canManageStores($_SESSION['user_id']) || $targetUser === $_SESSION['user_id']) {
+                $result = handleStoreAccessUpdate($_POST, $storeRouter, $activityLogger, $roleManager);
             } else {
                 $errors[] = 'You do not have permission to update store access';
             }
+            break;
+
+        case 'clear_activity':
+            $result = handleClearActivity($_POST, $activityLogger, $roleManager);
             break;
             
         case 'create_user':

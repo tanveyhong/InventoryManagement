@@ -8,6 +8,15 @@
         </div>
         <h3>Recent Activity</h3>
     </div>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <h4 style="margin:0">Activity Feed</h4>
+        <form method="POST" action="" onsubmit="return confirm('Clear recent activity for this user?');">
+            <input type="hidden" name="action" value="clear_activity">
+            <input type="hidden" name="user_id" value="<?php echo htmlspecialchars($_SESSION['user_id']); ?>">
+            <button type="submit" class="btn btn-danger"><i class="fas fa-trash"></i> Clear Activity</button>
+        </form>
+    </div>
+
     <div class="activity-list">
         <?php foreach ((array)$recentActivity as $activity): ?>
             <div class="activity-item">
