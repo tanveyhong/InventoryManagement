@@ -1435,105 +1435,17 @@ $page_title = 'Enhanced User Profile - Inventory System';
 
             <!-- Permissions Tab Content -->
             <div id="permissions-content" class="tab-content <?php echo $activeTab === 'permissions' ? 'active' : ''; ?>">
-                <div class="profile-section">
-                    <div class="section-header">
-                        <div class="section-icon">
-                            <i class="fas fa-shield-alt"></i>
-                        </div>
-                        <h3>Role & Permissions</h3>
-                    </div>
-                    <div class="permissions-grid">
-                        <?php foreach ((array)$userPermissions as $permission): ?>
-                            <div class="permission-card <?php echo $permission['granted'] ? 'granted' : ''; ?>">
-                                <h4>
-                                    <i class="fas fa-<?php echo $permission['icon']; ?>"></i>
-                                    <?php echo htmlspecialchars($permission['name']); ?>
-                                </h4>
-                                <p><?php echo htmlspecialchars($permission['description']); ?></p>
-                                <span class="permission-status <?php echo $permission['granted'] ? 'status-granted' : 'status-denied'; ?>">
-                                    <?php echo $permission['granted'] ? 'Granted' : 'Denied'; ?>
-                                </span>
-                            </div>
-                        <?php endforeach; ?>
-                    </div>
-                </div>
+                <?php include __DIR__ . '/profile/permissions.php'; ?>
             </div>
 
             <!-- Activity Tab Content -->
             <div id="activity-content" class="tab-content <?php echo $activeTab === 'activity' ? 'active' : ''; ?>">
-                <div class="profile-section">
-                    <div class="section-header">
-                        <div class="section-icon">
-                            <i class="fas fa-history"></i>
-                        </div>
-                        <h3>Recent Activity</h3>
-                    </div>
-                    <div class="activity-list">
-                        <?php foreach ((array)$recentActivity as $activity): ?>
-                            <div class="activity-item">
-                                <div class="activity-icon <?php echo $activity['action_type']; ?>">
-                                    <i class="fas fa-<?php echo $activity['icon']; ?>"></i>
-                                </div>
-                                <div class="activity-details">
-                                    <h5><?php echo htmlspecialchars($activity['description']); ?></h5>
-                                    <div class="activity-time"><?php echo $activity['formatted_time']; ?></div>
-                                </div>
-                            </div>
-                        <?php endforeach; ?>
-                        <?php if (empty($recentActivity)): ?>
-                            <div class="activity-item">
-                                <div class="activity-icon update">
-                                    <i class="fas fa-info-circle"></i>
-                                </div>
-                                <div class="activity-details">
-                                    <h5>No recent activity</h5>
-                                    <div class="activity-time">Activity will appear here as you use the system</div>
-                                </div>
-                            </div>
-                        <?php endif; ?>
-                    </div>
-                </div>
+                <?php include __DIR__ . '/profile/activity.php'; ?>
             </div>
 
             <!-- Store Access Tab Content -->
             <div id="stores-content" class="tab-content <?php echo $activeTab === 'stores' ? 'active' : ''; ?>">
-                <div class="profile-section">
-                    <div class="section-header">
-                        <div class="section-icon">
-                            <i class="fas fa-store"></i>
-                        </div>
-                        <h3>Store Access Management</h3>
-                    </div>
-                    <div class="store-access-grid">
-                        <?php foreach ((array)$availableStores as $store): ?>
-                            <div class="store-card <?php echo $store['accessible'] ? 'accessible' : ''; ?>">
-                                <div class="store-icon">
-                                    <i class="fas fa-store"></i>
-                                </div>
-                                <h4><?php echo htmlspecialchars($store['name']); ?></h4>
-                                <p><?php echo htmlspecialchars($store['location']); ?></p>
-                                <span class="permission-status <?php echo $store['accessible'] ? 'status-granted' : 'status-denied'; ?>">
-                                    <?php echo $store['accessible'] ? 'Access Granted' : 'No Access'; ?>
-                                </span>
-                                <?php if ($store['accessible']): ?>
-                                    <div style="margin-top: 10px;">
-                                        <small>Role: <?php echo htmlspecialchars($store['role']); ?></small>
-                                    </div>
-                                <?php endif; ?>
-                            </div>
-                        <?php endforeach; ?>
-                        <?php if (empty($availableStores)): ?>
-                            <div class="store-card">
-                                <div class="store-icon">
-                                    <i class="fas fa-info-circle"></i>
-                                </div>
-                                <h4>No Stores Available</h4>
-                                <p>Contact your administrator for store access</p>
-                                <span class="permission-status status-denied">No Access</span>
-                            </div>
-                        <?php endif; ?>
-                    </div>
-                </div>
+                <?php include __DIR__ . '/profile/stores.php'; ?>
             </div>
 
             <!-- User Management Tab Content -->
