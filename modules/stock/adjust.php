@@ -130,30 +130,34 @@ $page_title = 'Adjust Stock - ' . $product['name'];
     <link rel="stylesheet" href="../../assets/css/style.css">
 </head>
 <body>
-    <?php include '../../includes/dashboard_header.php'; ?>
+    <?php 
+        $header_title = 'Stock Adjustment';
+        $header_subtitle = 'Adjust stock for product: ' . ($product['name'] ?? '');
+        $header_icon = 'fas fa-boxes';
+        $show_compact_toggle = false;
+        $header_stats = [
+            ['value' => number_format($product['quantity'] ?? 0), 'label' => 'Current Qty', 'icon' => 'fas fa-cubes', 'type' => 'primary']
+        ];
+        include '../../includes/dashboard_header.php'; 
+    ?>
     <div class="container">
-        <header>
-            <h1>Stock Adjustment</h1>
-            <nav>
-                <ul>
-                    <li><a href="../../index.php">Dashboard</a></li>
-                    <li><a href="list.php">Stock</a></li>
-                    <li><a href="../stores/list.php">Stores</a></li>
-                    <li><a href="../reports/dashboard.php">Reports</a></li>
-                    <li><a href="../alerts/low_stock.php">Alerts</a></li>
-                    <li><a href="../users/logout.php">Logout</a></li>
-                </ul>
-            </nav>
-        </header>
 
-        <main>
-            <div class="page-header">
-                <h2>Adjust Stock: <?php echo htmlspecialchars($product['name']); ?></h2>
-                <div class="page-actions">
-                    <a href="list.php" class="btn btn-outline">Back to Stock List</a>
-                    <a href="view.php?id=<?php echo $product_id; ?>" class="btn btn-secondary">View Product</a>
+        <!-- Page header -->
+        <div class="page-header">
+            <div class="header-left">
+                <div class="header-icon"><i class="<?php echo htmlspecialchars($header_icon ?? 'fas fa-boxes'); ?>"></i></div>
+                <div class="header-text">
+                    <h1><?php echo htmlspecialchars($header_title ?? 'Stock Adjustment'); ?></h1>
+                    <p><?php echo htmlspecialchars($header_subtitle ?? ''); ?></p>
                 </div>
             </div>
+            <div class="header-actions">
+                <a href="list.php" class="btn btn-outline">Back to Stock List</a>
+                <a href="view.php?id=<?php echo $product_id; ?>" class="btn btn-secondary">View Product</a>
+            </div>
+        </div>
+
+        <main>
 
             <?php if ($error): ?>
                 <div class="alert alert-error">

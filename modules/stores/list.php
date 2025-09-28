@@ -408,6 +408,53 @@ $page_title = 'Store Management - Inventory System';
         include '../../includes/dashboard_header.php'; 
         ?>
 
+        <!-- Page header (rendered by the page since header include no longer prints it) -->
+        <div class="page-header">
+            <div class="header-left">
+                <div class="header-icon">
+                    <i class="<?php echo htmlspecialchars($header_icon ?? 'fas fa-store'); ?>"></i>
+                </div>
+                <div class="header-text">
+                    <h1><?php echo htmlspecialchars($header_title ?? 'Store Management'); ?></h1>
+                    <p><?php echo htmlspecialchars($header_subtitle ?? 'Manage your store locations and monitor performance'); ?></p>
+                </div>
+            </div>
+            <?php if (!empty($show_compact_toggle)): ?>
+            <div class="header-actions">
+                <button class="btn-compact-toggle" onclick="toggleCompactView()">
+                    <i class="fas fa-compress"></i>
+                    <span>Compact View</span>
+                </button>
+            </div>
+            <?php endif; ?>
+        </div>
+
+        <?php if (!empty($header_stats)): ?>
+        <div class="stats-grid">
+            <?php foreach ($header_stats as $stat): ?>
+            <div class="stat-card">
+                <div class="stat-card-inner">
+                    <div class="stat-icon-wrapper">
+                        <div class="stat-icon <?php echo htmlspecialchars($stat['type'] ?? 'primary'); ?>">
+                            <i class="<?php echo htmlspecialchars($stat['icon'] ?? 'fas fa-info'); ?>"></i>
+                        </div>
+                    </div>
+                    <div class="stat-content">
+                        <div class="stat-number"><?php echo htmlspecialchars($stat['value']); ?></div>
+                        <div class="stat-label"><?php echo htmlspecialchars($stat['label']); ?></div>
+                        <?php if (isset($stat['trend'])): ?>
+                        <div class="stat-trend <?php echo htmlspecialchars($stat['trend']['type'] ?? 'neutral'); ?>">
+                            <i class="fas fa-<?php echo htmlspecialchars($stat['trend']['icon'] ?? 'minus'); ?>"></i>
+                            <span><?php echo htmlspecialchars($stat['trend']['text'] ?? ''); ?></span>
+                        </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+            <?php endforeach; ?>
+        </div>
+        <?php endif; ?>
+
         <main>
 
             <!-- Search Form -->

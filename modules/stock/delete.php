@@ -68,29 +68,33 @@ $page_title = 'Delete Product - ' . htmlspecialchars($product['name']);
     <link rel="stylesheet" href="../../assets/css/style.css">
 </head>
 <body>
-    <?php include '../../includes/dashboard_header.php'; ?>
+    <?php 
+        $header_title = 'Delete Product';
+        $header_subtitle = 'Confirm deletion of product: ' . ($product['name'] ?? '');
+        $header_icon = 'fas fa-trash-alt';
+        $show_compact_toggle = false;
+        $header_stats = [
+            ['value' => number_format($product['quantity'] ?? 0), 'label' => 'Current Qty', 'icon' => 'fas fa-cubes', 'type' => 'primary']
+        ];
+        include '../../includes/dashboard_header.php'; 
+    ?>
     <div class="container">
-        <header>
-            <h1>Delete Product</h1>
-            <nav>
-                <ul>
-                    <li><a href="../../index.php">Dashboard</a></li>
-                    <li><a href="list.php">Stock</a></li>
-                    <li><a href="../stores/list.php">Stores</a></li>
-                    <li><a href="../reports/dashboard.php">Reports</a></li>
-                    <li><a href="../alerts/low_stock.php">Alerts</a></li>
-                    <li><a href="../users/logout.php">Logout</a></li>
-                </ul>
-            </nav>
-        </header>
 
-        <main>
-            <div class="page-header">
-                <h2>Delete Product</h2>
-                <div class="page-actions">
-                    <a href="list.php" class="btn btn-secondary">← Back to Stock List</a>
+        <!-- Page header -->
+        <div class="page-header">
+            <div class="header-left">
+                <div class="header-icon"><i class="<?php echo htmlspecialchars($header_icon ?? 'fas fa-trash-alt'); ?>"></i></div>
+                <div class="header-text">
+                    <h1><?php echo htmlspecialchars($header_title ?? 'Delete Product'); ?></h1>
+                    <p><?php echo htmlspecialchars($header_subtitle ?? ''); ?></p>
                 </div>
             </div>
+            <div class="header-actions">
+                <a href="list.php" class="btn btn-secondary">← Back to Stock List</a>
+            </div>
+        </div>
+
+        <main>
 
             <?php if (!empty($errors)): ?>
                 <div class="alert alert-error">

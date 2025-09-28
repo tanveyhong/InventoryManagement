@@ -20,3 +20,158 @@
 [2025-09-27 05:53:59] Error: Undefined array key "last_login" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1237
 [2025-09-27 05:53:59] Error: Undefined array key "active" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1239
 [2025-09-27 05:53:59] Error: Undefined array key "active" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1240
+[2025-09-28 06:33:15] Error: Undefined array key "first_name" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1082
+[2025-09-28 06:33:15] Error: Undefined array key "last_name" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1082
+[2025-09-28 06:33:15] Error: Undefined array key "email" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1090
+[2025-09-28 06:33:15] Error: htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1090
+[2025-09-28 06:33:15] Error: Undefined array key "created_at" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1094
+[2025-09-28 06:33:15] Error: strtotime(): Passing null to parameter #1 ($datetime) of type string is deprecated in C:\Users\senpa\InventorySystem\functions.php on line 125
+[2025-09-28 06:33:17] Error: Undefined array key "username" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1159
+[2025-09-28 06:33:17] Error: htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1159
+[2025-09-28 06:33:17] Error: Undefined array key "first_name" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1165
+[2025-09-28 06:33:17] Error: htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1165
+[2025-09-28 06:33:17] Error: Undefined array key "last_name" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1170
+[2025-09-28 06:33:17] Error: htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1170
+[2025-09-28 06:33:17] Error: Undefined array key "email" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1175
+[2025-09-28 06:33:17] Error: htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1175
+[2025-09-28 06:33:17] Error: Undefined array key "created_at" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1236
+[2025-09-28 06:33:17] Error: strtotime(): Passing null to parameter #1 ($datetime) of type string is deprecated in C:\Users\senpa\InventorySystem\functions.php on line 125
+[2025-09-28 06:33:17] Error: Undefined array key "last_login" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1237
+[2025-09-28 06:33:17] Error: Undefined array key "active" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1239
+[2025-09-28 06:33:17] Error: Undefined array key "active" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1240
+[2025-09-28 09:32:59] Error: Undefined array key "first_name" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1082
+[2025-09-28 09:32:59] Error: Undefined array key "last_name" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1082
+[2025-09-28 09:32:59] Error: Undefined array key "email" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1090
+[2025-09-28 09:32:59] Error: htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1090
+[2025-09-28 09:32:59] Error: Undefined array key "created_at" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1094
+[2025-09-28 09:32:59] Error: strtotime(): Passing null to parameter #1 ($datetime) of type string is deprecated in C:\Users\senpa\InventorySystem\functions.php on line 125
+[2025-09-28 09:33:00] Error: Undefined array key "username" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1159
+[2025-09-28 09:33:00] Error: htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1159
+[2025-09-28 09:33:00] Error: Undefined array key "first_name" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1165
+[2025-09-28 09:33:00] Error: htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1165
+[2025-09-28 09:33:00] Error: Undefined array key "last_name" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1170
+[2025-09-28 09:33:00] Error: htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1170
+[2025-09-28 09:33:00] Error: Undefined array key "email" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1175
+[2025-09-28 09:33:00] Error: htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1175
+[2025-09-28 09:33:00] Error: Undefined array key "created_at" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1236
+[2025-09-28 09:33:00] Error: strtotime(): Passing null to parameter #1 ($datetime) of type string is deprecated in C:\Users\senpa\InventorySystem\functions.php on line 125
+[2025-09-28 09:33:00] Error: Undefined array key "last_login" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1237
+[2025-09-28 09:33:00] Error: Undefined array key "active" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1239
+[2025-09-28 09:33:00] Error: Undefined array key "active" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1240
+[2025-09-28 09:33:17] Error: Undefined array key "first_name" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1082
+[2025-09-28 09:33:17] Error: Undefined array key "last_name" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1082
+[2025-09-28 09:33:17] Error: Undefined array key "email" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1090
+[2025-09-28 09:33:17] Error: htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1090
+[2025-09-28 09:33:17] Error: Undefined array key "created_at" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1094
+[2025-09-28 09:33:17] Error: strtotime(): Passing null to parameter #1 ($datetime) of type string is deprecated in C:\Users\senpa\InventorySystem\functions.php on line 125
+[2025-09-28 09:33:19] Error: Undefined array key "username" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1159
+[2025-09-28 09:33:19] Error: htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1159
+[2025-09-28 09:33:19] Error: Undefined array key "first_name" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1165
+[2025-09-28 09:33:19] Error: htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1165
+[2025-09-28 09:33:19] Error: Undefined array key "last_name" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1170
+[2025-09-28 09:33:19] Error: htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1170
+[2025-09-28 09:33:19] Error: Undefined array key "email" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1175
+[2025-09-28 09:33:19] Error: htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1175
+[2025-09-28 09:33:19] Error: Undefined array key "created_at" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1236
+[2025-09-28 09:33:19] Error: strtotime(): Passing null to parameter #1 ($datetime) of type string is deprecated in C:\Users\senpa\InventorySystem\functions.php on line 125
+[2025-09-28 09:33:19] Error: Undefined array key "last_login" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1237
+[2025-09-28 09:33:19] Error: Undefined array key "active" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1239
+[2025-09-28 09:33:19] Error: Undefined array key "active" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1240
+[2025-09-28 09:36:34] Error: Undefined array key "first_name" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1139
+[2025-09-28 09:36:34] Error: Undefined array key "last_name" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1139
+[2025-09-28 09:36:34] Error: Undefined array key "email" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1147
+[2025-09-28 09:36:34] Error: htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1147
+[2025-09-28 09:36:34] Error: Undefined array key "created_at" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1151
+[2025-09-28 09:36:34] Error: strtotime(): Passing null to parameter #1 ($datetime) of type string is deprecated in C:\Users\senpa\InventorySystem\functions.php on line 125
+[2025-09-28 09:36:34] Error: Undefined array key "username" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1216
+[2025-09-28 09:36:34] Error: htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1216
+[2025-09-28 09:36:34] Error: Undefined array key "first_name" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1222
+[2025-09-28 09:36:34] Error: htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1222
+[2025-09-28 09:36:34] Error: Undefined array key "last_name" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1227
+[2025-09-28 09:36:34] Error: htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1227
+[2025-09-28 09:36:34] Error: Undefined array key "email" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1232
+[2025-09-28 09:36:34] Error: htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1232
+[2025-09-28 09:36:34] Error: Undefined array key "created_at" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1293
+[2025-09-28 09:36:34] Error: strtotime(): Passing null to parameter #1 ($datetime) of type string is deprecated in C:\Users\senpa\InventorySystem\functions.php on line 125
+[2025-09-28 09:36:34] Error: Undefined array key "last_login" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1294
+[2025-09-28 09:36:34] Error: Undefined array key "active" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1296
+[2025-09-28 09:36:34] Error: Undefined array key "active" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1297
+[2025-09-28 09:37:04] Error: Undefined array key "first_name" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1139
+[2025-09-28 09:37:04] Error: Undefined array key "last_name" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1139
+[2025-09-28 09:37:04] Error: Undefined array key "email" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1147
+[2025-09-28 09:37:04] Error: htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1147
+[2025-09-28 09:37:04] Error: Undefined array key "created_at" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1151
+[2025-09-28 09:37:04] Error: strtotime(): Passing null to parameter #1 ($datetime) of type string is deprecated in C:\Users\senpa\InventorySystem\functions.php on line 125
+[2025-09-28 09:37:04] Error: Undefined array key "username" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1216
+[2025-09-28 09:37:04] Error: htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1216
+[2025-09-28 09:37:04] Error: Undefined array key "first_name" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1222
+[2025-09-28 09:37:04] Error: htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1222
+[2025-09-28 09:37:04] Error: Undefined array key "last_name" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1227
+[2025-09-28 09:37:04] Error: htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1227
+[2025-09-28 09:37:04] Error: Undefined array key "email" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1232
+[2025-09-28 09:37:04] Error: htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1232
+[2025-09-28 09:37:04] Error: Undefined array key "created_at" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1293
+[2025-09-28 09:37:04] Error: strtotime(): Passing null to parameter #1 ($datetime) of type string is deprecated in C:\Users\senpa\InventorySystem\functions.php on line 125
+[2025-09-28 09:37:04] Error: Undefined array key "last_login" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1294
+[2025-09-28 09:37:04] Error: Undefined array key "active" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1296
+[2025-09-28 09:37:04] Error: Undefined array key "active" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1297
+[2025-09-28 09:47:57] Error: Undefined array key "first_name" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1139
+[2025-09-28 09:47:57] Error: Undefined array key "last_name" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1139
+[2025-09-28 09:47:57] Error: Undefined array key "email" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1147
+[2025-09-28 09:47:57] Error: htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1147
+[2025-09-28 09:47:57] Error: Undefined array key "created_at" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1151
+[2025-09-28 09:47:57] Error: strtotime(): Passing null to parameter #1 ($datetime) of type string is deprecated in C:\Users\senpa\InventorySystem\functions.php on line 125
+[2025-09-28 09:47:57] Error: Undefined array key "username" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1216
+[2025-09-28 09:47:57] Error: htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1216
+[2025-09-28 09:47:57] Error: Undefined array key "first_name" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1222
+[2025-09-28 09:47:57] Error: htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1222
+[2025-09-28 09:47:57] Error: Undefined array key "last_name" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1227
+[2025-09-28 09:47:57] Error: htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1227
+[2025-09-28 09:47:57] Error: Undefined array key "email" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1232
+[2025-09-28 09:47:57] Error: htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1232
+[2025-09-28 09:47:57] Error: Undefined array key "created_at" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1293
+[2025-09-28 09:47:57] Error: strtotime(): Passing null to parameter #1 ($datetime) of type string is deprecated in C:\Users\senpa\InventorySystem\functions.php on line 125
+[2025-09-28 09:47:57] Error: Undefined array key "last_login" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1294
+[2025-09-28 09:47:57] Error: Undefined array key "active" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1296
+[2025-09-28 09:47:57] Error: Undefined array key "active" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1297
+[2025-09-28 09:50:11] Error: Undefined array key "username" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1225
+[2025-09-28 09:50:11] Error: htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1225
+[2025-09-28 09:50:11] Error: Undefined array key "first_name" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1231
+[2025-09-28 09:50:11] Error: htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1231
+[2025-09-28 09:50:11] Error: Undefined array key "last_name" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1236
+[2025-09-28 09:50:11] Error: htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1236
+[2025-09-28 09:50:11] Error: Undefined array key "email" in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1241
+[2025-09-28 09:50:11] Error: htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1241
+[2025-09-28 09:50:11] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1325
+[2025-09-28 09:50:11] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1351
+[2025-09-28 09:50:11] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1387
+[2025-09-28 09:55:21] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1330
+[2025-09-28 09:55:21] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1356
+[2025-09-28 09:55:21] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1392
+[2025-09-28 09:58:52] Error: Undefined variable $header_icon in C:\Users\senpa\InventorySystem\includes\dashboard_header.php on line 131
+[2025-09-28 09:58:52] Error: Undefined variable $header_title in C:\Users\senpa\InventorySystem\includes\dashboard_header.php on line 134
+[2025-09-28 09:58:52] Error: htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\Users\senpa\InventorySystem\includes\dashboard_header.php on line 134
+[2025-09-28 09:58:52] Error: Undefined variable $header_subtitle in C:\Users\senpa\InventorySystem\includes\dashboard_header.php on line 135
+[2025-09-28 09:58:52] Error: htmlspecialchars(): Passing null to parameter #1 ($string) of type string is deprecated in C:\Users\senpa\InventorySystem\includes\dashboard_header.php on line 135
+[2025-09-28 09:58:52] Error: Undefined variable $show_compact_toggle in C:\Users\senpa\InventorySystem\includes\dashboard_header.php on line 138
+[2025-09-28 09:58:52] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1330
+[2025-09-28 09:58:52] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1356
+[2025-09-28 09:58:52] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1392
+[2025-09-28 09:59:44] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1330
+[2025-09-28 09:59:44] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1356
+[2025-09-28 09:59:44] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1392
+[2025-09-28 09:59:58] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1330
+[2025-09-28 09:59:58] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1356
+[2025-09-28 09:59:58] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1392
+[2025-09-28 10:01:00] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1330
+[2025-09-28 10:01:00] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1356
+[2025-09-28 10:01:00] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1392
+[2025-09-28 10:01:07] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1330
+[2025-09-28 10:01:07] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1356
+[2025-09-28 10:01:07] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1392
+[2025-09-28 10:01:36] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1330
+[2025-09-28 10:01:36] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1356
+[2025-09-28 10:01:36] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1392
+[2025-09-28 10:13:06] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1338
+[2025-09-28 10:13:06] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1364
+[2025-09-28 10:13:06] Error: foreach() argument must be of type array|object, null given in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1400
