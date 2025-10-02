@@ -4,9 +4,15 @@
  * Comprehensive activity tracking, filtering, and reporting system
  */
 
-require_once '../../config.php';
-require_once '../../db.php';
-require_once '../../functions.php';
+// Enable output buffering and compression for faster page delivery
+ob_start();
+if (extension_loaded('zlib')) {
+    ini_set('zlib.output_compression', 'On');
+}
+
+require_once '../../../config.php';
+require_once '../../../db.php';
+require_once '../../../functions.php';
 
 session_start();
 
@@ -187,11 +193,11 @@ try {
     $totalPages = 1;
 }
 
-// Get all users for filter dropdown (admin only)
+// Get users for filter dropdown (admin only, limit to 100 for performance)
 $allUsers = [];
 if ($isAdmin) {
     try {
-        $allUsers = $db->readAll('users', [], ['first_name', 'ASC']);
+        $allUsers = $db->readAll('users', [], ['first_name', 'ASC'], 100);
     } catch (Exception $e) {
         error_log('Fetch users error: ' . $e->getMessage());
     }
@@ -211,7 +217,7 @@ $page_title = 'Activity Management - Inventory System';
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo $page_title; ?></title>
-    <link rel="stylesheet" href="../../assets/css/style.css">
+    <link rel="stylesheet" href="../../../assets/css/style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         .activity-container {
@@ -452,7 +458,7 @@ $page_title = 'Activity Management - Inventory System';
     </style>
 </head>
 <body>
-    <?php include '../../includes/dashboard_header.php'; ?>
+    <?php include '../../../includes/dashboard_header.php'; ?>
     
     <div class="container">
         <div class="activity-container">
@@ -653,6 +659,6 @@ $page_title = 'Activity Management - Inventory System';
         </div>
     </div>
     
-    <script src="../../assets/js/main.js"></script>
+    <script src="../../../assets/js/main.js"></script>
 </body>
 </html>

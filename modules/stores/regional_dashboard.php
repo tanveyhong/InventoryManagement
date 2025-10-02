@@ -460,19 +460,18 @@ $page_title = "Regional Reporting Dashboard - Inventory System";
     </style>
 </head>
 <body>
-    <div class="main-content">
-        <!-- Dashboard Header -->
-        <?php 
-        $header_title = "Regional Dashboard";
-        $header_subtitle = "Comprehensive analytics and performance metrics across all regions";
-        $header_icon = "fas fa-chart-area";
-        $show_compact_toggle = true;
-        $header_stats = [
-            [
-                'value' => count($regions),
-                'label' => 'Total Regions',
-                'icon' => 'fas fa-map-marked-alt',
-                'type' => 'primary',
+    <!-- Dashboard Header -->
+    <?php 
+    $header_title = "Regional Dashboard";
+    $header_subtitle = "Comprehensive analytics and performance metrics across all regions";
+    $header_icon = "fas fa-chart-area";
+    $show_compact_toggle = true;
+    $header_stats = [
+        [
+            'value' => count($regions),
+            'label' => 'Total Regions',
+            'icon' => 'fas fa-map-marked-alt',
+            'type' => 'primary',
                 'trend' => [
                     'type' => 'trend-up',
                     'icon' => 'arrow-up',
@@ -515,7 +514,7 @@ $page_title = "Regional Reporting Dashboard - Inventory System";
         ];
         include '../../includes/dashboard_header.php'; 
         ?>
-
+    <div class="main-content">
         <!-- Page header -->
         <div class="page-header">
             <div class="header-left">

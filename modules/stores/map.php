@@ -1,526 +1,1115 @@
+<?php
+// Enhanced Interactive Store Map with Leaflet
+require_once '../../config.php';
+require_once '../../db.php';
+require_once '../../functions.php';
+
+// Start session if not already started
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+// Check if user is logged in
+if (!isLoggedIn()) {
+    header('Location: ../users/login.php');
+    exit;
+}
+
+// Get Firebase database instance
+$db = getDB();
+
+// Fetch all stores with location data
+$all_stores = $db->readAll('stores', [['active', '==', 1]]);
+$regions = $db->readAll('regions', [['active', '==', 1]]);
+
+// Calculate statistics
+$total_stores = count($all_stores);
+$active_stores = count(array_filter($all_stores, function($s) {
+    return ($s['status'] ?? 'active') === 'active';
+}));
+$stores_with_location = count(array_filter($all_stores, function($s) {
+    return !empty($s['latitude']) && !empty($s['longitude']);
+}));
+
+// Get unique store types
+$store_types = array_unique(array_map(function($s) {
+    return $s['store_type'] ?? 'retail';
+}, $all_stores));
+
+$page_title = 'Interactive Store Map - Inventory System';
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Store Map - Inventory System</title>
+    <title><?php echo $page_title; ?></title>
     <link rel="stylesheet" href="../../assets/css/style.css">
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <!-- Leaflet MarkerCluster CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    
     <style>
-        .map-container {
-            height: 600px;
-            width: 100%;
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            margin: 20px 0;
+        * {
+            box-sizing: border-box;
         }
         
-        .map-controls {
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            margin: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow-x: hidden;
+            padding-top: 0; /* Allow dashboard header to be at top */
+        }
+        
+        /* Dashboard header compatibility */
+        body > header {
+            background: rgba(255, 255, 255, 0.98);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+        
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 20px;
+            padding-top: 20px; /* Space after dashboard header */
+        }
+        
+        .page-header {
+            background: rgba(255, 255, 255, 0.98);
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 25px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.15);
             display: flex;
-            gap: 10px;
-            margin: 20px 0;
-            flex-wrap: wrap;
+            justify-content: space-between;
+            align-items: center;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.3);
+            animation: slideDown 0.5s ease-out;
         }
         
-        .store-info-card {
-            background: white;
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            padding: 15px;
-            margin: 10px 0;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
         
-        .store-list {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .page-header h1 {
+            margin: 0;
+            color: #2d3748;
+            display: flex;
+            align-items: center;
             gap: 15px;
-            margin-top: 20px;
+            font-size: 2em;
+            font-weight: 700;
         }
         
-        .store-card {
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            padding: 15px;
-            background: white;
-            transition: box-shadow 0.3s;
+        .page-header h1 i {
+            color: #667eea;
+            font-size: 1.2em;
+            animation: pulse 2s infinite;
         }
         
-        .store-card:hover {
-            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
         }
         
-        .store-status {
-            display: inline-block;
-            padding: 3px 8px;
-            border-radius: 12px;
-            font-size: 12px;
-            font-weight: bold;
+        .page-header p {
+            margin: 5px 0 0 45px;
+            color: #718096;
+            font-size: 1em;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 20px;
+            margin-bottom: 25px;
+            animation: fadeInUp 0.6s ease-out 0.1s both;
+        }
+        
+        .stat-card {
+            background: rgba(255, 255, 255, 0.98);
+            border-radius: 20px;
+            padding: 25px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+            text-align: center;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            position: relative;
+            overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.5);
+        }
+        
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            transform: scaleX(0);
+            transform-origin: left;
+            transition: transform 0.4s ease;
+        }
+        
+        .stat-card:hover {
+            transform: translateY(-8px) scale(1.02);
+            box-shadow: 0 15px 50px rgba(102, 126, 234, 0.3);
+        }
+        
+        .stat-card:hover::before {
+            transform: scaleX(1);
+        }
+        
+        .stat-number {
+            font-size: 3em;
+            font-weight: 800;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 8px;
+            letter-spacing: -1px;
+        }
+        
+        .stat-label {
+            color: #718096;
+            font-size: 0.95em;
+            font-weight: 600;
             text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
         
-        .status-active {
-            background: #d4edda;
-            color: #155724;
+        .map-section {
+            background: rgba(255, 255, 255, 0.98);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.15);
+            margin-bottom: 25px;
+            animation: fadeInUp 0.6s ease-out 0.2s both;
+            border: 1px solid rgba(255,255,255,0.3);
         }
         
-        .status-inactive {
-            background: #f8d7da;
-            color: #721c24;
-        }
-        
-        .filter-section {
-            background: #f8f9fa;
-            padding: 15px;
-            border-radius: 8px;
+        .map-section h2 {
+            color: #2d3748;
+            font-weight: 700;
             margin-bottom: 20px;
         }
         
-        .search-section {
+        .filter-controls {
             display: flex;
-            gap: 10px;
+            gap: 12px;
+            margin-bottom: 25px;
+            flex-wrap: wrap;
             align-items: center;
-            margin-bottom: 15px;
+            background: #f7fafc;
+            padding: 20px;
+            border-radius: 15px;
+            border: 2px dashed rgba(102, 126, 234, 0.2);
         }
         
-        .search-input {
+        .filter-controls input,
+        .filter-controls select {
+            padding: 12px 18px;
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            font-size: 14px;
+            transition: all 0.3s ease;
+            background: white;
+            font-family: inherit;
+        }
+        
+        .filter-controls input:focus,
+        .filter-controls select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        .filter-controls input {
             flex: 1;
-            padding: 8px 12px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
+            min-width: 250px;
+        }
+        
+        .filter-controls select {
+            min-width: 170px;
+            cursor: pointer;
+        }
+        
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 25px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn:hover::before {
+            opacity: 1;
+        }
+        
+        .btn > * {
+            position: relative;
+            z-index: 1;
+        }
+        
+        .btn:active {
+            transform: translateY(0);
+        }
+        
+        .btn-secondary {
+            background: linear-gradient(135deg, #718096 0%, #4a5568 100%);
+            box-shadow: 0 4px 15px rgba(113, 128, 150, 0.3);
+        }
+        
+        .btn-outline {
+            background: white;
+            color: #667eea;
+            border: 2px solid #667eea;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.15);
+        }
+        
+        .btn-outline:hover {
+            background: #667eea;
+            color: white;
+        }
+        
+        #map {
+            height: 650px;
+            width: 100%;
+            border-radius: 20px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.15);
+            border: 3px solid rgba(255,255,255,0.5);
+            overflow: hidden;
+        }
+        
+        .leaflet-container {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
         
         .legend {
-            background: white;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            padding: 10px;
-            margin: 10px 0;
-            font-size: 12px;
+            background: linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(247,250,252,0.98) 100%);
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 6px 25px rgba(0,0,0,0.1);
+            margin-top: 20px;
+            border: 1px solid rgba(255,255,255,0.5);
+        }
+        
+        .legend h4 {
+            margin: 0 0 15px 0;
+            color: #2d3748;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .legend h4 i {
+            color: #667eea;
         }
         
         .legend-item {
             display: flex;
             align-items: center;
-            margin: 5px 0;
+            margin: 12px 0;
+            padding: 8px;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        
+        .legend-item:hover {
+            background: rgba(102, 126, 234, 0.08);
+            transform: translateX(5px);
         }
         
         .legend-color {
-            width: 16px;
-            height: 16px;
+            width: 24px;
+            height: 24px;
             border-radius: 50%;
-            margin-right: 8px;
+            margin-right: 12px;
+            border: 3px solid white;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            transition: transform 0.3s ease;
         }
         
-        .stats-grid {
+        .legend-item:hover .legend-color {
+            transform: scale(1.2);
+        }
+        
+        .legend-item span {
+            font-weight: 500;
+            color: #4a5568;
+        }
+        
+        .store-list-section {
+            background: rgba(255, 255, 255, 0.98);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.15);
+            margin-top: 25px;
+            animation: fadeInUp 0.6s ease-out 0.3s both;
+            border: 1px solid rgba(255,255,255,0.3);
+        }
+        
+        .store-list-section h2 {
+            color: #2d3748;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+        
+        #store-count {
+            color: #718096;
+            margin-bottom: 20px;
+            font-weight: 500;
+        }
+        
+        .store-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin: 20px 0;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
         }
         
-        .stat-card {
+        .store-card {
             background: white;
-            border: 1px solid #ddd;
-            border-radius: 8px;
+            border: 2px solid #e2e8f0;
+            border-radius: 16px;
             padding: 20px;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .store-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 5px;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            transform: scaleX(0);
+            transform-origin: left;
+            transition: transform 0.4s ease;
+        }
+        
+        .store-card:hover {
+            box-shadow: 0 12px 40px rgba(102, 126, 234, 0.2);
+            transform: translateY(-5px);
+            border-color: #667eea;
+        }
+        
+        .store-card:hover::before {
+            transform: scaleX(1);
+        }
+        
+        .store-card h3 {
+            margin: 0 0 12px 0;
+            color: #2d3748;
+            font-weight: 700;
+            font-size: 1.2em;
+        }
+        
+        .store-card p {
+            margin: 8px 0;
+            color: #718096;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .store-card i {
+            color: #667eea;
+            width: 16px;
+        }
+        
+        .store-type-badge {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            margin-bottom: 12px;
+            letter-spacing: 0.5px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        .type-retail { 
+            background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+            color: #1565c0;
+        }
+        .type-warehouse { 
+            background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+            color: #2e7d32;
+        }
+        .type-distribution { 
+            background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
+            color: #e65100;
+        }
+        .type-flagship { 
+            background: linear-gradient(135deg, #fce4ec 0%, #f8bbd0 100%);
+            color: #ad1457;
+        }
+        .type-outlet { 
+            background: linear-gradient(135deg, #f3e5f5 0%, #e1bee7 100%);
+            color: #6a1b9a;
+        }
+        
+        .leaflet-popup-content {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            min-width: 250px;
+        }
+        
+        .leaflet-popup-content-wrapper {
+            border-radius: 16px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+        }
+        
+        .popup-content h3 {
+            margin: 0 0 12px 0;
+            color: #2d3748;
+            font-weight: 700;
+            font-size: 1.2em;
+        }
+        
+        .popup-content p {
+            margin: 8px 0;
+            font-size: 14px;
+            color: #4a5568;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .popup-content i {
+            color: #667eea;
+            width: 16px;
+        }
+        
+        .popup-actions {
+            margin-top: 15px;
+            display: flex;
+            gap: 8px;
+        }
+        
+        .popup-btn {
+            padding: 8px 16px;
+            font-size: 13px;
+            border-radius: 10px;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        
+        .popup-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+        }
+        
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            backdrop-filter: blur(5px);
+        }
+        
+        .loading-spinner {
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
             text-align: center;
+            box-shadow: 0 10px 50px rgba(0,0,0,0.3);
         }
         
-        .stat-number {
-            font-size: 2em;
-            font-weight: bold;
-            color: #007bff;
+        .loading-spinner i {
+            font-size: 3em;
+            color: #667eea;
+            animation: spin 1s linear infinite;
         }
         
-        .stat-label {
-            color: #666;
-            font-size: 0.9em;
-            margin-top: 5px;
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
+        .nav-links {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+            
+            .page-header {
+                flex-direction: column;
+                gap: 15px;
+                text-align: center;
+            }
+            
+            .page-header h1 {
+                font-size: 1.5em;
+            }
+            
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .filter-controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .filter-controls input,
+            .filter-controls select {
+                width: 100%;
+            }
+            
+            #map {
+                height: 400px;
+            }
+            
+            .store-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .nav-links {
+                width: 100%;
+                justify-content: center;
+            }
+        }
+        
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 10px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: rgba(255,255,255,0.1);
+            border-radius: 10px;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 10px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
         }
     </style>
 </head>
 <body>
+    <?php 
+    $header_title = "Store Map";
+    $header_subtitle = "Interactive store location visualization and management";
+    $header_icon = "fas fa-map-marked-alt";
+    $show_compact_toggle = false;
+    $header_stats = [];
+    include '../../includes/dashboard_header.php'; 
+    ?>
+    
     <div class="container">
-        <header>
-            <h1>Store Mapping & Management</h1>
-            <nav>
-                <ul>
-                    <li><a href="../../index.php">Dashboard</a></li>
-                    <li><a href="../stock/list.php">Stock</a></li>
-                    <li><a href="list.php">Stores</a></li>
-                    <li><a href="map.php" class="active">Store Map</a></li>
-                    <li><a href="regional_dashboard.php">Regional Reports</a></li>
-                    <li><a href="../users/logout.php">Logout</a></li>
-                </ul>
-            </nav>
-        </header>
-
-        <main>
-            <div class="page-header">
-                <h2>Interactive Store Map</h2>
-                <div class="page-actions">
-                    <a href="add.php" class="btn btn-primary">Add New Store</a>
-                    <a href="list.php" class="btn btn-secondary">List View</a>
-                </div>
+        <!-- Page Header -->
+        <div class="page-header">
+            <div>
+                <h1><i class="fas fa-map-marked-alt"></i> Interactive Store Map</h1>
+                <p style="margin: 5px 0 0 0; color: #718096;">Visualize and manage all store locations</p>
             </div>
-
-            <!-- Statistics Overview -->
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-number" id="total-stores">0</div>
-                    <div class="stat-label">Total Stores</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-number" id="active-stores">0</div>
-                    <div class="stat-label">Active Stores</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-number" id="regions-count">0</div>
-                    <div class="stat-label">Regions</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-number" id="total-inventory">0</div>
-                    <div class="stat-label">Total Inventory Value</div>
-                </div>
+            <div class="nav-links">
+                <a href="../../index.php" class="btn btn-outline">
+                    <i class="fas fa-home"></i> Dashboard
+                </a>
+                <a href="add.php" class="btn">
+                    <i class="fas fa-plus"></i> Add Store
+                </a>
+                <a href="list.php" class="btn btn-secondary">
+                    <i class="fas fa-list"></i> List View
+                </a>
             </div>
-
-            <!-- Filter Section -->
-            <div class="filter-section">
-                <div class="search-section">
-                    <input type="text" id="search-input" class="search-input" placeholder="Search stores by name, city, or region...">
-                    <button onclick="searchStores()" class="btn btn-primary">Search</button>
-                    <button onclick="clearSearch()" class="btn btn-outline">Clear</button>
-                </div>
+        </div>
+        
+        <!-- Statistics -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-number"><?php echo $total_stores; ?></div>
+                <div class="stat-label">Total Stores</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number"><?php echo $active_stores; ?></div>
+                <div class="stat-label">Active Stores</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number"><?php echo $stores_with_location; ?></div>
+                <div class="stat-label">Mapped Stores</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number"><?php echo count($regions); ?></div>
+                <div class="stat-label">Regions</div>
+            </div>
+        </div>
+        
+        <!-- Map Section -->
+        <div class="map-section">
+            <h2 style="margin: 0 0 15px 0;"><i class="fas fa-map"></i> Store Locations</h2>
+            
+            <!-- Filter Controls -->
+            <div class="filter-controls">
+                <input type="text" id="search-input" placeholder="Search stores by name, city, or region...">
                 
-                <div class="map-controls">
-                    <select id="region-filter" onchange="filterByRegion()">
-                        <option value="">All Regions</option>
-                    </select>
-                    
-                    <select id="type-filter" onchange="filterByType()">
-                        <option value="">All Store Types</option>
-                        <option value="retail">Retail</option>
-                        <option value="warehouse">Warehouse</option>
-                        <option value="distribution">Distribution</option>
-                        <option value="flagship">Flagship</option>
-                    </select>
-                    
-                    <select id="status-filter" onchange="filterByStatus()">
-                        <option value="">All Status</option>
-                        <option value="active">Active</option>
-                        <option value="inactive">Inactive</option>
-                    </select>
-                    
-                    <button onclick="centerMap()" class="btn btn-secondary">Center Map</button>
-                    <button onclick="showAllStores()" class="btn btn-outline">Show All</button>
-                </div>
+                <select id="region-filter">
+                    <option value="">All Regions</option>
+                    <?php foreach ($regions as $region): ?>
+                        <option value="<?php echo htmlspecialchars($region['id']); ?>">
+                            <?php echo htmlspecialchars($region['name']); ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+                
+                <select id="type-filter">
+                    <option value="">All Types</option>
+                    <?php foreach ($store_types as $type): ?>
+                        <option value="<?php echo htmlspecialchars($type); ?>">
+                            <?php echo ucfirst(htmlspecialchars($type)); ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+                
+                <button class="btn" onclick="applyFilters()">
+                    <i class="fas fa-filter"></i> Apply Filters
+                </button>
+                
+                <button class="btn btn-outline" onclick="resetFilters()">
+                    <i class="fas fa-redo"></i> Reset
+                </button>
+                
+                <button class="btn btn-secondary" onclick="toggleClustering()">
+                    <i class="fas fa-layer-group"></i> <span id="cluster-text">Enable Clustering</span>
+                </button>
             </div>
-
-            <!-- Map Legend -->
+            
+            <!-- Map Container -->
+            <div id="map"></div>
+            
+            <!-- Legend -->
             <div class="legend">
-                <strong>Store Types:</strong>
+                <h4><i class="fas fa-info-circle"></i> Store Types</h4>
                 <div class="legend-item">
-                    <div class="legend-color" style="background-color: #007bff;"></div>
+                    <div class="legend-color" style="background: #1976d2;"></div>
                     <span>Retail Store</span>
                 </div>
                 <div class="legend-item">
-                    <div class="legend-color" style="background-color: #28a745;"></div>
+                    <div class="legend-color" style="background: #388e3c;"></div>
                     <span>Warehouse</span>
                 </div>
                 <div class="legend-item">
-                    <div class="legend-color" style="background-color: #ffc107;"></div>
+                    <div class="legend-color" style="background: #f57c00;"></div>
                     <span>Distribution Center</span>
                 </div>
                 <div class="legend-item">
-                    <div class="legend-color" style="background-color: #dc3545;"></div>
+                    <div class="legend-color" style="background: #c2185b;"></div>
                     <span>Flagship Store</span>
                 </div>
-            </div>
-
-            <!-- Interactive Map -->
-            <div id="map" class="map-container">
-                <div style="display: flex; align-items: center; justify-content: center; height: 100%; background: #f8f9fa; color: #666;">
-                    <div style="text-align: center;">
-                        <h3>Interactive Store Map</h3>
-                        <p>Loading store locations...</p>
-                        <p><small>Note: This demo uses a simulated map. In production, integrate with Google Maps, Leaflet, or similar mapping service.</small></p>
-                    </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #7b1fa2;"></div>
+                    <span>Outlet</span>
                 </div>
             </div>
-
-            <!-- Store List View -->
-            <div class="store-list" id="store-list">
-                <!-- Store cards will be dynamically loaded here -->
+        </div>
+        
+        <!-- Store List -->
+        <div class="store-list-section">
+            <h2 style="margin: 0 0 15px 0;"><i class="fas fa-store"></i> Store Directory</h2>
+            <div id="store-count" style="color: #666; margin-bottom: 10px;">
+                Showing <span id="filtered-count"><?php echo $total_stores; ?></span> of <?php echo $total_stores; ?> stores
             </div>
-        </main>
+            <div class="store-grid" id="store-list"></div>
+        </div>
     </div>
-
+    
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <!-- Leaflet MarkerCluster JS -->
+    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+    
     <script>
-        // Store data - In production, this would be loaded from the backend
-        let storesData = [];
-        let filteredStores = [];
-        let currentFilters = {
-            search: '',
-            region: '',
-            type: '',
-            status: ''
+        // Store data from PHP
+        const storesData = <?php echo json_encode($all_stores); ?>;
+        const regionsData = <?php echo json_encode($regions); ?>;
+        
+        // Map and layer variables
+        let map;
+        let markersLayer;
+        let clusterGroup;
+        let isClusteringEnabled = false;
+        let filteredStores = [...storesData];
+        
+        // Store type colors
+        const storeColors = {
+            'retail': '#1976d2',
+            'warehouse': '#388e3c',
+            'distribution': '#f57c00',
+            'flagship': '#c2185b',
+            'outlet': '#7b1fa2'
         };
-
-        // Initialize the map page
-        document.addEventListener('DOMContentLoaded', function() {
-            loadStoreData();
-            initializeMap();
-            loadRegions();
-        });
-
-        // Load store data from backend
-        async function loadStoreData() {
-            try {
-                const response = await fetch('api/get_stores_with_location.php');
-                const data = await response.json();
-                
-                if (data.success) {
-                    storesData = data.stores;
-                    filteredStores = [...storesData];
-                    updateStatistics();
-                    renderStoreList();
-                    updateMapMarkers();
+        
+        // Helper function to adjust color brightness
+        function adjustColor(color, amount) {
+            const clamp = (num) => Math.min(255, Math.max(0, num));
+            const num = parseInt(color.replace('#', ''), 16);
+            const r = clamp((num >> 16) + amount);
+            const g = clamp(((num >> 8) & 0x00FF) + amount);
+            const b = clamp((num & 0x0000FF) + amount);
+            return '#' + (0x1000000 + (r << 16) + (g << 8) + b).toString(16).slice(1);
+        }
+        
+        // Helper function to get store icon
+        function getStoreIcon(type) {
+            const icons = {
+                'retail': 'fa-store',
+                'warehouse': 'fa-warehouse',
+                'distribution': 'fa-truck-loading',
+                'flagship': 'fa-star',
+                'outlet': 'fa-shopping-bag'
+            };
+            return icons[type] || 'fa-store';
+        }
+        
+        // Initialize map
+        function initMap() {
+            // Create map centered on US (or adjust to your region)
+            map = L.map('map').setView([39.8283, -98.5795], 4);
+            
+            // Add OpenStreetMap tiles
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors',
+                maxZoom: 19
+            }).addTo(map);
+            
+            // Initialize marker layers
+            markersLayer = L.layerGroup().addTo(map);
+            clusterGroup = L.markerClusterGroup({
+                chunkedLoading: true,
+                spiderfyOnMaxZoom: true,
+                showCoverageOnHover: false
+            });
+            
+            // Load all stores
+            loadStoreMarkers(storesData);
+            
+            // Fit map to markers if stores exist
+            if (storesData.length > 0) {
+                const bounds = L.latLngBounds(
+                    storesData
+                        .filter(s => s.latitude && s.longitude)
+                        .map(s => [parseFloat(s.latitude), parseFloat(s.longitude)])
+                );
+                if (bounds.isValid()) {
+                    map.fitBounds(bounds, { padding: [50, 50] });
                 }
-            } catch (error) {
-                console.error('Error loading store data:', error);
-                // Load sample data for demo
-                loadSampleData();
             }
         }
-
-        // Load sample data for demonstration
-        function loadSampleData() {
-            storesData = [
-                {
-                    id: 1,
-                    name: 'Downtown Store',
-                    code: 'DT001',
-                    address: '123 Main St',
-                    city: 'New York',
-                    state: 'NY',
-                    latitude: 40.7128,
-                    longitude: -74.0060,
-                    store_type: 'retail',
-                    region_name: 'East Region',
-                    active: 1,
-                    total_inventory: 15000,
-                    inventory_value: 125000,
-                    staff_count: 5
-                },
-                {
-                    id: 2,
-                    name: 'Westside Warehouse',
-                    code: 'WW002',
-                    address: '456 West Ave',
-                    city: 'Los Angeles',
-                    state: 'CA',
-                    latitude: 34.0522,
-                    longitude: -118.2437,
-                    store_type: 'warehouse',
-                    region_name: 'West Region',
-                    active: 1,
-                    total_inventory: 50000,
-                    inventory_value: 450000,
-                    staff_count: 12
-                },
-                {
-                    id: 3,
-                    name: 'Central Distribution',
-                    code: 'CD003',
-                    address: '789 Central Blvd',
-                    city: 'Chicago',
-                    state: 'IL',
-                    latitude: 41.8781,
-                    longitude: -87.6298,
-                    store_type: 'distribution',
-                    region_name: 'Central Region',
-                    active: 1,
-                    total_inventory: 75000,
-                    inventory_value: 625000,
-                    staff_count: 20
+        
+        // Load store markers
+        function loadStoreMarkers(stores) {
+            // Clear existing markers
+            markersLayer.clearLayers();
+            clusterGroup.clearLayers();
+            
+            stores.forEach(store => {
+                if (store.latitude && store.longitude) {
+                    const lat = parseFloat(store.latitude);
+                    const lon = parseFloat(store.longitude);
+                    
+                    if (!isNaN(lat) && !isNaN(lon)) {
+                        // Create custom icon
+                        const storeType = store.store_type || 'retail';
+                        const color = storeColors[storeType] || '#1976d2';
+                        
+                        const customIcon = L.divIcon({
+                            className: 'custom-marker',
+                            html: `<div class="marker-pin" style="position: relative; animation: markerBounce 0.6s ease-out;">
+                                     <div class="marker-inner" style="background: linear-gradient(135deg, ${color} 0%, ${adjustColor(color, -20)} 100%); width: 36px; height: 36px; border-radius: 50%; border: 4px solid white; box-shadow: 0 4px 12px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; transition: all 0.3s ease;">
+                                       <i class="fas fa-store" style="color: white; font-size: 14px;"></i>
+                                     </div>
+                                     <div class="marker-pulse" style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; border-radius: 50%; background: ${color}; opacity: 0; animation: pulse 2s infinite;"></div>
+                                   </div>
+                                   <style>
+                                     @keyframes markerBounce {
+                                       0% { transform: translateY(-100px) scale(0); opacity: 0; }
+                                       60% { transform: translateY(5px) scale(1.1); opacity: 1; }
+                                       100% { transform: translateY(0) scale(1); opacity: 1; }
+                                     }
+                                     @keyframes pulse {
+                                       0% { transform: scale(1); opacity: 0.5; }
+                                       100% { transform: scale(2.5); opacity: 0; }
+                                     }
+                                     .custom-marker:hover .marker-inner {
+                                       transform: scale(1.2);
+                                       box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+                                     }
+                                   </style>`,
+                            iconSize: [36, 36],
+                            iconAnchor: [18, 18]
+                        });
+                        
+                        // Create marker
+                        const marker = L.marker([lat, lon], { icon: customIcon });
+                        
+                        // Create popup content
+                        const popupContent = `
+                            <div class="popup-content">
+                                <h3><i class="fas fa-store"></i> ${store.name || 'Unnamed Store'}</h3>
+                                <div class="store-type-badge type-${storeType}">${storeType.toUpperCase()}</div>
+                                <p><i class="fas fa-map-marker-alt"></i> ${store.address || 'N/A'}, ${store.city || ''}, ${store.state || ''}</p>
+                                ${store.phone ? `<p><i class="fas fa-phone"></i> ${store.phone}</p>` : ''}
+                                ${store.email ? `<p><i class="fas fa-envelope"></i> ${store.email}</p>` : ''}
+                                ${store.manager_name ? `<p><i class="fas fa-user"></i> Manager: ${store.manager_name}</p>` : ''}
+                                ${store.opening_hours && store.closing_hours ? `<p><i class="fas fa-clock"></i> ${store.opening_hours} - ${store.closing_hours}</p>` : ''}
+                                <div class="popup-actions">
+                                    <a href="profile.php?id=${store.id}" class="btn popup-btn"><i class="fas fa-eye"></i> View</a>
+                                    <a href="inventory_viewer.php?id=${store.id}" class="btn btn-secondary popup-btn"><i class="fas fa-boxes"></i> Inventory</a>
+                                </div>
+                            </div>
+                        `;
+                        
+                        marker.bindPopup(popupContent);
+                        
+                        // Add to appropriate layer
+                        if (isClusteringEnabled) {
+                            clusterGroup.addLayer(marker);
+                        } else {
+                            markersLayer.addLayer(marker);
+                        }
+                    }
                 }
-            ];
-            
-            filteredStores = [...storesData];
-            updateStatistics();
-            renderStoreList();
-        }
-
-        // Update statistics display
-        function updateStatistics() {
-            document.getElementById('total-stores').textContent = storesData.length;
-            document.getElementById('active-stores').textContent = storesData.filter(s => s.active).length;
-            document.getElementById('regions-count').textContent = [...new Set(storesData.map(s => s.region_name))].length;
-            
-            const totalValue = storesData.reduce((sum, store) => sum + (store.inventory_value || 0), 0);
-            document.getElementById('total-inventory').textContent = '$' + totalValue.toLocaleString();
-        }
-
-        // Render store list
-        function renderStoreList() {
-            const container = document.getElementById('store-list');
-            container.innerHTML = '';
-
-            filteredStores.forEach(store => {
-                const storeCard = createStoreCard(store);
-                container.appendChild(storeCard);
             });
-        }
-
-        // Create individual store card
-        function createStoreCard(store) {
-            const card = document.createElement('div');
-            card.className = 'store-card';
-            card.innerHTML = `
-                <div style="display: flex; justify-content: between; align-items: start; margin-bottom: 10px;">
-                    <h3 style="margin: 0;">${store.name}</h3>
-                    <span class="store-status ${store.active ? 'status-active' : 'status-inactive'}">
-                        ${store.active ? 'Active' : 'Inactive'}
-                    </span>
-                </div>
-                <p><strong>Code:</strong> ${store.code}</p>
-                <p><strong>Address:</strong> ${store.address}, ${store.city}, ${store.state}</p>
-                <p><strong>Type:</strong> ${store.store_type.charAt(0).toUpperCase() + store.store_type.slice(1)}</p>
-                <p><strong>Region:</strong> ${store.region_name || 'N/A'}</p>
-                <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #eee;">
-                    <div style="display: flex; justify-content: space-between; font-size: 0.9em;">
-                        <span>Inventory: ${store.total_inventory || 0}</span>
-                        <span>Value: $${(store.inventory_value || 0).toLocaleString()}</span>
-                    </div>
-                    <div style="margin-top: 10px;">
-                        <a href="profile.php?id=${store.id}" class="btn btn-sm btn-primary">View Profile</a>
-                        <a href="inventory_viewer.php?id=${store.id}" class="btn btn-sm btn-secondary">View Inventory</a>
-                        <a href="edit.php?id=${store.id}" class="btn btn-sm btn-outline">Edit</a>
-                    </div>
-                </div>
-            `;
             
-            return card;
+            // Add cluster group to map if clustering is enabled
+            if (isClusteringEnabled && !map.hasLayer(clusterGroup)) {
+                map.addLayer(clusterGroup);
+            }
         }
-
-        // Search functionality
-        function searchStores() {
-            const searchTerm = document.getElementById('search-input').value.toLowerCase();
-            currentFilters.search = searchTerm;
-            applyFilters();
+        
+        // Toggle clustering
+        function toggleClustering() {
+            isClusteringEnabled = !isClusteringEnabled;
+            const clusterText = document.getElementById('cluster-text');
+            
+            if (isClusteringEnabled) {
+                map.removeLayer(markersLayer);
+                clusterText.textContent = 'Disable Clustering';
+            } else {
+                map.removeLayer(clusterGroup);
+                clusterText.textContent = 'Enable Clustering';
+            }
+            
+            loadStoreMarkers(filteredStores);
         }
-
-        function clearSearch() {
-            document.getElementById('search-input').value = '';
-            currentFilters.search = '';
-            applyFilters();
-        }
-
-        // Filter functions
-        function filterByRegion() {
-            currentFilters.region = document.getElementById('region-filter').value;
-            applyFilters();
-        }
-
-        function filterByType() {
-            currentFilters.type = document.getElementById('type-filter').value;
-            applyFilters();
-        }
-
-        function filterByStatus() {
-            currentFilters.status = document.getElementById('status-filter').value;
-            applyFilters();
-        }
-
-        // Apply all filters
+        
+        // Apply filters
         function applyFilters() {
+            const searchTerm = document.getElementById('search-input').value.toLowerCase();
+            const regionFilter = document.getElementById('region-filter').value;
+            const typeFilter = document.getElementById('type-filter').value;
+            
             filteredStores = storesData.filter(store => {
                 // Search filter
-                if (currentFilters.search) {
-                    const searchMatch = store.name.toLowerCase().includes(currentFilters.search) ||
-                                      store.city.toLowerCase().includes(currentFilters.search) ||
-                                      (store.region_name && store.region_name.toLowerCase().includes(currentFilters.search));
-                    if (!searchMatch) return false;
+                if (searchTerm) {
+                    const searchFields = [
+                        store.name || '',
+                        store.city || '',
+                        store.state || '',
+                        store.address || ''
+                    ].join(' ').toLowerCase();
+                    
+                    if (!searchFields.includes(searchTerm)) {
+                        return false;
+                    }
                 }
                 
                 // Region filter
-                if (currentFilters.region && store.region_name !== currentFilters.region) {
+                if (regionFilter && store.region_id !== regionFilter) {
                     return false;
                 }
                 
                 // Type filter
-                if (currentFilters.type && store.store_type !== currentFilters.type) {
+                if (typeFilter && store.store_type !== typeFilter) {
                     return false;
                 }
-                
-                // Status filter
-                if (currentFilters.status === 'active' && !store.active) return false;
-                if (currentFilters.status === 'inactive' && store.active) return false;
                 
                 return true;
             });
             
+            // Update map markers
+            loadStoreMarkers(filteredStores);
+            
+            // Update store list
             renderStoreList();
-            updateMapMarkers();
+            
+            // Update count
+            document.getElementById('filtered-count').textContent = filteredStores.length;
+            
+            // Fit map to filtered stores
+            if (filteredStores.length > 0) {
+                const bounds = L.latLngBounds(
+                    filteredStores
+                        .filter(s => s.latitude && s.longitude)
+                        .map(s => [parseFloat(s.latitude), parseFloat(s.longitude)])
+                );
+                if (bounds.isValid()) {
+                    map.fitBounds(bounds, { padding: [50, 50] });
+                }
+            }
         }
-
-        // Map functions (placeholder for actual map integration)
-        function initializeMap() {
-            // In production, initialize Google Maps, Leaflet, or other mapping service here
-            console.log('Map initialized with', storesData.length, 'store locations');
-        }
-
-        function updateMapMarkers() {
-            // In production, update map markers based on filtered stores
-            console.log('Updating map markers for', filteredStores.length, 'filtered stores');
-        }
-
-        function centerMap() {
-            // In production, center map on all visible stores
-            console.log('Centering map on visible stores');
-        }
-
-        function showAllStores() {
-            // Reset all filters
+        
+        // Reset filters
+        function resetFilters() {
             document.getElementById('search-input').value = '';
             document.getElementById('region-filter').value = '';
             document.getElementById('type-filter').value = '';
-            document.getElementById('status-filter').value = '';
             
-            currentFilters = { search: '', region: '', type: '', status: '' };
             filteredStores = [...storesData];
+            loadStoreMarkers(filteredStores);
             renderStoreList();
-            updateMapMarkers();
-        }
-
-        // Load regions for filter dropdown
-        async function loadRegions() {
-            try {
-                const response = await fetch('api/get_regions.php');
-                const data = await response.json();
-                
-                if (data.success) {
-                    const select = document.getElementById('region-filter');
-                    data.regions.forEach(region => {
-                        const option = document.createElement('option');
-                        option.value = region.name;
-                        option.textContent = region.name;
-                        select.appendChild(option);
-                    });
+            document.getElementById('filtered-count').textContent = filteredStores.length;
+            
+            // Reset map view
+            if (storesData.length > 0) {
+                const bounds = L.latLngBounds(
+                    storesData
+                        .filter(s => s.latitude && s.longitude)
+                        .map(s => [parseFloat(s.latitude), parseFloat(s.longitude)])
+                );
+                if (bounds.isValid()) {
+                    map.fitBounds(bounds, { padding: [50, 50] });
                 }
-            } catch (error) {
-                console.error('Error loading regions:', error);
-                // Add sample regions for demo
-                const regions = ['East Region', 'West Region', 'Central Region', 'North Region', 'South Region'];
-                const select = document.getElementById('region-filter');
-                regions.forEach(region => {
-                    const option = document.createElement('option');
-                    option.value = region;
-                    option.textContent = region;
-                    select.appendChild(option);
-                });
             }
         }
+        
+        // Render store list
+        function renderStoreList() {
+            const container = document.getElementById('store-list');
+            container.innerHTML = '';
+            
+            filteredStores.forEach(store => {
+                const storeType = store.store_type || 'retail';
+                const card = document.createElement('div');
+                card.className = 'store-card';
+                card.onclick = () => {
+                    if (store.latitude && store.longitude) {
+                        map.setView([parseFloat(store.latitude), parseFloat(store.longitude)], 15);
+                    }
+                };
+                
+                card.innerHTML = `
+                    <div class="store-type-badge type-${storeType}">
+                        <i class="fas ${getStoreIcon(storeType)}"></i> ${storeType.toUpperCase()}
+                    </div>
+                    <h3>${store.name || 'Unnamed Store'}</h3>
+                    <p><i class="fas fa-map-marker-alt"></i> ${store.address || ''} ${store.city || 'N/A'}, ${store.state || 'N/A'}</p>
+                    ${store.phone ? `<p><i class="fas fa-phone"></i> ${store.phone}</p>` : ''}
+                    ${store.manager_name ? `<p><i class="fas fa-user"></i> ${store.manager_name}</p>` : ''}
+                    ${store.opening_hours && store.closing_hours ? `<p><i class="fas fa-clock"></i> ${store.opening_hours} - ${store.closing_hours}</p>` : ''}
+                    <div style="margin-top: 15px; padding-top: 15px; border-top: 2px solid #f0f0f0; display: flex; gap: 8px;">
+                        <a href="profile.php?id=${store.id}" class="btn popup-btn" style="flex: 1; justify-content: center;">
+                            <i class="fas fa-eye"></i> View
+                        </a>
+                        <a href="edit.php?id=${store.id}" class="btn btn-outline popup-btn" style="flex: 1; justify-content: center;">
+                            <i class="fas fa-edit"></i> Edit
+                        </a>
+                    </div>
+                `;
+                
+                container.appendChild(card);
+            });
+        }
+        
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            initMap();
+            renderStoreList();
+            
+            // Add enter key support for search
+            document.getElementById('search-input').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    applyFilters();
+                }
+            });
+        });
     </script>
 </body>
 </html>

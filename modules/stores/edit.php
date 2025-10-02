@@ -100,15 +100,15 @@ $page_title = 'Edit Store - Inventory System';
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body>
+    <?php 
+    $header_title = "Edit Store";
+    $header_subtitle = "Update store details and information.";
+    $header_icon = "fas fa-edit";
+    $show_compact_toggle = false;
+    $header_stats = [];
+    include '../../includes/dashboard_header.php'; 
+    ?>
     <div class="container">
-        <?php 
-        $header_title = "Edit Store";
-        $header_subtitle = "Update store details and information.";
-        $header_icon = "fas fa-edit";
-        $show_compact_toggle = false;
-        $header_stats = [];
-        include '../../includes/dashboard_header.php'; 
-        ?>
 
         <!-- Page header -->
         <div class="page-header">

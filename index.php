@@ -355,65 +355,119 @@ $page_title = 'Dashboard - Inventory Management System';
                 font-size: 2rem;
             }
         }
+        
+        /* Profile Section Styling (for Management Dashboard) */
+        .profile-section {
+            background: white;
+            padding: 30px;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            transition: all 0.3s ease;
+        }
+        
+        .profile-section:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+        }
+        
+        .section-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 25px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #f1f5f9;
+        }
+        
+        .section-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            font-size: 1.2rem;
+        }
+        
+        .section-header h3 {
+            margin: 0;
+            color: #2c3e50;
+            font-size: 1.4rem;
+        }
+        
+        .info-card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            transition: all 0.2s ease;
+        }
+        
+        .info-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 35px rgba(0,0,0,0.15) !important;
+        }
     </style>
 </head>
 <body>
+    <!-- Dashboard Header -->
+    <?php 
+    $header_title = "Welcome back, " . htmlspecialchars($_SESSION['username']) . "!";
+    $header_subtitle = "Here's what's happening with your inventory today";
+    $header_icon = "fas fa-user-circle";
+    $show_compact_toggle = true;
+    $header_stats = [
+        [
+            'value' => number_format($stats['total_products']),
+            'label' => 'Total Products',
+            'icon' => 'fas fa-boxes',
+            'type' => 'primary',
+            'trend' => [
+                'type' => 'trend-up',
+                'icon' => 'arrow-up',
+                'text' => '+12% from last month'
+            ]
+        ],
+        [
+            'value' => number_format($stats['low_stock']),
+            'label' => 'Low Stock Items',
+            'icon' => 'fas fa-exclamation-triangle',
+            'type' => 'alert',
+            'trend' => [
+                'type' => $stats['low_stock'] > 0 ? 'trend-down' : 'trend-up',
+                'icon' => $stats['low_stock'] > 0 ? 'exclamation-circle' : 'check-circle',
+                'text' => $stats['low_stock'] > 0 ? 'Requires attention' : 'All good!'
+            ]
+        ],
+        [
+            'value' => number_format($stats['total_stores']),
+            'label' => 'Active Stores',
+            'icon' => 'fas fa-store',
+            'type' => 'success',
+            'trend' => [
+                'type' => 'trend-up',
+                'icon' => 'arrow-up',
+                'text' => '+2 new stores'
+            ]
+        ],
+        [
+            'value' => '$' . number_format($stats['todays_sales'], 0),
+            'label' => "Today's Sales",
+            'icon' => 'fas fa-dollar-sign',
+            'type' => 'warning',
+            'trend' => [
+                'type' => 'trend-up',
+                'icon' => 'arrow-up',
+                'text' => '+8% vs yesterday'
+            ]
+        ]
+    ];
+    include 'includes/dashboard_header.php'; 
+    ?>
     <div class="container">
         <div class="dashboard-container">
-            <!-- Dashboard Header -->
-            <?php 
-            $header_title = "Welcome back, " . htmlspecialchars($_SESSION['username']) . "!";
-            $header_subtitle = "Here's what's happening with your inventory today";
-            $header_icon = "fas fa-user-circle";
-            $show_compact_toggle = true;
-            $header_stats = [
-                [
-                    'value' => number_format($stats['total_products']),
-                    'label' => 'Total Products',
-                    'icon' => 'fas fa-boxes',
-                    'type' => 'primary',
-                    'trend' => [
-                        'type' => 'trend-up',
-                        'icon' => 'arrow-up',
-                        'text' => '+12% from last month'
-                    ]
-                ],
-                [
-                    'value' => number_format($stats['low_stock']),
-                    'label' => 'Low Stock Items',
-                    'icon' => 'fas fa-exclamation-triangle',
-                    'type' => 'alert',
-                    'trend' => [
-                        'type' => $stats['low_stock'] > 0 ? 'trend-down' : 'trend-up',
-                        'icon' => $stats['low_stock'] > 0 ? 'exclamation-circle' : 'check-circle',
-                        'text' => $stats['low_stock'] > 0 ? 'Requires attention' : 'All good!'
-                    ]
-                ],
-                [
-                    'value' => number_format($stats['total_stores']),
-                    'label' => 'Active Stores',
-                    'icon' => 'fas fa-store',
-                    'type' => 'success',
-                    'trend' => [
-                        'type' => 'trend-up',
-                        'icon' => 'arrow-up',
-                        'text' => '+2 new stores'
-                    ]
-                ],
-                [
-                    'value' => '$' . number_format($stats['todays_sales'], 0),
-                    'label' => "Today's Sales",
-                    'icon' => 'fas fa-dollar-sign',
-                    'type' => 'warning',
-                    'trend' => [
-                        'type' => 'trend-up',
-                        'icon' => 'arrow-up',
-                        'text' => '+8% vs yesterday'
-                    ]
-                ]
-            ];
-            include 'includes/dashboard_header.php'; 
-            ?>
 
             <!-- Page header -->
             <div class="page-header">
@@ -452,6 +506,74 @@ $page_title = 'Dashboard - Inventory Management System';
                 </div>
                 <?php endforeach; ?>
             </div>
+            <?php endif; ?>
+
+            <!-- Management Dashboard Section -->
+            <?php if (isset($_SESSION['user_id'])): 
+                // Check user role for conditional display
+                $currentUser = $db->read('users', $_SESSION['user_id']);
+                $userRole = $currentUser['role'] ?? 'user';
+                $canManage = in_array($userRole, ['admin', 'manager']);
+            ?>
+            <?php if ($canManage): ?>
+            <div class="profile-section" style="margin-bottom: 20px;">
+                <div class="section-header">
+                    <div class="section-icon">
+                        <i class="fas fa-tachometer-alt"></i>
+                    </div>
+                    <h3>Management Dashboard</h3>
+                </div>
+                
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-top: 20px;">
+                    <!-- Activity Manager Card -->
+                    <a href="modules/users/profile/activity_manager.php" style="text-decoration: none; color: inherit;">
+                        <div class="info-card" style="cursor: pointer; transition: transform 0.2s, box-shadow 0.2s;">
+                            <div style="display: flex; align-items: center; gap: 15px;">
+                                <div style="width: 50px; height: 50px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                                    <i class="fas fa-history" style="font-size: 24px; color: white;"></i>
+                                </div>
+                                <div>
+                                    <h4 style="margin: 0 0 5px 0;">Activity Manager</h4>
+                                    <p style="margin: 0; font-size: 14px; color: #666;">Track and manage all user activities</p>
+                                </div>
+                            </div>
+                        </div>
+                    </a>
+                    
+                    <!-- Permissions Manager Card -->
+                    <?php if ($userRole === 'admin'): ?>
+                    <a href="modules/users/profile/permissions_manager.php" style="text-decoration: none; color: inherit;">
+                        <div class="info-card" style="cursor: pointer; transition: transform 0.2s, box-shadow 0.2s;">
+                            <div style="display: flex; align-items: center; gap: 15px;">
+                                <div style="width: 50px; height: 50px; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                                    <i class="fas fa-shield-alt" style="font-size: 24px; color: white;"></i>
+                                </div>
+                                <div>
+                                    <h4 style="margin: 0 0 5px 0;">Permissions Manager</h4>
+                                    <p style="margin: 0; font-size: 14px; color: #666;">Manage roles and user permissions</p>
+                                </div>
+                            </div>
+                        </div>
+                    </a>
+                    <?php endif; ?>
+                    
+                    <!-- Stores Manager Card -->
+                    <a href="modules/users/profile/stores_manager.php" style="text-decoration: none; color: inherit;">
+                        <div class="info-card" style="cursor: pointer; transition: transform 0.2s, box-shadow 0.2s;">
+                            <div style="display: flex; align-items: center; gap: 15px;">
+                                <div style="width: 50px; height: 50px; background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                                    <i class="fas fa-store" style="font-size: 24px; color: white;"></i>
+                                </div>
+                                <div>
+                                    <h4 style="margin: 0 0 5px 0;">Stores Manager</h4>
+                                    <p style="margin: 0; font-size: 14px; color: #666;">Manage stores and user access</p>
+                                </div>
+                            </div>
+                        </div>
+                    </a>
+                </div>
+            </div>
+            <?php endif; ?>
             <?php endif; ?>
 
             <!-- Dashboard Grid -->

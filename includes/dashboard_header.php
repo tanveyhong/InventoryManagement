@@ -4,7 +4,21 @@
  * Provides consistent navigation and header styling across all dashboard modules
  */
 
-// Header values should be provided by the including file or fall back to global defaults elsewhere.
+// Calculate the correct path prefix based on the current file's depth
+$currentPath = $_SERVER['PHP_SELF'];
+$depth = substr_count($currentPath, '/') - 1; // Subtract 1 for the root level
+
+// Determine the relative path to root
+if (strpos($currentPath, 'modules/users/profile/') !== false) {
+    // 3 levels deep: modules/users/profile/
+    $baseUrl = '../../../';
+} elseif (strpos($currentPath, 'modules/') !== false) {
+    // 2 levels deep: modules/something/
+    $baseUrl = '../../';
+} else {
+    // Root level or includes level
+    $baseUrl = '';
+}
 
 ?>
 
@@ -15,7 +29,7 @@
         <div class="navbar-container">
             <!-- Left Section: Brand -->
             <div class="navbar-brand">
-                <a href="<?php echo (strpos($_SERVER['PHP_SELF'], 'modules') !== false) ? '../../index.php' : 'index.php'; ?>" class="brand-link">
+                <a href="<?php echo $baseUrl . 'index.php'; ?>" class="brand-link">
                     <div class="brand-icon">
                         <i class="fas fa-cube"></i>
                     </div>
@@ -28,7 +42,7 @@
 
             <!-- Center Section: Navigation Menu -->
             <div class="navbar-menu">
-                <a href="<?php echo (strpos($_SERVER['PHP_SELF'], 'modules') !== false) ? '../../index.php' : 'index.php'; ?>" class="nav-item active">
+                <a href="<?php echo $baseUrl . 'index.php'; ?>" class="nav-item active">
                     <i class="fas fa-home"></i>
                     <span>Dashboard</span>
                 </a>
@@ -39,13 +53,13 @@
                         <i class="fas fa-chevron-down dropdown-arrow"></i>
                     </a>
                     <div class="dropdown-content">
-                        <a href="<?php echo (strpos($_SERVER['PHP_SELF'], 'modules') !== false) ? '../../modules/stock/list.php' : 'modules/stock/list.php'; ?>">
+                        <a href="<?php echo $baseUrl . 'modules/stock/list.php'; ?>">
                             <i class="fas fa-list"></i> View Stock
                         </a>
-                        <a href="<?php echo (strpos($_SERVER['PHP_SELF'], 'modules') !== false) ? '../../modules/stock/add.php' : 'modules/stock/add.php'; ?>">
+                        <a href="<?php echo $baseUrl . 'modules/stock/add.php'; ?>">
                             <i class="fas fa-plus"></i> Add Stock
                         </a>
-                        <a href="<?php echo (strpos($_SERVER['PHP_SELF'], 'modules') !== false) ? '../../modules/stock/adjust.php' : 'modules/stock/adjust.php'; ?>">
+                        <a href="<?php echo $baseUrl . 'modules/stock/adjust.php'; ?>">
                             <i class="fas fa-edit"></i> Adjustments
                         </a>
                     </div>
@@ -57,16 +71,16 @@
                         <i class="fas fa-chevron-down dropdown-arrow"></i>
                     </a>
                     <div class="dropdown-content">
-                        <a href="<?php echo (strpos($_SERVER['PHP_SELF'], 'modules') !== false) ? '../../modules/stores/list.php' : 'modules/stores/list.php'; ?>">
+                        <a href="<?php echo $baseUrl . 'modules/stores/list.php'; ?>">
                             <i class="fas fa-list"></i> Store List
                         </a>
-                        <a href="<?php echo (strpos($_SERVER['PHP_SELF'], 'modules') !== false) ? '../../modules/stores/add.php' : 'modules/stores/add.php'; ?>">
+                        <a href="<?php echo $baseUrl . 'modules/stores/add.php'; ?>">
                             <i class="fas fa-plus"></i> Add Store
                         </a>
-                        <a href="<?php echo (strpos($_SERVER['PHP_SELF'], 'modules') !== false) ? '../../modules/stores/enhanced_map.php' : 'modules/stores/enhanced_map.php'; ?>">
+                        <a href="<?php echo $baseUrl . 'modules/stores/map.php'; ?>">
                             <i class="fas fa-map"></i> Store Map
                         </a>
-                        <a href="<?php echo (strpos($_SERVER['PHP_SELF'], 'modules') !== false) ? '../../modules/stores/regional_dashboard.php' : 'modules/stores/regional_dashboard.php'; ?>">
+                        <a href="<?php echo $baseUrl . 'modules/stores/regional_dashboard.php'; ?>">
                             <i class="fas fa-chart-area"></i> Regional Dashboard
                         </a>
                     </div>
@@ -78,13 +92,13 @@
                         <i class="fas fa-chevron-down dropdown-arrow"></i>
                     </a>
                     <div class="dropdown-content">
-                        <a href="<?php echo (strpos($_SERVER['PHP_SELF'], 'modules') !== false) ? '../../modules/reports/sales.php' : 'modules/reports/sales.php'; ?>">
+                        <a href="<?php echo $baseUrl . 'modules/reports/sales.php'; ?>">
                             <i class="fas fa-dollar-sign"></i> Sales Reports
                         </a>
-                        <a href="<?php echo (strpos($_SERVER['PHP_SELF'], 'modules') !== false) ? '../../modules/reports/inventory.php' : 'modules/reports/inventory.php'; ?>">
+                        <a href="<?php echo $baseUrl . 'modules/reports/inventory.php'; ?>">
                             <i class="fas fa-boxes"></i> Inventory Reports
                         </a>
-                        <a href="<?php echo (strpos($_SERVER['PHP_SELF'], 'modules') !== false) ? '../../modules/reports/alerts.php' : 'modules/reports/alerts.php'; ?>">
+                        <a href="<?php echo $baseUrl . 'modules/reports/alerts.php'; ?>">
                             <i class="fas fa-exclamation-triangle"></i> Alerts
                         </a>
                     </div>
@@ -102,10 +116,10 @@
                         <i class="fas fa-chevron-down dropdown-arrow"></i>
                     </a>
                     <div class="dropdown-content user-menu">
-                        <a href="<?php echo (strpos($_SERVER['PHP_SELF'], 'modules') !== false) ? '../../modules/users/profile.php' : 'modules/users/profile.php'; ?>">
+                        <a href="<?php echo $baseUrl . 'modules/users/profile.php'; ?>">
                             <i class="fas fa-user-circle"></i> Profile
                         </a>
-                        <a href="<?php echo (strpos($_SERVER['PHP_SELF'], 'modules') !== false) ? '../../modules/users/logout.php' : 'modules/users/logout.php'; ?>" class="logout-link">
+                        <a href="<?php echo $baseUrl . 'modules/users/logout.php'; ?>" class="logout-link">
                             <i class="fas fa-sign-out-alt"></i> Logout
                         </a>
                     </div>
