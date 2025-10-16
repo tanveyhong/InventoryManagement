@@ -258,7 +258,7 @@ $page_title = 'Stock Management - Inventory System';
                 <form method="GET" class="filters-form">
                     <div class="filter-group">
                         <label for="search">Search:</label>
-                        <input type="text" id="search" name="search" value="<?php echo htmlspecialchars($search_query ?? ''); ?>" placeholder="Product name, SKU, or description">
+                        <input type="text" id="search" name="search" value="<?php echo htmlspecialchars($search_query ?? ''); ?>" placeholder="Product name/SKU/Desc">
                     </div>
 
                     <div class="filter-group">
