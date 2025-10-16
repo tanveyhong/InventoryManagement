@@ -54,7 +54,7 @@ if (strpos($currentPath, 'modules/users/profile/') !== false) {
                     </a>
                     <div class="dropdown-content">
                         <a href="<?php echo $baseUrl . 'modules/stock/list.php'; ?>">
-                            <i class="fas fa-list"></i> View Stock
+                            <i class="fas fa-list"></i> Stock Listing
                         </a>
                         <a href="<?php echo $baseUrl . 'modules/stock/add.php'; ?>">
                             <i class="fas fa-plus"></i> Add Stock

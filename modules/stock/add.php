@@ -20,22 +20,22 @@ $stores = $db->fetchAll("SELECT id, name FROM stores WHERE is_active = 1 ORDER B
 $categories = $db->fetchAll("SELECT id, name FROM categories ORDER BY name");
 
 $CATEGORY_OPTIONS = [
-  'General',
-  'Beverages',
-  'Snacks',
-  'Personal Care',
-  'Household',
-  'Electronics',
-  'Stationery',
-  'Fresh Produce',
-  'Frozen',
-  'Bakery',
+    'General',
+    'Foods',
+    'Beverages',
+    'Snacks',
+    'Personal Care',
+    'Furniture',
+    'Electronics',
+    'Stationery',
+    'Canned Foods',
+    'Frozen',
 ];
 
 // Keep the user’s selection on postback (default to General)
 $selectedCategory = isset($_POST['category']) && $_POST['category'] !== ''
-  ? (string)$_POST['category']
-  : 'General';
+    ? (string)$_POST['category']
+    : 'General';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Validate input
@@ -48,12 +48,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $unit_price = floatval($_POST['unit_price'] ?? 0);
     $min_stock_level = intval($_POST['min_stock_level'] ?? 0);
     $expiry_date = $_POST['expiry_date'] ?? null;
-    
+
     // Validation
     if (empty($name)) {
         $errors[] = 'Product name is required';
     }
-    
+
     if (!empty($sku)) {
         // Check if SKU already exists using SQL DB (reliable for unique constraints)
         try {
@@ -67,23 +67,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             error_log('SKU uniqueness check failed: ' . $e->getMessage());
         }
     }
-    
+
     if ($quantity <= 0) {
         $errors[] = 'Quantity cannot be negative';
     }
-    
+
     if ($unit_price <= 0) {
         $errors[] = 'Unit price cannot be negative';
     }
-    
+
     if ($min_stock_level < 0) {
         $errors[] = 'Minimum stock level cannot be negative';
     }
-    
+
     if (!empty($expiry_date) && !strtotime($expiry_date)) {
         $errors[] = 'Invalid expiry date format';
     }
-    
+
     // If no errors, insert product
     if (empty($errors)) {
         try {
@@ -115,12 +115,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $min_stock_level,
                 !empty($expiry_date) ? $expiry_date : null
             ];
-            
+
             // Use SQL DB for write operations (legacy path)
             $sqlDb = getSQLDB();
             $sqlDb->execute($sql, $params);
             $product_id = $sqlDb->lastInsertId();
-            
+
             // Log stock movement if initial quantity > 0 (SQL)
             if ($quantity > 0) {
                 $movement_sql = "
@@ -170,14 +170,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Log but don't block the user
                 error_log('Firebase sync failed when adding product: ' . $e->getMessage());
             }
-            
+
             $success = true;
             $success_message = "Product '{$name}' added successfully!";
-            
+
             // Redirect after successful creation
             header("Location: list.php?success=" . urlencode($success_message));
             exit;
-            
         } catch (Exception $e) {
             $msg = $e->getMessage();
             // Detect SQLite UNIQUE constraint violation on products.sku and show a friendly message
@@ -199,6 +198,7 @@ $page_title = 'Add Product - Inventory System';
 
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -207,15 +207,24 @@ $page_title = 'Add Product - Inventory System';
     <!-- Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
+
 <body>
     <?php include '../../includes/dashboard_header2.php'; ?>
     <div class="container">
 
         <main>
+            <!-- Page Header -->
             <div class="page-header">
-                <h2>Add New Product</h2>
-                <div class="page-actions">
-                    <a href="list.php" class="btn btn-secondary">← Back to Stock List</a>
+                <div class="page-header-inner">
+                    <div class="left">
+                        <h1 class="title">Add New Product</h1>
+                        <p class="subtitle">Fill in the details below to create a new product record.</p>
+                    </div>
+                    <div class="right">
+                        <a href="list.php" class="btn-back">
+                            <i class="fas fa-arrow-left"></i> Back to Stock List
+                        </a>
+                    </div>
                 </div>
             </div>
 
@@ -236,21 +245,21 @@ $page_title = 'Add Product - Inventory System';
                         <!-- Basic Information -->
                         <div class="form-section">
                             <h3>Basic Information</h3>
-                            
+
                             <div class="form-row">
                                 <div class="form-group required">
                                     <label for="name">Product Name:</label>
                                     <input type="text" id="name" name="name" value="<?php echo htmlspecialchars($_POST['name'] ?? ''); ?>" required>
                                     <small>Enter the full product name</small>
                                 </div>
-                                
+
                                 <div class="form-group">
                                     <label for="sku">SKU:</label>
                                     <input type="text" id="sku" name="sku" value="<?php echo htmlspecialchars($_POST['sku'] ?? ''); ?>" placeholder="e.g., WH-001">
                                     <small>Stock Keeping Unit (optional, must be unique)</small>
                                 </div>
                             </div>
-                            
+
                             <div class="form-group">
                                 <label for="description">Description:</label>
                                 <textarea id="description" name="description" rows="3" placeholder="Product description..."><?php echo htmlspecialchars($_POST['description'] ?? ''); ?></textarea>
@@ -261,28 +270,28 @@ $page_title = 'Add Product - Inventory System';
                         <!-- Classification -->
                         <div class="form-section">
                             <h3>Classification</h3>
-                            
+
                             <div class="form-row">
                                 <div class="form-group">
                                     <label for="category_id">Category:</label>
-<select id="category" name="category" class="form-control" required>
-  <?php foreach ($CATEGORY_OPTIONS as $opt): ?>
-    <option value="<?php echo htmlspecialchars($opt); ?>"
-      <?php echo ($opt === $selectedCategory) ? 'selected' : ''; ?>>
-      <?php echo htmlspecialchars($opt); ?>
-    </option>
-  <?php endforeach; ?>
-</select>
+                                    <select id="category" name="category" class="form-control" required>
+                                        <?php foreach ($CATEGORY_OPTIONS as $opt): ?>
+                                            <option value="<?php echo htmlspecialchars($opt); ?>"
+                                                <?php echo ($opt === $selectedCategory) ? 'selected' : ''; ?>>
+                                                <?php echo htmlspecialchars($opt); ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
                                     <small>Product category for organization</small>
                                 </div>
-                                
+
                                 <div class="form-group">
                                     <label for="store_id">Store:</label>
                                     <select id="store_id" name="store_id">
                                         <option value="">Select Store</option>
                                         <?php foreach ($stores as $store): ?>
-                                            <option value="<?php echo $store['id']; ?>" 
-                                                    <?php echo (isset($_POST['store_id']) && $_POST['store_id'] == $store['id']) ? 'selected' : ''; ?>>
+                                            <option value="<?php echo $store['id']; ?>"
+                                                <?php echo (isset($_POST['store_id']) && $_POST['store_id'] == $store['id']) ? 'selected' : ''; ?>>
                                                 <?php echo htmlspecialchars($store['name']); ?>
                                             </option>
                                         <?php endforeach; ?>
@@ -295,14 +304,14 @@ $page_title = 'Add Product - Inventory System';
                         <!-- Stock Information -->
                         <div class="form-section">
                             <h3>Stock Information</h3>
-                            
+
                             <div class="form-row">
                                 <div class="form-group required">
                                     <label for="quantity">Initial Quantity:</label>
                                     <input type="number" id="quantity" name="quantity" value="<?php echo htmlspecialchars($_POST['quantity'] ?? '0'); ?>" min="0" step="1">
                                     <small>Starting inventory quantity</small>
                                 </div>
-                                
+
                                 <div class="form-group">
                                     <label for="min_stock_level">Minimum Stock Level:</label>
                                     <input type="number" id="min_stock_level" name="min_stock_level" value="<?php echo htmlspecialchars($_POST['min_stock_level'] ?? '5'); ?>" min="0" step="1">
@@ -314,14 +323,14 @@ $page_title = 'Add Product - Inventory System';
                         <!-- Pricing Information -->
                         <div class="form-section">
                             <h3>Pricing Information</h3>
-                            
+
                             <div class="form-row">
                                 <div class="form-group required">
                                     <label for="unit_price">Unit Price ($):</label>
                                     <input type="number" id="unit_price" name="unit_price" value="<?php echo htmlspecialchars($_POST['unit_price'] ?? '0.00'); ?>" min="0" step="0.01">
                                     <small>Selling price per unit</small>
                                 </div>
-                                
+
                                 <div class="form-group">
                                     <label for="expiry_date">Expiry Date:</label>
                                     <input type="date" id="expiry_date" name="expiry_date" value="<?php echo htmlspecialchars($_POST['expiry_date'] ?? ''); ?>">
@@ -342,60 +351,48 @@ $page_title = 'Add Product - Inventory System';
 
     <script src="../../assets/js/main.js"></script>
     <script>
-        // Auto-generate SKU based on product name
-        document.getElementById('name').addEventListener('input', function() {
-            const name = this.value.trim();
-            const skuField = document.getElementById('sku');
-            
-            if (name && !skuField.value) {
-                // Generate simple SKU from first letters of words
-                const words = name.split(' ');
-                let sku = words.map(word => word.charAt(0).toUpperCase()).join('');
-                sku += '-001'; // Add numeric suffix
-                skuField.value = sku;
-            }
-        });
         
+
         // Calculate total value
         function updateTotalValue() {
             const quantity = parseInt(document.getElementById('quantity').value) || 0;
             const unitPrice = parseFloat(document.getElementById('unit_price').value) || 0;
             const totalValue = quantity * unitPrice;
-            
+
             // Update display if there's a total value element
             const totalElement = document.getElementById('total_value_display');
             if (totalElement) {
                 totalElement.textContent = '$' + totalValue.toFixed(2);
             }
         }
-        
+
         document.getElementById('quantity').addEventListener('input', updateTotalValue);
         document.getElementById('unit_price').addEventListener('input', updateTotalValue);
-        
+
         // Form validation
         document.querySelector('.product-form').addEventListener('submit', function(e) {
             const name = document.getElementById('name').value.trim();
             const quantity = parseInt(document.getElementById('quantity').value);
             const unitPrice = parseFloat(document.getElementById('unit_price').value);
-            
+
             if (!name) {
                 alert('Product name is required');
                 e.preventDefault();
                 return false;
             }
-            
+
             if (quantity <= 0) {
-                alert('Quantity cannot be negative');
+                alert('Quantity cannot be empty or negative');
                 e.preventDefault();
                 return false;
             }
-            
+
             if (unitPrice <= 0) {
-                alert('Unit price cannot be negative');
+                alert('Unit price cannot be empty or negative');
                 e.preventDefault();
                 return false;
             }
-            
+
             return true;
         });
     </script>
@@ -405,61 +402,61 @@ $page_title = 'Add Product - Inventory System';
             max-width: 900px;
             margin: 0 auto;
         }
-        
+
         .product-form {
             background: white;
             padding: 2rem;
             border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
         }
-        
+
         .form-sections {
             display: flex;
             flex-direction: column;
             gap: 2rem;
         }
-        
+
         .form-section {
             border-bottom: 1px solid #e0e0e0;
             padding-bottom: 2rem;
         }
-        
+
         .form-section:last-child {
             border-bottom: none;
             padding-bottom: 0;
         }
-        
+
         .form-section h3 {
             margin-bottom: 1rem;
             color: #333;
             font-size: 1.2rem;
         }
-        
+
         .form-row {
             display: flex;
             gap: 1rem;
             margin-bottom: 1rem;
         }
-        
+
         .form-row .form-group {
             flex: 1;
         }
-        
+
         .form-group {
             margin-bottom: 1rem;
         }
-        
+
         .form-group.required label::after {
             content: ' *';
             color: #dc3545;
         }
-        
+
         .form-group label {
             display: block;
             margin-bottom: 0.5rem;
             font-weight: 500;
         }
-        
+
         .form-group input,
         .form-group select,
         .form-group textarea {
@@ -469,22 +466,22 @@ $page_title = 'Add Product - Inventory System';
             border-radius: 4px;
             font-size: 1rem;
         }
-        
+
         .form-group input:focus,
         .form-group select:focus,
         .form-group textarea:focus {
             outline: none;
             border-color: #007bff;
-            box-shadow: 0 0 0 2px rgba(0,123,255,0.25);
+            box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
         }
-        
+
         .form-group small {
             display: block;
             margin-top: 0.25rem;
             color: #666;
             font-size: 0.875rem;
         }
-        
+
         .form-actions {
             display: flex;
             gap: 1rem;
@@ -492,17 +489,67 @@ $page_title = 'Add Product - Inventory System';
             padding-top: 2rem;
             border-top: 1px solid #e0e0e0;
         }
-        
+
         @media (max-width: 768px) {
             .form-row {
                 flex-direction: column;
                 gap: 0;
             }
-            
+
             .form-actions {
                 flex-direction: column;
             }
         }
+
+        .page-header {
+            background: #fff;
+            border: 1px solid #e5eaf1;
+            border-radius: 14px;
+            padding: 18px 28px;
+            margin: 25px auto 25px;
+            box-shadow: 0 3px 12px rgba(0, 0, 0, 0.03);
+            max-width: 1100px;
+        }
+
+        .page-header-inner {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .page-header .title {
+            font-size: 1.6rem;
+            font-weight: 800;
+            color: #1e293b;
+            margin: 0;
+        }
+
+        .page-header .subtitle {
+            font-size: 0.9rem;
+            color: #64748b;
+            margin-top: 2px;
+        }
+
+        .page-header .btn-back {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: #2563eb;
+            color: #fff;
+            text-decoration: none;
+            padding: 10px 16px;
+            border-radius: 10px;
+            font-weight: 600;
+            transition: background 0.25s ease, transform 0.2s ease;
+        }
+
+        .page-header .btn-back:hover {
+            background: #1e40af;
+            transform: translateY(-1px);
+        }
     </style>
 </body>
+
 </html>

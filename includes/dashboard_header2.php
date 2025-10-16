@@ -30,7 +30,7 @@
                     </a>
                     <div class="dropdown-content">
                         <a href="<?php echo (strpos($_SERVER['PHP_SELF'], 'modules') !== false) ? '../../modules/stock/list.php' : 'modules/stock/list.php'; ?>">
-                            <i class="fas fa-list"></i> View Stock
+                            <i class="fas fa-list"></i> Stock Listing
                         </a>
                         <a href="<?php echo (strpos($_SERVER['PHP_SELF'], 'modules') !== false) ? '../../modules/stock/add.php' : 'modules/stock/add.php'; ?>">
                             <i class="fas fa-plus"></i> Add Stock
