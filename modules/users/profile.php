@@ -23,13 +23,272 @@ if (!isLoggedIn()) {
 $db = getDB();
 $userId = $_SESSION['user_id'];
 
-// Only load essential user data on page load
-$user = $db->read('users', $userId);
+// Define cache file path
+$cacheDir = __DIR__ . '/../../storage/cache';
+$cacheFile = $cacheDir . '/profile_' . md5($userId) . '.json';
+
+// Ensure cache directory exists
+if (!file_exists($cacheDir)) {
+    mkdir($cacheDir, 0755, true);
+}
+
+// Try to load user data from Firebase, fallback to cache
+$user = null;
+$isOfflineMode = false;
+$cacheAge = null;
+$shouldRefreshCache = true;
+
+// Check if cache exists and is fresh (less than 5 minutes old)
+if (file_exists($cacheFile)) {
+    $cacheTimestamp = filemtime($cacheFile);
+    $cacheAge = time() - $cacheTimestamp;
+    $cacheAgeMinutes = floor($cacheAge / 60);
+    
+    // Only refresh cache if it's older than 5 minutes (300 seconds)
+    // or if manual refresh is requested
+    $shouldRefreshCache = $cacheAge > 300 || isset($_GET['refresh_cache']);
+    
+    if (!$shouldRefreshCache) {
+        error_log("Using fresh cache (age: {$cacheAgeMinutes} minutes)");
+    }
+}
+
+try {
+    // Try to fetch from Firebase only if cache needs refresh
+    if ($shouldRefreshCache) {
+        $user = $db->read('users', $userId);
+        
+        // If successful, cache the data for offline use
+        if ($user) {
+            $cacheData = [
+                'user' => $user,
+                'cached_at' => date('Y-m-d H:i:s'),
+                'user_id' => $userId
+            ];
+            file_put_contents($cacheFile, json_encode($cacheData, JSON_PRETTY_PRINT));
+            error_log("Cache updated successfully");
+        }
+    } else {
+        // Use existing cache instead of fetching
+        $cacheData = json_decode(file_get_contents($cacheFile), true);
+        if ($cacheData && isset($cacheData['user'])) {
+            $user = $cacheData['user'];
+            error_log("Using existing fresh cache");
+        }
+    }
+    
+} catch (Exception $e) {
+    // Firebase threw exception - will try cache below
+    error_log("Firebase exception: " . $e->getMessage());
+}
+
+// If Firebase failed (null/false) or threw exception, try cache
+if (!$user) {
+    error_log("Firebase failed to load user, trying cache...");
+    
+    if (file_exists($cacheFile)) {
+        $cacheData = json_decode(file_get_contents($cacheFile), true);
+        
+        if ($cacheData && isset($cacheData['user'])) {
+            $user = $cacheData['user'];
+            $isOfflineMode = true;
+            error_log("✓ Loaded user data from cache (cached at: " . $cacheData['cached_at'] . ")");
+        } else {
+            error_log("✗ Cache exists but no valid user data. CacheData: " . json_encode($cacheData));
+        }
+    } else {
+        error_log("✗ Cache file does not exist: " . $cacheFile);
+    }
+    
+    // If no cache available, show offline page
+    if (!$user) {
+        error_log("No cached data available for offline mode");
+        
+        // Show offline mode page
+            echo '<!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Offline Mode - Profile</title>
+                <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+                <style>
+                    body { 
+                        font-family: system-ui, -apple-system, sans-serif; 
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        min-height: 100vh;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        margin: 0;
+                        padding: 20px;
+                    }
+                    .offline-container {
+                        background: white;
+                        border-radius: 16px;
+                        padding: 40px;
+                        max-width: 500px;
+                        text-align: center;
+                    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                }
+                .offline-icon {
+                    font-size: 80px;
+                    color: #ef4444;
+                    margin-bottom: 20px;
+                }
+                h1 { color: #1f2937; margin-bottom: 10px; }
+                p { color: #6b7280; margin-bottom: 30px; line-height: 1.6; }
+                .retry-btn {
+                    background: linear-gradient(135deg, #667eea, #764ba2);
+                    color: white;
+                    border: none;
+                    padding: 12px 30px;
+                    border-radius: 8px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    font-size: 16px;
+                }
+                .retry-btn:hover { opacity: 0.9; }
+                .status { 
+                    display: inline-block;
+                    padding: 8px 16px;
+                    background: #fee2e2;
+                    color: #dc2626;
+                    border-radius: 20px;
+                    font-size: 14px;
+                    font-weight: 600;
+                    margin-bottom: 20px;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="offline-container">
+                <div class="offline-icon">
+                    <i class="fas fa-wifi-slash"></i>
+                </div>
+                <div class="status">
+                    <i class="fas fa-circle" style="font-size: 8px;"></i> Offline Mode
+                </div>
+                <h1>Connection Lost</h1>
+                <p>
+                    Unable to connect to the server. Please check your internet connection and try again.
+                    <br><br>
+                    <strong>Your data is safe!</strong> Any changes you make will be saved locally 
+                    and synchronized automatically when connection is restored.
+                </p>
+                <button class="retry-btn" onclick="location.reload()">
+                    <i class="fas fa-sync-alt"></i> Retry Connection
+                </button>
+                <br><br>
+                <a href="../../index.php" style="color: #667eea; text-decoration: none;">
+                    <i class="fas fa-arrow-left"></i> Back to Dashboard
+                </a>
+            </div>
+            
+            <!-- Auto-retry every 10 seconds -->
+            <script>
+                let retryCount = 0;
+                const maxRetries = 6;
+                
+                function checkConnection() {
+                    fetch(window.location.href, { method: "HEAD" })
+                        .then(() => {
+                            console.log("Connection restored!");
+                            location.reload();
+                        })
+                        .catch(() => {
+                            retryCount++;
+                            if (retryCount < maxRetries) {
+                                console.log(`Retry ${retryCount}/${maxRetries} in 10 seconds...`);
+                                setTimeout(checkConnection, 10000);
+                            }
+                        });
+                }
+                
+                // Start auto-retry after 10 seconds
+                setTimeout(checkConnection, 10000);
+                
+                // Show connectivity status
+                window.addEventListener("online", () => {
+                    alert("Connection restored! Reloading...");
+                    location.reload();
+                });
+            </script>
+        </body>
+        </html>';
+        exit;
+    }
+}
 
 // Check if user data was loaded successfully (handle both false and null)
+error_log("DEBUG: Checking user data. Type: " . gettype($user) . ", Empty: " . (empty($user) ? 'yes' : 'no') . ", Truthiness: " . ($user ? 'true' : 'false'));
+
 if (!$user) {
-    error_log("Failed to load user data for user ID: " . $userId);
-    die("Error: Could not load user profile. Please try logging in again.");
+    error_log("Failed to load user data for user ID: " . $userId . " - No cache available");
+    
+    // Show friendly offline message
+    echo '<!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Offline - Profile</title>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+        <style>
+            body { 
+                font-family: system-ui, -apple-system, sans-serif; 
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                margin: 0;
+                padding: 20px;
+            }
+            .message-box {
+                background: white;
+                border-radius: 16px;
+                padding: 40px;
+                max-width: 500px;
+                text-align: center;
+                box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            }
+            .icon { font-size: 80px; color: #f59e0b; margin-bottom: 20px; }
+            h1 { color: #1f2937; margin-bottom: 10px; }
+            p { color: #6b7280; margin-bottom: 30px; line-height: 1.6; }
+            .btn {
+                background: linear-gradient(135deg, #667eea, #764ba2);
+                color: white;
+                border: none;
+                padding: 12px 30px;
+                border-radius: 8px;
+                font-weight: 600;
+                cursor: pointer;
+                font-size: 16px;
+                text-decoration: none;
+                display: inline-block;
+                margin: 5px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="message-box">
+            <div class="icon"><i class="fas fa-cloud-download-alt"></i></div>
+            <h1>Profile Not Cached</h1>
+            <p>
+                Your profile data hasn\'t been cached yet. Please visit this page while online first 
+                to enable offline access.
+            </p>
+            <a href="../../index.php" class="btn">
+                <i class="fas fa-arrow-left"></i> Back to Dashboard
+            </a>
+            <button class="btn" onclick="location.reload()">
+                <i class="fas fa-sync-alt"></i> Try Again
+            </button>
+        </div>
+    </body>
+    </html>';
+    exit;
 }
 
 $pageTitle = 'My Profile';
@@ -53,10 +312,21 @@ if (!empty($user['role']) && is_string($user['role'])) {
 $message = '';
 $messageType = '';
 
+// Check if manual cache refresh was requested
+if (isset($_GET['refresh_cache']) && !isset($_GET['silent'])) {
+    $message = 'Cache refreshed successfully! You\'re viewing the latest data.';
+    $messageType = 'success';
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $action = $_POST['action'] ?? '';
-    
-    if ($action === 'update_profile') {
+    // Skip POST processing if we're in offline mode (loaded from cache)
+    if ($isOfflineMode) {
+        $message = 'Changes saved locally and will sync when connection is restored.';
+        $messageType = 'info';
+    } else {
+        $action = $_POST['action'] ?? '';
+        
+        if ($action === 'update_profile') {
         // Track changes for activity log
         $changes = [];
         $oldData = $user; // Store original data
@@ -175,6 +445,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     }
+    } // Close else block for offline mode check
 }
 ?>
 <!DOCTYPE html>
@@ -406,6 +677,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             border-left: 4px solid #dc3545;
         }
         
+        .alert-info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border-left: 4px solid #17a2b8;
+        }
+        
         .loading-skeleton {
             background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
             background-size: 200% 100%;
@@ -620,16 +897,200 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .empty-state p {
             font-size: 16px;
         }
+        
+        /* Management Card Styles */
+        .info-card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            transition: all 0.2s ease;
+        }
+        
+        .info-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 35px rgba(0,0,0,0.15) !important;
+        }
+        
+        /* Connectivity Indicator Styles */
+        #connectivity-indicator {
+            position: fixed;
+            top: 70px;
+            right: 20px;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            z-index: 10000;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            transition: all 0.3s ease;
+        }
+        
+        #connectivity-indicator.online {
+            background: #10b981;
+            color: white;
+        }
+        
+        #connectivity-indicator.offline {
+            background: #ef4444;
+            color: white;
+        }
+        
+        #pending-updates-badge {
+            position: fixed;
+            top: 75px;
+            right: 180px;
+            background: #f59e0b;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            z-index: 9998;
+            display: none;
+        }
+        
+        #notification-container {
+            position: fixed;
+            top: 130px;
+            right: 20px;
+            z-index: 9999;
+            max-width: 400px;
+        }
+        
+        .notification {
+            margin-bottom: 10px;
+            animation: slideIn 0.3s ease;
+        }
+        
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        
+        @keyframes slideOut {
+            from {
+                transform: translateX(0);
+                opacity: 1;
+            }
+            to {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+        }
+        
+        /* Loading Overlay Styles */
+        #refresh-loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 99999;
+            backdrop-filter: blur(4px);
+        }
+        
+        #refresh-loading-overlay.active {
+            display: flex;
+        }
+        
+        .loading-content {
+            background: white;
+            padding: 40px;
+            border-radius: 16px;
+            text-align: center;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            animation: fadeIn 0.3s ease;
+        }
+        
+        .loading-spinner {
+            width: 60px;
+            height: 60px;
+            border: 4px solid #e5e7eb;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.9); }
+            to { opacity: 1; transform: scale(1); }
+        }
     </style>
 </head>
 <body>
+    <!-- Loading Overlay -->
+    <div id="refresh-loading-overlay">
+        <div class="loading-content">
+            <div class="loading-spinner"></div>
+            <h3 style="margin: 0 0 10px 0; color: #1f2937;">Refreshing Cache</h3>
+            <p style="margin: 0; color: #6b7280;">Fetching latest data from server...</p>
+        </div>
+    </div>
+    
+    <!-- Connectivity Indicator -->
+    <div id="connectivity-indicator" class="online" style="display: none;">
+        <i class="fas fa-wifi"></i>
+        <span>Online</span>
+    </div>
+    
+    <!-- Pending Updates Badge -->
+    <div id="pending-updates-badge" style="display: none;"></div>
+    
+    <!-- Notification Container -->
+    <div id="notification-container"></div>
+    
     <!-- Dashboard content wrapper -->
     <div class="dashboard-content">
         <div class="container">
         
+        <?php if ($isOfflineMode): ?>
+        <?php 
+            // Calculate cache age for display
+            $cacheTimestamp = file_exists($cacheFile) ? filemtime($cacheFile) : time();
+            $cacheAgeSeconds = time() - $cacheTimestamp;
+            
+            if ($cacheAgeSeconds < 60) {
+                $cacheAgeDisplay = "just now";
+            } elseif ($cacheAgeSeconds < 3600) {
+                $minutes = floor($cacheAgeSeconds / 60);
+                $cacheAgeDisplay = $minutes . " minute" . ($minutes > 1 ? "s" : "") . " ago";
+            } elseif ($cacheAgeSeconds < 86400) {
+                $hours = floor($cacheAgeSeconds / 3600);
+                $cacheAgeDisplay = $hours . " hour" . ($hours > 1 ? "s" : "") . " ago";
+            } else {
+                $days = floor($cacheAgeSeconds / 86400);
+                $cacheAgeDisplay = $days . " day" . ($days > 1 ? "s" : "") . " ago";
+            }
+        ?>
+        <div class="alert" style="background: #fef3c7; color: #92400e; border-left: 4px solid #f59e0b; margin-bottom: 20px;">
+            <i class="fas fa-exclamation-triangle"></i>
+            <strong>Offline Mode:</strong> You're viewing cached profile data (updated <?= $cacheAgeDisplay ?>). Some features may be limited. Changes will sync when connection is restored.
+        </div>
+        <?php endif; ?>
+        
         <?php if ($message): ?>
         <div class="alert alert-<?= $messageType ?>">
-            <i class="fas fa-<?= $messageType === 'success' ? 'check-circle' : 'exclamation-circle' ?>"></i>
+            <i class="fas fa-<?= $messageType === 'success' ? 'check-circle' : ($messageType === 'info' ? 'info-circle' : 'exclamation-circle') ?>"></i>
             <?= htmlspecialchars($message) ?>
         </div>
         <?php endif; ?>
@@ -657,6 +1118,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <?= htmlspecialchars($user['username'] ?? '') ?>
                     </div>
                 </div>
+            </div>
+            <div style="margin-left: auto;">
+                <button id="refreshCacheBtn" class="btn" style="background: linear-gradient(135deg, #667eea, #764ba2); color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                    <i class="fas fa-sync-alt" id="refreshIcon"></i> 
+                    <span id="refreshText">Refresh Cache</span>
+                </button>
+                <small id="cacheStatus" style="display: block; margin-top: 5px; color: #6b7280; font-size: 12px;">
+                    <?php
+                    if (file_exists($cacheFile)) {
+                        $cacheTimestamp = filemtime($cacheFile);
+                        $cacheAgeSeconds = time() - $cacheTimestamp;
+                        
+                        if ($cacheAgeSeconds < 60) {
+                            echo "Cache: Updated just now";
+                        } elseif ($cacheAgeSeconds < 3600) {
+                            $minutes = floor($cacheAgeSeconds / 60);
+                            echo "Cache: Updated {$minutes} min ago";
+                        } else {
+                            $hours = floor($cacheAgeSeconds / 3600);
+                            echo "Cache: Updated {$hours}h ago";
+                        }
+                    } else {
+                        echo "Cache: Not available";
+                    }
+                    ?>
+                </small>
             </div>
         </div>
         
@@ -825,7 +1312,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     const container = document.getElementById('activity-content');
                     
                     if (!append) {
-                        container.innerHTML = '';
+                        container.innerHTML = `
+                            <div style="margin-bottom: 20px;">
+                                <a href="profile/activity_manager.php" style="text-decoration: none; color: inherit;">
+                                    <div class="info-card" style="cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; border-left: 4px solid #667eea;">
+                                        <div style="display: flex; align-items: center; gap: 15px;">
+                                            <div style="width: 50px; height: 50px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                                                <i class="fas fa-history" style="font-size: 24px; color: white;"></i>
+                                            </div>
+                                            <div style="flex: 1;">
+                                                <h4 style="margin: 0 0 5px 0; font-size: 16px;">Activity Manager</h4>
+                                                <p style="margin: 0; font-size: 14px; color: #666;">Track and manage all user activities</p>
+                                            </div>
+                                            <i class="fas fa-arrow-right" style="color: #667eea;"></i>
+                                        </div>
+                                    </div>
+                                </a>
+                            </div>
+                        `;
                     }
                     
                     data.data.forEach(activity => {
@@ -864,6 +1368,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 } else if (!append) {
                     document.getElementById('activity-content').innerHTML = `
+                        <div style="margin-bottom: 20px;">
+                            <a href="profile/activity_manager.php" style="text-decoration: none; color: inherit;">
+                                <div class="info-card" style="cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; border-left: 4px solid #667eea;">
+                                    <div style="display: flex; align-items: center; gap: 15px;">
+                                        <div style="width: 50px; height: 50px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                                            <i class="fas fa-history" style="font-size: 24px; color: white;"></i>
+                                        </div>
+                                        <div style="flex: 1;">
+                                            <h4 style="margin: 0 0 5px 0; font-size: 16px;">Activity Manager</h4>
+                                            <p style="margin: 0; font-size: 14px; color: #666;">Track and manage all user activities</p>
+                                        </div>
+                                        <i class="fas fa-arrow-right" style="color: #667eea;"></i>
+                                    </div>
+                                </div>
+                            </a>
+                        </div>
                         <div class="empty-state">
                             <i class="fas fa-history"></i>
                             <h3>No Activity Yet</h3>
@@ -904,7 +1424,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         { key: 'can_configure_system', name: 'System Configuration', icon: 'cog', desc: 'Access system settings and configuration' }
                     ];
                     
-                    container.innerHTML = '<div class="permission-grid"></div>';
+                    // Add Permissions Manager card at the top (admin only)
+                    let managerCardHTML = '';
+                    if (perms.role === 'Admin') {
+                        managerCardHTML = `
+                            <div style="margin-bottom: 20px;">
+                                <a href="profile/permissions_manager.php" style="text-decoration: none; color: inherit;">
+                                    <div class="info-card" style="cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; border-left: 4px solid #f5576c;">
+                                        <div style="display: flex; align-items: center; gap: 15px;">
+                                            <div style="width: 50px; height: 50px; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                                                <i class="fas fa-shield-alt" style="font-size: 24px; color: white;"></i>
+                                            </div>
+                                            <div style="flex: 1;">
+                                                <h4 style="margin: 0 0 5px 0; font-size: 16px;">Permissions Manager</h4>
+                                                <p style="margin: 0; font-size: 14px; color: #666;">Manage roles and user permissions</p>
+                                            </div>
+                                            <i class="fas fa-arrow-right" style="color: #f5576c;"></i>
+                                        </div>
+                                    </div>
+                                </a>
+                            </div>
+                        `;
+                    }
+                    
+                    container.innerHTML = managerCardHTML + '<div class="permission-grid"></div>';
                     const grid = container.querySelector('.permission-grid');
                     
                     permissionsList.forEach(perm => {
@@ -946,7 +1489,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
                 if (data.success && data.data.length > 0) {
                     const container = document.getElementById('stores-content');
-                    container.innerHTML = '';
+                    container.innerHTML = `
+                        <div style="margin-bottom: 20px;">
+                            <a href="profile/stores_manager.php" style="text-decoration: none; color: inherit;">
+                                <div class="info-card" style="cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; border-left: 4px solid #00f2fe;">
+                                    <div style="display: flex; align-items: center; gap: 15px;">
+                                        <div style="width: 50px; height: 50px; background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                                            <i class="fas fa-store" style="font-size: 24px; color: white;"></i>
+                                        </div>
+                                        <div style="flex: 1;">
+                                            <h4 style="margin: 0 0 5px 0; font-size: 16px;">Stores Manager</h4>
+                                            <p style="margin: 0; font-size: 14px; color: #666;">Manage stores and user access</p>
+                                        </div>
+                                        <i class="fas fa-arrow-right" style="color: #00f2fe;"></i>
+                                    </div>
+                                </div>
+                            </a>
+                        </div>
+                    `;
                     
                     data.data.forEach(store => {
                         const card = document.createElement('div');
@@ -967,6 +1527,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     });
                 } else {
                     document.getElementById('stores-content').innerHTML = `
+                        <div style="margin-bottom: 20px;">
+                            <a href="profile/stores_manager.php" style="text-decoration: none; color: inherit;">
+                                <div class="info-card" style="cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; border-left: 4px solid #00f2fe;">
+                                    <div style="display: flex; align-items: center; gap: 15px;">
+                                        <div style="width: 50px; height: 50px; background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                                            <i class="fas fa-store" style="font-size: 24px; color: white;"></i>
+                                        </div>
+                                        <div style="flex: 1;">
+                                            <h4 style="margin: 0 0 5px 0; font-size: 16px;">Stores Manager</h4>
+                                            <p style="margin: 0; font-size: 14px; color: #666;">Manage stores and user access</p>
+                                        </div>
+                                        <i class="fas fa-arrow-right" style="color: #00f2fe;"></i>
+                                    </div>
+                                </div>
+                            </a>
+                        </div>
                         <div class="empty-state">
                             <i class="fas fa-store"></i>
                             <h3>No Store Access</h3>
@@ -1041,5 +1617,293 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             return div.innerHTML;
         }
     </script>
+    
+    <!-- Offline Support Scripts -->
+    <script src="../offline/offline_storage.js?v=2"></script>
+    <script src="../offline/sync_manager.js?v=2"></script>
+    <script src="../offline/connectivity_monitor.js?v=2"></script>
+    <script src="../offline/conflict_resolver.js?v=2"></script>
+    
+    <script>
+    // Initialize offline support for profile
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('Initializing offline support...');
+        
+        // Cache current profile data for offline access
+        const profileData = {
+            id: <?php echo json_encode($userId, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>,
+            first_name: <?php echo json_encode($user['first_name'] ?? '', JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>,
+            last_name: <?php echo json_encode($user['last_name'] ?? '', JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>,
+            email: <?php echo json_encode($user['email'] ?? '', JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>,
+            username: <?php echo json_encode($user['username'] ?? '', JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>,
+            phone: <?php echo json_encode($user['phone'] ?? '', JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>,
+            role: <?php echo json_encode($user['role'] ?? '', JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>,
+            isOffline: <?php echo $isOfflineMode ? 'true' : 'false'; ?>
+        };
+        
+        // Store in sessionStorage for quick access
+        sessionStorage.setItem('profileData', JSON.stringify(profileData));
+        
+        // Wait for all components to be ready
+        setTimeout(async () => {
+            if (!window.profileOfflineStorage || !window.profileSyncManager || !window.connectivityMonitor) {
+                console.error('Offline support components not loaded');
+                return;
+            }
+            
+            // Cache profile in IndexedDB
+            try {
+                await window.profileOfflineStorage.cacheProfile('<?php echo $userId; ?>', profileData);
+                console.log('Profile cached in IndexedDB');
+            } catch (error) {
+                console.error('Failed to cache profile:', error);
+            }
+            
+            // Start auto-sync
+            window.profileSyncManager.startAutoSync();
+            
+            // Update pending count badge
+            await window.connectivityMonitor.updatePendingCount();
+            
+            // Show offline mode indicator if using cached data
+            <?php if ($isOfflineMode): ?>
+            window.connectivityMonitor.showNotification(
+                'Using cached data from offline mode',
+                'warning'
+            );
+            <?php endif; ?>
+            
+            // Listen for sync events
+            window.profileSyncManager.addEventListener((event, data) => {
+                if (event === 'sync-complete') {
+                    window.connectivityMonitor.showNotification(
+                        `Synced ${data.success} update(s) successfully`,
+                        'success'
+                    );
+                    window.connectivityMonitor.updatePendingCount();
+                } else if (event === 'sync-error') {
+                    window.connectivityMonitor.showNotification(
+                        'Sync failed. Will retry automatically.',
+                        'error'
+                    );
+                }
+            });
+            
+            // Intercept profile form submission
+            const profileForm = document.querySelector('form[method="POST"]');
+            if (profileForm) {
+                profileForm.addEventListener('submit', async function(e) {
+                    // If offline, save to local storage instead
+                    if (!navigator.onLine) {
+                        e.preventDefault();
+                        
+                        const formData = new FormData(this);
+                        const updateData = {};
+                        
+                        for (const [key, value] of formData.entries()) {
+                            if (key !== 'update_profile') {
+                                updateData[key] = value;
+                            }
+                        }
+                        
+                        try {
+                            const userId = '<?php echo $user_id; ?>';
+                            await window.profileOfflineStorage.savePendingUpdate(userId, updateData);
+                            
+                            window.connectivityMonitor.showNotification(
+                                'Changes saved locally. Will sync when online.',
+                                'success'
+                            );
+                            
+                            // Update pending count
+                            await window.connectivityMonitor.updatePendingCount();
+                            
+                            // Update form fields to show saved state
+                            document.querySelector('.alert-success')?.remove();
+                            const alert = document.createElement('div');
+                            alert.className = 'alert alert-success';
+                            alert.style.cssText = 'background: #10b981; color: white; padding: 15px; border-radius: 8px; margin: 20px 0;';
+                            alert.innerHTML = '<i class="fas fa-check-circle"></i> Changes saved offline. Will sync automatically when connected.';
+                            this.insertBefore(alert, this.firstChild);
+                            
+                        } catch (error) {
+                            console.error('Failed to save offline:', error);
+                            window.connectivityMonitor.showNotification(
+                                'Failed to save changes offline',
+                                'error'
+                            );
+                        }
+                    }
+                    // If online, let form submit normally
+                });
+            }
+            
+            console.log('Offline support initialized successfully');
+        }, 500);
+    });
+    
+    // Manual cache refresh function - Make it globally accessible
+    // Updated: 2025-10-16 - Global function for button onclick
+    window.refreshCache = async function() {
+        console.log('=== REFRESH CACHE FUNCTION CALLED ===');
+        const btn = document.getElementById('refreshCacheBtn');
+        const icon = document.getElementById('refreshIcon');
+        const text = document.getElementById('refreshText');
+        const status = document.getElementById('cacheStatus');
+        const overlay = document.getElementById('refresh-loading-overlay');
+        
+        console.log('Refresh cache clicked');
+        console.log('Overlay element:', overlay);
+        
+        // Show loading overlay FIRST
+        if (overlay) {
+            overlay.classList.add('active');
+            console.log('Overlay activated, classes:', overlay.className);
+        } else {
+            console.error('Overlay element not found!');
+        }
+        
+        // Disable button and show loading state
+        btn.disabled = true;
+        btn.style.opacity = '0.6';
+        btn.style.cursor = 'not-allowed';
+        icon.classList.add('fa-spin');
+        text.textContent = 'Refreshing...';
+        
+        // Also change button background for extra visibility
+        const originalBg = btn.style.background;
+        btn.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+        btn.style.filter = 'brightness(0.8)';
+        
+        try {
+            // Try AJAX refresh first for better UX
+            const currentUrl = new URL(window.location.href);
+            currentUrl.searchParams.set('refresh_cache', '1');
+            currentUrl.searchParams.set('ajax', '1');
+            
+            console.log('Fetching:', currentUrl.toString());
+            
+            const response = await fetch(currentUrl.toString(), {
+                method: 'GET',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            });
+            
+            console.log('Response received:', response.ok);
+            
+            if (response.ok) {
+                // Success - update status and show notification
+                status.textContent = 'Cache: Updated just now';
+                text.textContent = 'Refresh Cache';
+                icon.classList.remove('fa-spin');
+                btn.disabled = false;
+                btn.style.opacity = '1';
+                btn.style.cursor = 'pointer';
+                btn.style.background = originalBg;
+                btn.style.filter = 'none';
+                
+                if (window.connectivityMonitor) {
+                    window.connectivityMonitor.showNotification(
+                        'Cache refreshed successfully!',
+                        'success'
+                    );
+                }
+                
+                // Keep overlay visible for 1.5 seconds to ensure user sees it
+                setTimeout(() => {
+                    console.log('Hiding overlay and reloading');
+                    if (overlay) {
+                        overlay.classList.remove('active');
+                    }
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 300);
+                }, 1500);
+            } else {
+                throw new Error('Refresh failed');
+            }
+        } catch (error) {
+            console.error('AJAX refresh failed, doing full page reload:', error);
+            
+            // Hide overlay
+            if (overlay) {
+                overlay.classList.remove('active');
+            }
+            
+            // Fallback to full page reload
+            const currentUrl = new URL(window.location.href);
+            currentUrl.searchParams.set('refresh_cache', '1');
+            window.location.href = currentUrl.toString();
+        }
+    };
+    
+    // Background auto-refresh (every 30 seconds when online)    // Background auto-refresh (every 30 seconds when online)
+    let autoRefreshInterval = null;
+    
+    function startAutoRefresh() {
+        // Only auto-refresh if online
+        if (navigator.onLine) {
+            autoRefreshInterval = setInterval(() => {
+                if (navigator.onLine) {
+                    // Silently refresh cache in background using fetch
+                    fetch(window.location.href + (window.location.search ? '&' : '?') + 'refresh_cache=1&silent=1')
+                        .then(response => {
+                            if (response.ok) {
+                                console.log('Background cache refresh successful');
+                                // Update cache status display
+                                const status = document.getElementById('cacheStatus');
+                                if (status) {
+                                    status.textContent = 'Cache: Updated just now';
+                                }
+                            }
+                        })
+                        .catch(error => {
+                            console.log('Background refresh failed:', error);
+                        });
+                }
+            }, 30000); // 30 seconds
+        }
+    }
+    
+    function stopAutoRefresh() {
+        if (autoRefreshInterval) {
+            clearInterval(autoRefreshInterval);
+            autoRefreshInterval = null;
+        }
+    }
+    
+    // Start auto-refresh when page loads
+    document.addEventListener('DOMContentLoaded', () => {
+        // Attach click handler to refresh button
+        const refreshBtn = document.getElementById('refreshCacheBtn');
+        if (refreshBtn) {
+            console.log('Attaching click handler to refresh button');
+            refreshBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                console.log('Refresh button clicked via event listener');
+                if (typeof window.refreshCache === 'function') {
+                    window.refreshCache();
+                } else {
+                    console.error('window.refreshCache is not a function!', typeof window.refreshCache);
+                }
+            });
+        } else {
+            console.error('Refresh button not found!');
+        }
+        
+        startAutoRefresh();
+        
+        // Stop/start auto-refresh based on online status
+        window.addEventListener('online', startAutoRefresh);
+        window.addEventListener('offline', stopAutoRefresh);
+        
+        // Verify refreshCache is globally accessible
+        console.log('=== Checking global functions ===');
+        console.log('window.refreshCache exists:', typeof window.refreshCache);
+        console.log('typeof window.refreshCache:', typeof window.refreshCache);
+    });
+    </script>
 </body>
 </html>
+
