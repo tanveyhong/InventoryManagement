@@ -188,3 +188,4 @@
 [2025-09-28 10:40:20] Failed login attempt Context: {"username":"wow","found_user":false,"user_id":null}
 [2025-09-28 10:40:49] Failed login attempt Context: {"username":"owo","found_user":false,"user_id":null}
 [2025-09-28 10:42:59] Failed login attempt Context: {"username":"wow","found_user":false,"user_id":null,"probe":[]}
+[2025-10-15 23:47:27] Error: Array to string conversion in C:\Users\senpa\InventorySystem\firebase_rest_client.php on line 160

@@ -1,5 +1,7 @@
 <?php
-// Enhanced Dashboard
+// Enhanced Dashboard with Performance Optimization
+ob_start('ob_gzhandler'); // Enable compression
+
 require_once 'config.php';
 require_once 'db.php';
 require_once 'functions.php';
@@ -12,20 +14,47 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
-// Get dashboard statistics
-$stats = [
-    'total_products' => getTotalProducts(),
-    'low_stock' => getLowStockCount(),
-    'total_stores' => getTotalStores(),
-    'todays_sales' => getTodaysSales(),
-    'notifications' => getNotifications()
-];
+// Helper function for caching
+function getCachedStats($key, $callback, $ttl = 180) {
+    $cache_dir = 'storage/cache/';
+    if (!is_dir($cache_dir)) {
+        @mkdir($cache_dir, 0755, true);
+    }
+    
+    $cache_file = $cache_dir . md5($key) . '.json';
+    
+    if (file_exists($cache_file) && (time() - filemtime($cache_file)) < $ttl) {
+        $data = json_decode(file_get_contents($cache_file), true);
+        if ($data !== null) {
+            return $data;
+        }
+    }
+    
+    $data = $callback();
+    file_put_contents($cache_file, json_encode($data));
+    return $data;
+}
+
+// Get dashboard statistics with caching (3 min cache)
+$stats = getCachedStats('dashboard_stats_' . $_SESSION['user_id'], function() {
+    return [
+        'total_products' => getTotalProducts(),
+        'low_stock' => getLowStockCount(),
+        'total_stores' => getTotalStores(),
+        'todays_sales' => getTodaysSales(),
+        'notifications' => getNotifications()
+    ];
+}, 180);
 
 // Get recent activity (you can expand this based on your needs)
 $db = getDB();
 $recent_activity = [];
 
 $page_title = 'Dashboard - Inventory Management System';
+
+// Add caching headers
+header('Cache-Control: private, max-age=180');
+header('Vary: Cookie');
 ?>
 
 <!DOCTYPE html>

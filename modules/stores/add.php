@@ -3,6 +3,7 @@
 require_once '../../config.php';
 require_once '../../db.php';
 require_once '../../functions.php';
+require_once '../../activity_logger.php';
 
 session_start();
 
@@ -107,6 +108,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ];
             $result = $db->create('stores', $storeData);
             if ($result) {
+                // Log the activity
+                error_log("Store created with ID: {$result}, Name: {$name}, User: {$_SESSION['user_id']}");
+                
+                $activityResult = logStoreActivity('created', $result, $name);
+                error_log("Activity logging result: " . ($activityResult ? 'SUCCESS' : 'FAILED'));
+                
                 addNotification('Store created successfully!', 'success');
                 header('Location: list.php');
                 exit;
@@ -449,6 +456,124 @@ $page_title = 'Add New Store - Inventory System';
         .form-group input.success {
             border-color: #48bb78;
             background: rgba(72, 187, 120, 0.05);
+            animation: successPulse 0.6s ease;
+        }
+        
+        @keyframes successPulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+        }
+        
+        /* Address Search Styles */
+        .address-search-container { 
+            position: relative; 
+            margin-bottom: 25px; 
+            padding: 20px;
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.08) 0%, rgba(118, 75, 162, 0.08) 100%);
+            border-radius: 12px;
+            border: 2px dashed rgba(102, 126, 234, 0.25);
+        }
+        
+        .address-search-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 15px;
+            color: #2d3748;
+        }
+        
+        .address-search-header i { 
+            color: #667eea; 
+            font-size: 20px; 
+        }
+        
+        .address-search-header h4 { 
+            margin: 0; 
+            font-size: 16px; 
+            font-weight: 600; 
+        }
+        
+        #address-search {
+            padding-right: 40px !important;
+            font-size: 15px;
+        }
+        
+        #search-loading {
+            position: absolute;
+            right: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #667eea;
+            animation: spinLoader 1s linear infinite;
+        }
+        
+        @keyframes spinLoader {
+            from { transform: translateY(-50%) rotate(0deg); }
+            to { transform: translateY(-50%) rotate(360deg); }
+        }
+        
+        #address-results {
+            position: absolute;
+            top: calc(100% + 5px);
+            left: 0;
+            right: 0;
+            background: white;
+            border: 2px solid #667eea;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.25);
+            max-height: 400px;
+            overflow-y: auto;
+            z-index: 9999 !important;
+        }
+        
+        .search-helper-text {
+            font-size: 13px;
+            color: #718096;
+            margin-top: 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .search-helper-text i { 
+            color: #667eea; 
+        }
+        
+        /* Notification Styles */
+        .notification {
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            padding: 16px 24px;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            z-index: 10000;
+            animation: slideInRight 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-weight: 500;
+            max-width: 400px;
+        }
+        
+        .notification.success {
+            background: #48bb78;
+            color: white;
+        }
+        
+        .notification.error {
+            background: #e53e3e;
+            color: white;
+        }
+        
+        @keyframes slideInRight {
+            from { transform: translateX(400px); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        
+        @keyframes slideOutRight {
+            from { transform: translateX(0); opacity: 1; }
+            to { transform: translateX(400px); opacity: 0; }
         }
         
         /* Tooltip style */
@@ -596,6 +721,28 @@ $page_title = 'Add New Store - Inventory System';
 
                     <div class="form-section">
                         <h3><i class="fas fa-map-marker-alt" style="color: #667eea;"></i> Address & Location</h3>
+                        
+                        <!-- Address Search Bar -->
+                        <div class="form-group" style="position: relative; overflow: visible;">
+                            <label for="address-search">
+                                <i class="fas fa-search"></i> Search Address:
+                            </label>
+                            <div style="position: relative; overflow: visible;">
+                                <input type="text" 
+                                       id="address-search" 
+                                       placeholder="Search address (min 3 chars, e.g., 'Ujong Pasir, Johor' or 'New York, NY')"
+                                       style="padding-right: 40px;">
+                                <div id="search-loading" style="display: none; position: absolute; right: 12px; top: 50%; transform: translateY(-50%);">
+                                    <i class="fas fa-spinner fa-spin" style="color: #667eea;"></i>
+                                </div>
+                                
+                                <!-- Search Results Dropdown -->
+                                <div id="address-results" style="display: none;"></div>
+                            </div>
+                            <small>
+                                <i class="fas fa-info-circle"></i> Type at least 3 characters to search. Use ↑↓ arrow keys and Enter to select.
+                            </small>
+                        </div>
                         
                         <div class="form-group">
                             <label for="address">Address:</label>
@@ -749,25 +896,353 @@ $page_title = 'Add New Store - Inventory System';
     
     <script src="../../assets/js/main.js"></script>
     <script>
+        // Global variables
         let mapPreview = null;
         let marker = null;
+        let searchTimeout = null;
+        let selectedResultIndex = -1;
+        let searchResults = [];
+        let addressSearchInput, addressResultsDiv, searchLoadingIcon;
         
-        // Add smooth scroll to errors
+        // Wait for DOM to be ready
         document.addEventListener('DOMContentLoaded', function() {
-            const errorAlert = document.querySelector('.alert-error');
-            if (errorAlert) {
-                errorAlert.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            console.log('✅ Address Search initialized');
+            
+            // Address Search Functionality - Get elements
+            addressSearchInput = document.getElementById('address-search');
+            addressResultsDiv = document.getElementById('address-results');
+            searchLoadingIcon = document.getElementById('search-loading');
+            
+            if (!addressSearchInput || !addressResultsDiv || !searchLoadingIcon) {
+                console.error('❌ ERROR: Search elements not found!');
+                return;
             }
             
-            // Add success class animation when inputs are filled
-            const inputs = document.querySelectorAll('input, select, textarea');
-            inputs.forEach(input => {
-                input.addEventListener('blur', function() {
-                    if (this.value && this.value.trim() !== '') {
-                        this.classList.add('success');
-                        setTimeout(() => this.classList.remove('success'), 2000);
-                    }
+            addressSearchInput.addEventListener('input', function() {
+                const query = this.value.trim();
+                
+                // Clear previous timeout
+                if (searchTimeout) {
+                    clearTimeout(searchTimeout);
+                }
+                
+                // Hide results if query is too short
+                if (query.length < 3) {
+                    addressResultsDiv.style.display = 'none';
+                    searchLoadingIcon.style.display = 'none';
+                    return;
+                }
+                
+                // Show loading indicator
+                searchLoadingIcon.style.display = 'block';
+                
+                // Wait for user to finish typing (500ms delay)
+                searchTimeout = setTimeout(() => {
+                    searchAddress(query);
+                }, 500);
+            });        // Show dropdown when focused
+        addressSearchInput.addEventListener('focus', function() {
+            const query = this.value.trim();
+            if (query.length > 0 && addressResultsDiv.innerHTML !== '') {
+                addressResultsDiv.style.display = 'block';
+            }
+        });
+        
+        // Keyboard navigation for results
+        addressSearchInput.addEventListener('keydown', function(e) {
+            const resultItems = addressResultsDiv.querySelectorAll('.result-item');
+            
+            if (resultItems.length === 0) return;
+            
+            // Arrow Down
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                selectedResultIndex = Math.min(selectedResultIndex + 1, resultItems.length - 1);
+                updateSelectedResult(resultItems);
+            }
+            // Arrow Up
+            else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                selectedResultIndex = Math.max(selectedResultIndex - 1, -1);
+                updateSelectedResult(resultItems);
+            }
+            // Enter
+            else if (e.key === 'Enter' && selectedResultIndex >= 0) {
+                e.preventDefault();
+                if (searchResults[selectedResultIndex]) {
+                    selectAddress(searchResults[selectedResultIndex]);
+                }
+            }
+            // Escape
+            else if (e.key === 'Escape') {
+                e.preventDefault();
+                addressResultsDiv.style.display = 'none';
+                selectedResultIndex = -1;
+            }
+        });
+        
+        function updateSelectedResult(resultItems) {
+            resultItems.forEach((item, index) => {
+                if (index === selectedResultIndex) {
+                    item.style.background = '#f7fafc';
+                    item.style.transform = 'translateX(5px)';
+                    item.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                } else {
+                    item.style.background = 'white';
+                    item.style.transform = 'translateX(0)';
+                }
+            });
+        }
+        
+        // Search address using Nominatim API
+        async function searchAddress(query) {
+            try {
+                // Show a "searching..." message immediately
+                addressResultsDiv.innerHTML = '<div style="padding: 15px; text-align: center; color: #667eea;"><i class="fas fa-search fa-spin"></i> Searching...</div>';
+                addressResultsDiv.style.display = 'block';
+                
+                // Enhanced search with address priority
+                const url = `https://nominatim.openstreetmap.org/search?` +
+                    `format=json` +
+                    `&q=${encodeURIComponent(query)}` +
+                    `&addressdetails=1` +
+                    `&limit=10` + // Get more results
+                    `&dedupe=1`; // Remove duplicate results
+                
+                const response = await fetch(url);
+                const results = await response.json();
+                
+                console.log(`✅ Found ${results.length} results for "${query}"`);
+                
+                searchLoadingIcon.style.display = 'none';
+                
+                if (results && results.length > 0) {
+                    // Filter out only very broad results
+                    const filteredResults = results.filter(r => {
+                        // Only exclude continents (countries and regions are OK)
+                        if (r.type === 'continent') return false;
+                        return true;
+                    });
+                    
+                    // Sort by relevance and importance
+                    filteredResults.sort((a, b) => {
+                        // Prioritize results with building/house numbers
+                        const aHasNumber = a.address && (a.address.house_number || a.address.building);
+                        const bHasNumber = b.address && (b.address.house_number || b.address.building);
+                        if (aHasNumber && !bHasNumber) return -1;
+                        if (!aHasNumber && bHasNumber) return 1;
+                        
+                        // Then sort by importance (higher = more relevant)
+                        return (b.importance || 0) - (a.importance || 0);
+                    });
+                    
+                    displaySearchResults(filteredResults.slice(0, 8)); // Show top 8 results
+                } else {
+                    console.log('⚠️ No results found');
+                    addressResultsDiv.innerHTML = `
+                        <div style="padding: 20px; text-align: center; color: #718096;">
+                            <i class="fas fa-search" style="font-size: 32px; margin-bottom: 10px; opacity: 0.5;"></i>
+                            <div style="font-weight: 600; margin-bottom: 5px;">No addresses found</div>
+                            <div style="font-size: 13px;">Try a different search or be more specific</div>
+                        </div>
+                    `;
+                    addressResultsDiv.style.display = 'block';
+                }
+            } catch (error) {
+                console.error('❌ Address search error:', error);
+                searchLoadingIcon.style.display = 'none';
+                addressResultsDiv.innerHTML = `
+                    <div style="padding: 20px; text-align: center; color: #e53e3e;">
+                        <i class="fas fa-exclamation-triangle" style="font-size: 32px; margin-bottom: 10px;"></i>
+                        <div style="font-weight: 600; margin-bottom: 5px;">Search Error</div>
+                        <div style="font-size: 13px;">Please check your connection and try again</div>
+                    </div>
+                `;
+                addressResultsDiv.style.display = 'block';
+            }
+        }
+        
+        // Display search results
+        function displaySearchResults(results) {
+            addressResultsDiv.innerHTML = '';
+            searchResults = results; // Store for keyboard navigation
+            selectedResultIndex = -1; // Reset selection
+            
+            // Add header showing result count
+            const headerDiv = document.createElement('div');
+            headerDiv.style.cssText = `
+                padding: 10px 16px;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                font-weight: 600;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                font-size: 13px;
+                border-radius: 12px 12px 0 0;
+            `;
+            headerDiv.innerHTML = `
+                <span><i class="fas fa-map-marker-alt"></i> ${results.length} location${results.length !== 1 ? 's' : ''} found</span>
+                <span style="font-size: 11px; opacity: 0.9;">
+                    <i class="fas fa-keyboard"></i> ↑↓ Enter
+                </span>
+            `;
+            addressResultsDiv.appendChild(headerDiv);
+            
+            results.forEach((result, index) => {
+                const resultItem = document.createElement('div');
+                resultItem.className = 'result-item';
+                resultItem.style.cssText = `
+                    padding: 10px 14px;
+                    cursor: pointer;
+                    border-bottom: 1px solid #f0f0f0;
+                    transition: all 0.15s ease;
+                    background: white;
+                `;
+                
+                // Extract key address components
+                const addr = result.address || {};
+                const mainAddress = addr.road || addr.pedestrian || addr.address29 || addr.suburb || '';
+                const city = addr.city || addr.town || addr.village || addr.municipality || '';
+                const state = addr.state || addr.province || addr.region || '';
+                const country = addr.country || '';
+                const zip = addr.postcode || '';
+                
+                // Build compact address string
+                let compactAddr = [];
+                if (mainAddress) compactAddr.push(mainAddress);
+                if (city) compactAddr.push(city);
+                if (state) compactAddr.push(state);
+                if (zip) compactAddr.push(zip);
+                
+                // If no structured address, use display name
+                const displayText = compactAddr.length > 0 ? compactAddr.join(', ') : result.display_name;
+                
+                // Determine location type icon
+                let typeIcon = 'fa-map-marker-alt';
+                let typeColor = '#667eea';
+                if (result.type === 'building' || addr.building) {
+                    typeIcon = 'fa-building';
+                    typeColor = '#48bb78';
+                } else if (result.type === 'city' || result.type === 'town') {
+                    typeIcon = 'fa-city';
+                    typeColor = '#ed8936';
+                } else if (result.type === 'administrative') {
+                    typeIcon = 'fa-map';
+                    typeColor = '#9f7aea';
+                }
+                
+                resultItem.innerHTML = `
+                    <div style="display: flex; gap: 10px; align-items: start;">
+                        <div style="margin-top: 2px;">
+                            <i class="fas ${typeIcon}" style="color: ${typeColor}; font-size: 14px;"></i>
+                        </div>
+                        <div style="flex: 1; min-width: 0;">
+                            <div style="font-weight: 600; color: #2d3748; font-size: 13px; margin-bottom: 4px; line-height: 1.4;">
+                                ${displayText}
+                            </div>
+                            ${country ? `
+                                <div style="font-size: 11px; color: #667eea; margin-bottom: 3px;">
+                                    <i class="fas fa-globe"></i> ${country}
+                                </div>
+                            ` : ''}
+                            <div style="font-size: 11px; color: #a0aec0; font-family: 'Courier New', monospace;">
+                                ${parseFloat(result.lat).toFixed(4)}, ${parseFloat(result.lon).toFixed(4)}
+                            </div>
+                        </div>
+                        <div style="color: #cbd5e0; font-size: 11px; white-space: nowrap;">
+                            <i class="fas fa-chevron-right"></i>
+                        </div>
+                    </div>
+                `;
+                
+                // Hover effects
+                resultItem.addEventListener('mouseenter', function() {
+                    this.style.background = '#f7fafc';
+                    this.style.paddingLeft = '18px';
+                    this.querySelector('.fa-chevron-right').style.color = '#667eea';
                 });
+                
+                resultItem.addEventListener('mouseleave', function() {
+                    this.style.background = 'white';
+                    this.style.paddingLeft = '14px';
+                    this.querySelector('.fa-chevron-right').style.color = '#cbd5e0';
+                });
+                
+                // Click to select address
+                resultItem.addEventListener('click', function() {
+                    selectAddress(result);
+                });
+                
+                // Remove border from last item
+                if (index === results.length - 1) {
+                    resultItem.style.borderBottom = 'none';
+                }
+                
+                addressResultsDiv.appendChild(resultItem);
+            });
+            
+            addressResultsDiv.style.display = 'block';
+        }
+        
+        // Select and fill address details
+        function selectAddress(result) {
+            const addr = result.address || {};
+            
+            // Fill address fields
+            document.getElementById('address').value = addr.road || addr.pedestrian || addr.address29 || '';
+            document.getElementById('city').value = addr.city || addr.town || addr.village || addr.county || '';
+            document.getElementById('state').value = addr.state || addr.region || '';
+            document.getElementById('zip_code').value = addr.postcode || '';
+            
+            // Fill coordinates
+            document.getElementById('latitude').value = parseFloat(result.lat).toFixed(6);
+            document.getElementById('longitude').value = parseFloat(result.lon).toFixed(6);
+            
+            // Update search input to show selected address
+            addressSearchInput.value = result.display_name;
+            
+            // Hide results
+            addressResultsDiv.style.display = 'none';
+            
+            // Add success animation to filled fields
+            const filledFields = ['address', 'city', 'state', 'zip_code', 'latitude', 'longitude'];
+            filledFields.forEach(fieldId => {
+                const field = document.getElementById(fieldId);
+                if (field && field.value) {
+                    field.classList.add('success');
+                    setTimeout(() => field.classList.remove('success'), 2000);
+                }
+            });
+            
+            // Show map preview
+            showMapPreview(result.lat, result.lon);
+            
+            // Show success notification
+            showNotification('✓ Address selected! All fields have been filled automatically.', 'success');
+        }
+        
+        // Close results when clicking outside
+        document.addEventListener('click', function(event) {
+            if (!addressSearchInput.contains(event.target) && !addressResultsDiv.contains(event.target)) {
+                addressResultsDiv.style.display = 'none';
+            }
+        });
+        
+        // Add smooth scroll to errors (moved from separate DOMContentLoaded)
+        const errorAlert = document.querySelector('.alert-error');
+        if (errorAlert) {
+            errorAlert.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        
+        // Add success class animation when inputs are filled
+        const inputs = document.querySelectorAll('input, select, textarea');
+        inputs.forEach(input => {
+            input.addEventListener('blur', function() {
+                if (this.value && this.value.trim() !== '') {
+                    this.classList.add('success');
+                    setTimeout(() => this.classList.remove('success'), 2000);
+                }
             });
         });
         
@@ -941,6 +1416,10 @@ $page_title = 'Add New Store - Inventory System';
                 showMapPreview(lat, lon);
             }
         }
+        
+        console.log('✅ All event listeners attached successfully!');
+        
+        }); // End of DOMContentLoaded
     </script>
 </body>
 </html>

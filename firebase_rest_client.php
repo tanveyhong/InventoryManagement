@@ -92,6 +92,18 @@ class FirebaseRestClient {
         // Convert data to Firestore format
         $firestoreData = $this->convertToFirestoreFormat($data);
         
+        // Build update mask to only update specified fields (not replace entire document)
+        $fieldNames = array_keys($data);
+        $updateMask = [];
+        foreach ($fieldNames as $fieldName) {
+            $updateMask[] = 'updateMask.fieldPaths=' . urlencode($fieldName);
+        }
+        
+        // Add update mask to URL to ensure PATCH only updates specified fields
+        if (!empty($updateMask)) {
+            $url .= '?' . implode('&', $updateMask);
+        }
+        
         try {
             $response = $this->makeRequest('PATCH', $url, ['fields' => $firestoreData]);
             return true;
@@ -146,7 +158,10 @@ class FirebaseRestClient {
         $formatted = [];
         
         foreach ($data as $key => $value) {
-            if (is_string($value)) {
+            if (is_array($value)) {
+                // Convert arrays to JSON string for storage
+                $formatted[$key] = ['stringValue' => json_encode($value)];
+            } elseif (is_string($value)) {
                 $formatted[$key] = ['stringValue' => $value];
             } elseif (is_int($value)) {
                 $formatted[$key] = ['integerValue' => (string)$value];

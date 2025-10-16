@@ -3,6 +3,7 @@
 require_once '../../config.php';
 require_once '../../db.php';
 require_once '../../functions.php';
+require_once '../../activity_logger.php';
 
 session_start();
 
@@ -62,6 +63,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     if (empty($errors)) {
         try {
+            // Track changes for activity log
+            $changes = [];
+            if ($store['name'] !== $name) $changes['name'] = ['old' => $store['name'], 'new' => $name];
+            if ($store['code'] !== $code) $changes['code'] = ['old' => $store['code'], 'new' => $code];
+            if ($store['address'] !== $address) $changes['address'] = ['old' => $store['address'], 'new' => $address];
+            if ($store['city'] !== $city) $changes['city'] = ['old' => $store['city'], 'new' => $city];
+            if ($store['state'] !== $state) $changes['state'] = ['old' => $store['state'], 'new' => $state];
+            if ($store['manager_name'] !== $manager_name) $changes['manager_name'] = ['old' => $store['manager_name'], 'new' => $manager_name];
+            
             $sql = "UPDATE stores SET name = ?, code = ?, address = ?, city = ?, state = ?, zip_code = ?, 
                     phone = ?, email = ?, manager_name = ?, description = ?, updated_at = NOW() WHERE id = ?";
             
@@ -73,6 +83,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $result = $db->query($sql, $params);
             
             if ($result) {
+                // Log the activity
+                logStoreActivity('updated', $store_id, $name, $changes);
+                
                 addNotification('Store updated successfully!', 'success');
                 header('Location: list.php');
                 exit;

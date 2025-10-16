@@ -586,5 +586,4 @@ function fs_get_product(string $key): ?array {
     return null;
 }
 
-
 ?>

@@ -1,5 +1,7 @@
 <?php
-// Store List Page
+// Store List Page - Optimized for Fast Loading
+ob_start('ob_gzhandler'); // Enable compression
+
 require_once '../../config.php';
 require_once '../../db.php';
 require_once '../../functions.php';
@@ -15,13 +17,37 @@ if (!isLoggedIn()) {
     exit;
 }
 
+// Helper function for caching
+function getCachedStoreData($key, $callback, $ttl = 300) {
+    $cache_dir = '../../storage/cache/';
+    if (!is_dir($cache_dir)) {
+        @mkdir($cache_dir, 0755, true);
+    }
+    
+    $cache_file = $cache_dir . md5($key) . '.json';
+    
+    if (file_exists($cache_file) && (time() - filemtime($cache_file)) < $ttl) {
+        $data = json_decode(file_get_contents($cache_file), true);
+        if ($data !== null) {
+            return $data;
+        }
+    }
+    
+    $data = $callback();
+    file_put_contents($cache_file, json_encode($data));
+    return $data;
+}
+
 $db = getDB();
 $page = isset($_GET['page']) ? max(1, intval($_GET['page'])) : 1;
 $per_page = 20;
 $search = sanitizeInput($_GET['search'] ?? '');
 
-// Firebase-style: Get all stores and filter in PHP
-$all_stores = $db->readAll('stores', [['active', '==', 1]]);
+// OPTIMIZED: Cache stores list (5 min cache)
+$all_stores = getCachedStoreData('all_stores_active', function() use ($db) {
+    return $db->readAll('stores', [['active', '==', 1]]);
+}, 300);
+
 $stores = [];
 if (!empty($search)) {
     $search_lower = mb_strtolower($search);
@@ -48,16 +74,37 @@ $total_records = count($stores);
 $pagination = paginate($page, $per_page, $total_records);
 $stores = array_slice($stores, $pagination['offset'], $pagination['per_page']);
 
-// For each store, aggregate product_count and total_stock using Firebase
+// OPTIMIZED: Load ALL products ONCE and group by store_id (instead of N queries)
+$all_products = getCachedStoreData('all_products_for_stores', function() use ($db) {
+    return $db->readAll('products', [['active', '==', 1]], null, 500);
+}, 300);
+
+// Group products by store_id for fast lookup
+$products_by_store = [];
+foreach ($all_products as $product) {
+    $store_id = $product['store_id'] ?? null;
+    if ($store_id) {
+        if (!isset($products_by_store[$store_id])) {
+            $products_by_store[$store_id] = [];
+        }
+        $products_by_store[$store_id][] = $product;
+    }
+}
+
+// Now attach counts to each store (O(1) lookup instead of O(N) queries)
 foreach ($stores as &$store) {
-    $products = $db->readAll('products', [['store_id', '==', $store['id']], ['active', '==', 1]]);
-    $store['product_count'] = count($products);
+    $store_products = $products_by_store[$store['id']] ?? [];
+    $store['product_count'] = count($store_products);
     $store['total_stock'] = 0;
-    foreach ($products as $product) {
+    foreach ($store_products as $product) {
         $store['total_stock'] += isset($product['quantity']) ? (int)$product['quantity'] : 0;
     }
 }
 unset($store);
+
+// HTTP caching headers
+header('Cache-Control: private, max-age=300'); // Cache for 5 minutes
+header('Vary: Cookie');
 
 $page_title = 'Store Management - Inventory System';
 ?>

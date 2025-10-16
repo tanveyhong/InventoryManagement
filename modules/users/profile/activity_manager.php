@@ -127,7 +127,7 @@ $filterAction = $_GET['action'] ?? '';
 $filterDateFrom = $_GET['date_from'] ?? '';
 $filterDateTo = $_GET['date_to'] ?? '';
 $page = (int)($_GET['page'] ?? 1);
-$perPage = 50;
+$perPage = 20; // Reduced from 50 to 20 for faster initial load
 
 // Build filter conditions
 $conditions = [['deleted_at', '==', null]];
@@ -144,27 +144,42 @@ if (!$isAdmin) {
 
 // Fetch activities
 try {
-    $allActivities = $db->readAll('user_activities', $conditions, ['created_at', 'DESC']);
+    // MAJOR OPTIMIZATION: Only fetch what we need for current page, not 1000 records!
+    // Calculate exactly how many we need
+    $neededRecords = $perPage * $page; // e.g., 20 for page 1, 40 for page 2, etc.
+    $fetchLimit = min($neededRecords + 20, 100); // Fetch a bit extra for filtering, but max 100
+    
+    $allActivities = $db->readAll('user_activities', $conditions, ['created_at', 'DESC'], $fetchLimit);
     
     // Apply additional filters
     $filteredActivities = $allActivities;
     
     if (!empty($filterAction)) {
         $filteredActivities = array_filter($filteredActivities, function($act) use ($filterAction) {
-            return ($act['action_type'] ?? '') === $filterAction;
+            return ($act['action_type'] ?? $act['action'] ?? '') === $filterAction;
         });
+        // Reindex array after filtering
+        $filteredActivities = array_values($filteredActivities);
     }
     
     if (!empty($filterDateFrom)) {
         $filteredActivities = array_filter($filteredActivities, function($act) use ($filterDateFrom) {
-            return strtotime($act['created_at'] ?? '') >= strtotime($filterDateFrom);
+            $actDate = strtotime($act['created_at'] ?? '');
+            $fromDate = strtotime($filterDateFrom);
+            return $actDate !== false && $fromDate !== false && $actDate >= $fromDate;
         });
+        // Reindex array after filtering
+        $filteredActivities = array_values($filteredActivities);
     }
     
     if (!empty($filterDateTo)) {
         $filteredActivities = array_filter($filteredActivities, function($act) use ($filterDateTo) {
-            return strtotime($act['created_at'] ?? '') <= strtotime($filterDateTo . ' 23:59:59');
+            $actDate = strtotime($act['created_at'] ?? '');
+            $toDate = strtotime($filterDateTo . ' 23:59:59');
+            return $actDate !== false && $toDate !== false && $actDate <= $toDate;
         });
+        // Reindex array after filtering
+        $filteredActivities = array_values($filteredActivities);
     }
     
     $totalActivities = count($filteredActivities);
@@ -175,14 +190,27 @@ try {
     $offset = ($page - 1) * $perPage;
     $activities = array_slice($filteredActivities, $offset, $perPage);
     
-    // Get user info for activities
+    // OPTIMIZATION: Batch load all unique users at once instead of one-by-one
     $userCache = [];
+    $uniqueUserIds = array_unique(array_column($activities, 'user_id'));
+    
+    if (!empty($uniqueUserIds)) {
+        try {
+            // Fetch all users in one go
+            $allUsersData = $db->readAll('users', [], [], 100);
+            foreach ($allUsersData as $u) {
+                if (isset($u['id']) && in_array($u['id'], $uniqueUserIds)) {
+                    $userCache[$u['id']] = ($u['first_name'] ?? '') . ' ' . ($u['last_name'] ?? '');
+                }
+            }
+        } catch (Exception $e) {
+            error_log('User cache error: ' . $e->getMessage());
+        }
+    }
+    
+    // Assign user names to activities
     foreach ($activities as &$act) {
         $uid = $act['user_id'] ?? '';
-        if ($uid && !isset($userCache[$uid])) {
-            $user = $db->read('users', $uid);
-            $userCache[$uid] = $user ? ($user['first_name'] . ' ' . $user['last_name']) : 'Unknown User';
-        }
         $act['user_name'] = $userCache[$uid] ?? 'Unknown User';
     }
     
@@ -193,20 +221,49 @@ try {
     $totalPages = 1;
 }
 
+// Debug output
+if (isset($_GET['debug'])) {
+    echo "<div style='background: #f0f0f0; padding: 20px; margin: 20px; border: 2px solid #333;'>";
+    echo "<h3>Debug Information</h3>";
+    echo "<p><strong>Filter User:</strong> " . htmlspecialchars($filterUser) . "</p>";
+    echo "<p><strong>Filter Action:</strong> " . htmlspecialchars($filterAction) . "</p>";
+    echo "<p><strong>Is Admin:</strong> " . ($isAdmin ? 'YES' : 'NO') . "</p>";
+    echo "<p><strong>Conditions:</strong></p><pre>" . print_r($conditions, true) . "</pre>";
+    echo "<p><strong>All Activities Count:</strong> " . count($allActivities) . "</p>";
+    echo "<p><strong>Filtered Activities Count:</strong> " . count($filteredActivities) . "</p>";
+    echo "<p><strong>Total Activities:</strong> $totalActivities</p>";
+    echo "<p><strong>Paginated Activities Count:</strong> " . count($activities) . "</p>";
+    echo "<p><strong>Page:</strong> $page / $totalPages</p>";
+    if (count($activities) > 0) {
+        echo "<p><strong>First Activity:</strong></p><pre>" . print_r($activities[0], true) . "</pre>";
+    }
+    echo "</div>";
+}
+
 // Get users for filter dropdown (admin only, limit to 100 for performance)
 $allUsers = [];
 if ($isAdmin) {
     try {
-        $allUsers = $db->readAll('users', [], ['first_name', 'ASC'], 100);
+        // Use cached user data if available
+        if (!empty($userCache)) {
+            foreach ($userCache as $uid => $name) {
+                $allUsers[] = ['id' => $uid, 'first_name' => explode(' ', $name)[0], 'last_name' => ''];
+            }
+        } else {
+            $allUsers = $db->readAll('users', [['deleted_at', '==', null]], ['first_name', 'ASC'], 50);
+        }
     } catch (Exception $e) {
         error_log('Fetch users error: ' . $e->getMessage());
     }
 }
 
-// Get unique action types for filter
-$actionTypes = ['login', 'logout', 'profile_updated', 'password_changed', 'user_created', 
-                'permission_changed', 'store_access_updated', 'activity_cleared', 
-                'inventory_added', 'inventory_updated', 'inventory_deleted'];
+// OPTIMIZATION: Use static action types instead of dynamic extraction
+// This avoids having to read activities just for the filter dropdown
+$actionTypes = ['login', 'logout', 'store_created', 'store_updated', 'store_deleted',
+                'profile_updated', 'password_changed', 'user_created', 'permission_changed', 
+                'store_access_updated', 'activity_cleared', 'inventory_added', 
+                'inventory_updated', 'inventory_deleted', 'product_created', 
+                'product_updated', 'product_deleted', 'product_stock_adjusted'];
 
 $page_title = 'Activity Management - Inventory System';
 ?>
@@ -432,6 +489,7 @@ $page_title = 'Activity Management - Inventory System';
             display: flex;
             align-items: center;
             gap: 10px;
+            flex-wrap: wrap;
         }
         
         .alert-success {
@@ -444,6 +502,38 @@ $page_title = 'Activity Management - Inventory System';
             background: #fef2f2;
             border-left: 4px solid #ef4444;
             color: #991b1b;
+        }
+        
+        .alert-info {
+            background: #eff6ff;
+            border-left: 4px solid #3b82f6;
+            color: #1e40af;
+        }
+        
+        .filter-badge {
+            display: inline-block;
+            background: #3b82f6;
+            color: white;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            margin: 5px 5px 5px 0;
+        }
+        
+        .clear-filters {
+            display: inline-block;
+            background: #ef4444;
+            color: white;
+            padding: 5px 15px;
+            border-radius: 20px;
+            text-decoration: none;
+            font-size: 0.85rem;
+            margin-left: 10px;
+            transition: background 0.3s;
+        }
+        
+        .clear-filters:hover {
+            background: #dc2626;
         }
         
         @media (max-width: 768px) {
@@ -473,6 +563,29 @@ $page_title = 'Activity Management - Inventory System';
                 <div class="alert alert-<?php echo $messageType; ?>">
                     <i class="fas fa-<?php echo $messageType === 'success' ? 'check-circle' : 'exclamation-triangle'; ?>"></i>
                     <?php echo htmlspecialchars($message); ?>
+                </div>
+            <?php endif; ?>
+            
+            <!-- Active Filters Display -->
+            <?php 
+            $hasFilters = !empty($filterAction) || !empty($filterDateFrom) || !empty($filterDateTo) || ($isAdmin && !empty($filterUser) && $filterUser !== $currentUserId);
+            if ($hasFilters): 
+            ?>
+                <div class="alert alert-info">
+                    <strong>🔍 Active Filters:</strong>
+                    <?php if (!empty($filterAction)): ?>
+                        <span class="filter-badge">Action: <?php echo htmlspecialchars(ucwords(str_replace('_', ' ', $filterAction))); ?></span>
+                    <?php endif; ?>
+                    <?php if (!empty($filterDateFrom)): ?>
+                        <span class="filter-badge">From: <?php echo htmlspecialchars($filterDateFrom); ?></span>
+                    <?php endif; ?>
+                    <?php if (!empty($filterDateTo)): ?>
+                        <span class="filter-badge">To: <?php echo htmlspecialchars($filterDateTo); ?></span>
+                    <?php endif; ?>
+                    <?php if ($isAdmin && !empty($filterUser) && $filterUser !== $currentUserId && $filterUser !== 'all'): ?>
+                        <span class="filter-badge">User: <?php echo htmlspecialchars($filterUser); ?></span>
+                    <?php endif; ?>
+                    <a href="?" class="clear-filters">Clear All Filters</a>
                 </div>
             <?php endif; ?>
             
@@ -542,30 +655,32 @@ $page_title = 'Activity Management - Inventory System';
                         <button type="submit" class="btn btn-primary">
                             <i class="fas fa-search"></i> Apply Filters
                         </button>
-                        <a href="activity.php" class="btn btn-secondary">
+                        <a href="activity_manager.php" class="btn btn-secondary">
                             <i class="fas fa-times"></i> Clear Filters
                         </a>
-                        
-                        <!-- Export Actions -->
-                        <form method="POST" action="" style="display: inline;">
-                            <input type="hidden" name="action" value="export_activity">
-                            <input type="hidden" name="user_id" value="<?php echo htmlspecialchars($filterUser); ?>">
-                            <input type="hidden" name="format" value="csv">
-                            <button type="submit" class="btn btn-success">
-                                <i class="fas fa-file-csv"></i> Export CSV
-                            </button>
-                        </form>
-                        
-                        <form method="POST" action="" style="display: inline;" 
-                              onsubmit="return confirm('Clear all activity for this user?');">
-                            <input type="hidden" name="action" value="clear_activity">
-                            <input type="hidden" name="user_id" value="<?php echo htmlspecialchars($filterUser); ?>">
-                            <button type="submit" class="btn btn-danger">
-                                <i class="fas fa-trash"></i> Clear Activity
-                            </button>
-                        </form>
                     </div>
                 </form>
+                
+                <!-- Export Actions (separate from filter form) -->
+                <div class="filter-actions" style="margin-top: 10px;">
+                    <form method="POST" action="" style="display: inline;">
+                        <input type="hidden" name="action" value="export_activity">
+                        <input type="hidden" name="user_id" value="<?php echo htmlspecialchars($filterUser); ?>">
+                        <input type="hidden" name="format" value="csv">
+                        <button type="submit" class="btn btn-success">
+                            <i class="fas fa-file-csv"></i> Export CSV
+                        </button>
+                    </form>
+                    
+                    <form method="POST" action="" style="display: inline;" 
+                          onsubmit="return confirm('Clear all activity for this user?');">
+                        <input type="hidden" name="action" value="clear_activity">
+                        <input type="hidden" name="user_id" value="<?php echo htmlspecialchars($filterUser); ?>">
+                        <button type="submit" class="btn btn-danger">
+                            <i class="fas fa-trash"></i> Clear Activity
+                        </button>
+                    </form>
+                </div>
             </div>
             
             <!-- Activity Table -->
@@ -660,5 +775,43 @@ $page_title = 'Activity Management - Inventory System';
     </div>
     
     <script src="../../../assets/js/main.js"></script>
+    <script>
+    // Add smooth loading experience
+    document.addEventListener('DOMContentLoaded', function() {
+        // Add loading indicator to filter form
+        const filterForm = document.querySelector('form[method="GET"]');
+        if (filterForm) {
+            filterForm.addEventListener('submit', function() {
+                const submitBtn = this.querySelector('button[type="submit"]');
+                if (submitBtn) {
+                    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...';
+                    submitBtn.disabled = true;
+                }
+            });
+        }
+        
+        // Add loading indicator to pagination links
+        document.querySelectorAll('.pagination a').forEach(link => {
+            link.addEventListener('click', function(e) {
+                const tableContainer = document.querySelector('.activity-table-container');
+                if (tableContainer) {
+                    tableContainer.style.opacity = '0.5';
+                    tableContainer.style.pointerEvents = 'none';
+                }
+            });
+        });
+        
+        // Fade in table on load
+        const table = document.querySelector('.activity-table-container');
+        if (table) {
+            table.style.opacity = '0';
+            table.style.transition = 'opacity 0.3s ease';
+            setTimeout(() => {
+                table.style.opacity = '1';
+            }, 100);
+        }
+    });
+    </script>
 </body>
 </html>
+
