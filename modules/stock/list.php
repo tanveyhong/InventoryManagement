@@ -1,4 +1,7 @@
 <?php
+// Enable output compression for faster page loads
+ob_start('ob_gzhandler');
+
 require_once '../../config.php';
 require_once '../../functions.php';
 session_start();
@@ -9,15 +12,100 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
-// Load products from Firebase and map to template fields
+// Helper function for caching
+function getCachedData($key, $callback, $ttl = 300) {
+    $cache_dir = '../../storage/cache/';
+    if (!is_dir($cache_dir)) {
+        @mkdir($cache_dir, 0755, true);
+    }
+    
+    $cache_file = $cache_dir . md5($key) . '.json';
+    
+    if (file_exists($cache_file) && (time() - filemtime($cache_file)) < $ttl) {
+        $data = json_decode(file_get_contents($cache_file), true);
+        if ($data !== null) {
+            return $data;
+        }
+    }
+    
+    $data = $callback();
+    file_put_contents($cache_file, json_encode($data));
+    return $data;
+}
+
+// Get filter parameters
+$store_filter = $_GET['store'] ?? '';
+$category_filter = $_GET['category'] ?? '';
+$search_query = $_GET['search'] ?? '';
+$status_filter = $_GET['status'] ?? '';
+$sort_by = isset($_GET['sort']) ? $_GET['sort'] : 'name';
+$sort_order = (isset($_GET['order']) && strtolower($_GET['order']) === 'desc') ? 'DESC' : 'ASC';
+$page = isset($_GET['page']) ? max(1, intval($_GET['page'])) : 1;
+$per_page = 20;
+$offset = ($page - 1) * $per_page;
+
+// Load products with smart caching
 $all_products = [];
 $stores = [];
 $categories = [];
+
 try {
     $db = getDB();
 
-    // Fetch products from Firebase
-    $productDocs = $db->readAll('products', [], null, 1000); // fetch up to 1000 for now
+    // Cache stores and categories (they don't change often) - 10 min cache
+    $stores = getCachedData('stores_list', function() use ($db) {
+        $storeData = [];
+        try {
+            $storeDocs = $db->readAll('stores', [], null, 100);
+            foreach ($storeDocs as $s) {
+                $storeData[] = ['id' => $s['id'] ?? null, 'name' => $s['name'] ?? ($s['store_name'] ?? null)];
+            }
+        } catch (Exception $e) {
+            error_log("Error loading stores: " . $e->getMessage());
+        }
+        return $storeData;
+    }, 600);
+
+    $categories = getCachedData('categories_list', function() use ($db) {
+        $catData = [];
+        try {
+            $catDocs = $db->readAll('categories', [], null, 100);
+            if (!empty($catDocs)) {
+                foreach ($catDocs as $c) {
+                    $catData[] = ['name' => $c['name'] ?? null];
+                }
+            }
+        } catch (Exception $e) {
+            error_log("Error loading categories: " . $e->getMessage());
+        }
+        return $catData;
+    }, 600);
+
+    // Build store lookup for faster joins
+    $storeLookup = [];
+    foreach ($stores as $s) {
+        if (!empty($s['id'])) $storeLookup[$s['id']] = $s['name'];
+    }
+
+    // OPTIMIZED: Only load products with filters applied at database level
+    // This reduces data transfer dramatically
+    $conditions = [];
+    
+    // Apply filters at database level when possible
+    if ($store_filter) {
+        $conditions[] = ['store_id', '==', $store_filter];
+    }
+    if ($category_filter) {
+        $conditions[] = ['category', '==', $category_filter];
+    }
+    
+    // For status filters, we need to load more data client-side
+    // but still limit to reasonable amount
+    $fetch_limit = 500; // Reduced from 1000
+    
+    // Fetch products from Firebase with conditions
+    $productDocs = $db->readAll('products', $conditions, null, $fetch_limit);
+    
     foreach ($productDocs as $r) {
         $prod = [
             'id' => $r['id'] ?? null,
@@ -31,47 +119,18 @@ try {
             'created_at' => $r['created_at'] ?? null,
             'category_name' => $r['category'] ?? ($r['category_name'] ?? null),
             'store_id' => $r['store_id'] ?? null,
-            'store_name' => null, // will be filled from stores lookup below if available
-            // keep original raw doc for debugging if needed
-            '_raw' => $r,
+            'store_name' => null,
         ];
+        
+        // Attach store name
+        if (!empty($prod['store_id']) && isset($storeLookup[$prod['store_id']])) {
+            $prod['store_name'] = $storeLookup[$prod['store_id']];
+        }
+        
         $all_products[] = $prod;
     }
 
-    // Fetch stores from Firebase (if collection exists)
-    try {
-        $storeDocs = $db->readAll('stores', [], null, 1000);
-        foreach ($storeDocs as $s) {
-            $stores[] = ['id' => $s['id'] ?? null, 'name' => $s['name'] ?? ($s['store_name'] ?? null)];
-        }
-    } catch (Exception $e) {
-        $stores = [];
-    }
-
-    // Build quick store lookup to attach store_name to products
-    $storeLookup = [];
-    foreach ($stores as $s) {
-        if (!empty($s['id'])) $storeLookup[$s['id']] = $s['name'];
-    }
-    foreach ($all_products as &$p) {
-        if (!empty($p['store_id']) && isset($storeLookup[$p['store_id']])) {
-            $p['store_name'] = $storeLookup[$p['store_id']];
-        }
-    }
-    unset($p);
-
-    // Fetch categories collection if present, else derive from products
-    try {
-        $catDocs = $db->readAll('categories', [], null, 1000);
-        if (!empty($catDocs)) {
-            foreach ($catDocs as $c) {
-                $categories[] = ['name' => $c['name'] ?? null];
-            }
-        }
-    } catch (Exception $e) {
-        // Derive categories from product data
-    }
-
+    // Derive categories from products if not already loaded
     if (empty($categories)) {
         $catNames = [];
         foreach ($all_products as $p) {
@@ -79,22 +138,13 @@ try {
         }
         $categories = array_map(fn($n) => ['name' => $n], array_keys($catNames));
     }
+    
 } catch (Exception $e) {
-    // If Firebase not available, fall back to empty lists
+    error_log("Error loading stock list: " . $e->getMessage());
     $all_products = [];
     $stores = [];
     $categories = [];
 }
-
-$store_filter = $_GET['store'] ?? '';
-$category_filter = $_GET['category'] ?? '';
-$search_query = $_GET['search'] ?? '';
-$status_filter = $_GET['status'] ?? '';
-$sort_by = isset($_GET['sort']) ? $_GET['sort'] : 'name';
-$sort_order = (isset($_GET['order']) && strtolower($_GET['order']) === 'desc') ? 'DESC' : 'ASC';
-$page = isset($_GET['page']) ? max(1, intval($_GET['page'])) : 1;
-$per_page = 20;
-$offset = ($page - 1) * $per_page;
 
 // Filtering
 $filtered_products = array_filter($all_products, function($p) use ($store_filter, $category_filter, $search_query, $status_filter) {
@@ -200,6 +250,10 @@ foreach ($filtered_products as $p) {
 }
 
 $page_title = 'Stock Management - Inventory System';
+
+// Add caching headers for better performance
+header('Cache-Control: private, max-age=180'); // 3 minutes
+header('Vary: Cookie');
 ?>
 
 <!DOCTYPE html>
@@ -211,8 +265,49 @@ $page_title = 'Stock Management - Inventory System';
     <link rel="stylesheet" href="../../assets/css/style.css">
     <!-- Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    
+    <!-- Loading indicator -->
+    <style>
+        .page-loader {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255,255,255,0.9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            opacity: 1;
+            transition: opacity 0.3s ease;
+        }
+        
+        .page-loader.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        
+        .loader-spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
 </head>
 <body>
+    <!-- Loading Indicator -->
+    <div class="page-loader" id="pageLoader">
+        <div class="loader-spinner"></div>
+    </div>
 
     <div class="container">
         <?php
@@ -444,6 +539,18 @@ $page_title = 'Stock Management - Inventory System';
 
     <script src="../../assets/js/main.js"></script>
     <script>
+        // Hide loader when page is ready
+        window.addEventListener('load', function() {
+            setTimeout(function() {
+                document.getElementById('pageLoader').classList.add('hidden');
+            }, 200);
+        });
+        
+        // Show loader on navigation
+        window.addEventListener('beforeunload', function() {
+            document.getElementById('pageLoader').classList.remove('hidden');
+        });
+        
         // Auto-submit filters on change
         document.addEventListener('DOMContentLoaded', function() {
             const filterInputs = document.querySelectorAll('.filters-form select:not(#sort):not(#order)');

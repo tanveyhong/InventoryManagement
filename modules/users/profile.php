@@ -10,6 +10,7 @@ ob_start('ob_gzhandler');
 require_once '../../config.php';
 require_once '../../db.php';
 require_once '../../functions.php';
+require_once '../../activity_logger.php';
 
 session_start();
 
@@ -24,6 +25,13 @@ $userId = $_SESSION['user_id'];
 
 // Only load essential user data on page load
 $user = $db->read('users', $userId);
+
+// Check if user data was loaded successfully (handle both false and null)
+if (!$user) {
+    error_log("Failed to load user data for user ID: " . $userId);
+    die("Error: Could not load user profile. Please try logging in again.");
+}
+
 $pageTitle = 'My Profile';
 
 // Get role info (lightweight query)
@@ -49,21 +57,86 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     
     if ($action === 'update_profile') {
+        // Track changes for activity log
+        $changes = [];
+        $oldData = $user; // Store original data
+        
         $updateData = [
-            'first_name' => $_POST['first_name'] ?? '',
-            'last_name' => $_POST['last_name'] ?? '',
-            'email' => $_POST['email'] ?? '',
-            'phone' => $_POST['phone'] ?? '',
+            'username' => trim($_POST['username'] ?? ''),
+            'first_name' => trim($_POST['first_name'] ?? ''),
+            'last_name' => trim($_POST['last_name'] ?? ''),
+            'email' => trim($_POST['email'] ?? ''),
+            'phone' => trim($_POST['phone'] ?? ''),
             'updated_at' => date('c')
         ];
         
-        if ($db->update('users', $userId, $updateData)) {
-            $message = 'Profile updated successfully!';
-            $messageType = 'success';
-            $user = $db->read('users', $userId); // Refresh data
-        } else {
-            $message = 'Failed to update profile.';
+        // Validate email if changed
+        if (!empty($updateData['email']) && !filter_var($updateData['email'], FILTER_VALIDATE_EMAIL)) {
+            $message = 'Invalid email format.';
             $messageType = 'error';
+        } elseif (empty($updateData['username'])) {
+            $message = 'Username is required.';
+            $messageType = 'error';
+        } else {
+            // Check if username is already taken by another user
+            if ($updateData['username'] !== ($oldData['username'] ?? '')) {
+                $existingUsers = $db->readAll('users', [['username', '==', $updateData['username']]]);
+                if (!empty($existingUsers)) {
+                    foreach ($existingUsers as $existingUser) {
+                        if (($existingUser['id'] ?? '') !== $userId) {
+                            $message = 'Username already taken. Please choose another.';
+                            $messageType = 'error';
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            if (empty($message)) {
+                // Track what changed
+                foreach (['username', 'first_name', 'last_name', 'email', 'phone'] as $field) {
+                    if (($oldData[$field] ?? '') !== $updateData[$field]) {
+                        $changes[$field] = [
+                            'old' => $oldData[$field] ?? '',
+                            'new' => $updateData[$field]
+                        ];
+                    }
+                }
+                
+                // Debug log
+                error_log("Attempting to update user {$userId} with data: " . json_encode($updateData));
+                
+                $result = $db->update('users', $userId, $updateData);
+                
+                error_log("Update result: " . ($result ? 'SUCCESS' : 'FAILED'));
+                
+                if ($result !== false) {
+                    // Update session username if changed
+                    if (isset($changes['username'])) {
+                        $_SESSION['username'] = $updateData['username'];
+                    }
+                    
+                    // Log the activity only if there were actual changes
+                    if (!empty($changes)) {
+                        logProfileActivity('updated', $userId, $changes);
+                    }
+                    
+                    $message = 'Profile updated successfully!';
+                    $messageType = 'success';
+                    
+                    // Refresh user data
+                    $user = $db->read('users', $userId);
+                    
+                    if (!$user) {
+                        error_log("WARNING: Profile updated but failed to reload user data");
+                        $message .= ' (Please refresh the page to see changes)';
+                    }
+                } else {
+                    $message = 'Failed to update profile. Please try again.';
+                    $messageType = 'error';
+                    error_log("Failed to update user {$userId}");
+                }
+            }
         }
     }
     
@@ -87,6 +160,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'require_password_change' => false,
                     'updated_at' => date('c')
                 ])) {
+                    // Log password change activity
+                    logProfileActivity('password_changed', $userId);
+                    
                     $message = 'Password changed successfully!';
                     $messageType = 'success';
                 } else {
@@ -609,6 +685,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <input type="hidden" name="action" value="update_profile">
                     
                     <div class="form-group">
+                        <label class="form-label">Username <span style="color: #ef4444;">*</span></label>
+                        <input type="text" name="username" class="form-input" 
+                               value="<?= htmlspecialchars($user['username'] ?? '') ?>" 
+                               required minlength="3" maxlength="50"
+                               pattern="[a-zA-Z0-9_]+"
+                               title="Username can only contain letters, numbers, and underscores">
+                        <small style="color: #6b7280;">Letters, numbers, and underscores only. 3-50 characters.</small>
+                    </div>
+                    
+                    <div class="form-group">
                         <label class="form-label">First Name</label>
                         <input type="text" name="first_name" class="form-input" value="<?= htmlspecialchars($user['first_name'] ?? '') ?>" required>
                     </div>
@@ -747,10 +833,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         item.className = 'activity-item';
                         item.innerHTML = `
                             <div class="activity-icon">
-                                <i class="fas fa-${getActivityIcon(activity.activity_type)}"></i>
+                                <i class="fas fa-${getActivityIcon(activity.action_type || activity.activity_type)}"></i>
                             </div>
                             <div class="activity-content">
-                                <div class="activity-title">${escapeHtml(activity.description || activity.activity_type)}</div>
+                                <div class="activity-title">${escapeHtml(activity.description || activity.action_type || activity.activity_type)}</div>
                                 <div class="activity-meta">
                                     ${formatDate(activity.created_at)} • ${escapeHtml(activity.ip_address || 'N/A')}
                                 </div>
@@ -902,15 +988,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         
         function getActivityIcon(type) {
+            if (!type) return 'circle';
             const icons = {
                 'login': 'sign-in-alt',
                 'logout': 'sign-out-alt',
                 'create': 'plus-circle',
+                'created': 'plus-circle',
                 'update': 'edit',
+                'updated': 'edit',
                 'delete': 'trash',
-                'view': 'eye'
+                'deleted': 'trash',
+                'view': 'eye',
+                'viewed': 'eye',
+                'store_created': 'store',
+                'store_updated': 'store-alt',
+                'store_deleted': 'store-slash',
+                'profile_updated': 'user-edit',
+                'profile_password_changed': 'key',
+                'product_created': 'box',
+                'product_updated': 'boxes',
+                'product_stock_adjusted': 'warehouse',
+                'activity_cleared': 'eraser'
             };
-            return icons[type] || 'circle';
+            return icons[type] || icons[type.split('_')[0]] || 'circle';
         }
         
         function formatDate(dateString) {

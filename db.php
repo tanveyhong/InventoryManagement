@@ -81,29 +81,46 @@ class Database {
                             $operator = $condition[1];
                             $value = $condition[2];
                             
-                            if (!isset($doc[$field])) {
-                                $matches = false;
-                                break;
-                            }
+                            // Special handling for null checks
+                            $fieldValue = $doc[$field] ?? null;
+                            $fieldExists = isset($doc[$field]);
                             
                             switch ($operator) {
                                 case '==':
-                                    if ($doc[$field] !== $value) $matches = false;
+                                    // If checking for null, treat missing field as null
+                                    if ($value === null) {
+                                        if ($fieldExists && $doc[$field] !== null) {
+                                            $matches = false;
+                                        }
+                                    } else {
+                                        if (!$fieldExists || $doc[$field] !== $value) {
+                                            $matches = false;
+                                        }
+                                    }
                                     break;
                                 case '!=':
-                                    if ($doc[$field] === $value) $matches = false;
+                                    // If checking not null, missing field counts as null
+                                    if ($value === null) {
+                                        if (!$fieldExists || $doc[$field] === null) {
+                                            $matches = false;
+                                        }
+                                    } else {
+                                        if ($fieldExists && $doc[$field] === $value) {
+                                            $matches = false;
+                                        }
+                                    }
                                     break;
                                 case '>':
-                                    if ($doc[$field] <= $value) $matches = false;
+                                    if (!$fieldExists || $doc[$field] <= $value) $matches = false;
                                     break;
                                 case '>=':
-                                    if ($doc[$field] < $value) $matches = false;
+                                    if (!$fieldExists || $doc[$field] < $value) $matches = false;
                                     break;
                                 case '<':
-                                    if ($doc[$field] >= $value) $matches = false;
+                                    if (!$fieldExists || $doc[$field] >= $value) $matches = false;
                                     break;
                                 case '<=':
-                                    if ($doc[$field] > $value) $matches = false;
+                                    if (!$fieldExists || $doc[$field] > $value) $matches = false;
                                     break;
                             }
                             

@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Address Search Test</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            padding: 40px;
+            background: #f7fafc;
+        }
+        
+        .test-container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            color: #2d3748;
+            margin-bottom: 10px;
+        }
+        
+        .description {
+            color: #718096;
+            margin-bottom: 30px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+            position: relative;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #4a5568;
+        }
+        
+        input {
+            width: 100%;
+            padding: 12px 40px 12px 16px;
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
+        }
+        
+        #search-loading {
+            position: absolute;
+            right: 12px;
+            top: 42px;
+            color: #667eea;
+        }
+        
+        #address-results {
+            position: absolute;
+            top: calc(100% + 5px);
+            left: 0;
+            right: 0;
+            background: white;
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.15);
+            max-height: 400px;
+            overflow-y: auto;
+            z-index: 1000;
+        }
+        
+        .result-item {
+            padding: 12px 16px;
+            cursor: pointer;
+            border-bottom: 1px solid #e2e8f0;
+            transition: all 0.2s ease;
+        }
+        
+        .result-item:hover {
+            background: #f7fafc;
+            transform: translateX(5px);
+        }
+        
+        .result-item:last-child {
+            border-bottom: none;
+        }
+        
+        .console-output {
+            margin-top: 30px;
+            padding: 20px;
+            background: #2d3748;
+            color: #e2e8f0;
+            border-radius: 12px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .console-output div {
+            margin-bottom: 5px;
+        }
+        
+        .filled-data {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f0fff4;
+            border-left: 4px solid #48bb78;
+            border-radius: 8px;
+        }
+        
+        .filled-data h3 {
+            margin: 0 0 10px 0;
+            color: #2d3748;
+            font-size: 14px;
+        }
+        
+        .filled-data p {
+            margin: 5px 0;
+            color: #4a5568;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>🔍 Address Search Test</h1>
+        <p class="description">Test the real-time address search functionality using Nominatim API</p>
+        
+        <div class="form-group" style="position: relative;">
+            <label for="address-search">
+                <i class="fas fa-search"></i> Search Address:
+            </label>
+            <div style="position: relative;">
+                <input type="text" 
+                       id="address-search" 
+                       placeholder="Type any address (e.g., '1600 Pennsylvania Ave NW, Washington')"
+                       autocomplete="off">
+                <div id="search-loading" style="display: none;">
+                    <i class="fas fa-spinner fa-spin"></i>
+                </div>
+                
+                <!-- Search Results Dropdown -->
+                <div id="address-results" style="display: none;"></div>
+            </div>
+            <small style="color: #718096; font-size: 12px;">
+                <i class="fas fa-info-circle"></i> Results appear as you type
+            </small>
+        </div>
+        
+        <div id="filled-data" style="display: none;" class="filled-data">
+            <h3><i class="fas fa-check-circle"></i> Selected Address:</h3>
+            <p><strong>Address:</strong> <span id="result-address"></span></p>
+            <p><strong>City:</strong> <span id="result-city"></span></p>
+            <p><strong>State:</strong> <span id="result-state"></span></p>
+            <p><strong>Zip:</strong> <span id="result-zip"></span></p>
+            <p><strong>Coordinates:</strong> <span id="result-coords"></span></p>
+        </div>
+        
+        <div class="console-output" id="console"></div>
+    </div>
+
+    <script>
+        // Console logging to UI
+        const consoleDiv = document.getElementById('console');
+        const originalLog = console.log;
+        const originalError = console.error;
+        
+        function addToConsole(message, type = 'log') {
+            const div = document.createElement('div');
+            div.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            div.style.color = type === 'error' ? '#fc8181' : type === 'success' ? '#68d391' : '#e2e8f0';
+            consoleDiv.appendChild(div);
+            consoleDiv.scrollTop = consoleDiv.scrollHeight;
+        }
+        
+        console.log = function(...args) {
+            originalLog.apply(console, args);
+            addToConsole(args.join(' '), 'log');
+        };
+        
+        console.error = function(...args) {
+            originalError.apply(console, args);
+            addToConsole(args.join(' '), 'error');
+        };
+        
+        // Address Search Implementation
+        let searchTimeout = null;
+        let selectedResultIndex = -1;
+        let searchResults = [];
+        
+        const addressSearchInput = document.getElementById('address-search');
+        const addressResultsDiv = document.getElementById('address-results');
+        const searchLoadingIcon = document.getElementById('search-loading');
+        
+        console.log('🔧 Initializing Address Search...');
+        console.log('- Search Input: ' + (addressSearchInput ? '✅ Found' : '❌ NOT FOUND'));
+        console.log('- Results Div: ' + (addressResultsDiv ? '✅ Found' : '❌ NOT FOUND'));
+        console.log('- Loading Icon: ' + (searchLoadingIcon ? '✅ Found' : '❌ NOT FOUND'));
+        
+        addressSearchInput.addEventListener('input', function() {
+            const query = this.value.trim();
+            console.log('⌨️ Input detected: "' + query + '"');
+            
+            if (searchTimeout) {
+                clearTimeout(searchTimeout);
+            }
+            
+            if (query.length === 0) {
+                addressResultsDiv.style.display = 'none';
+                searchLoadingIcon.style.display = 'none';
+                return;
+            }
+            
+            if (query.length > 0) {
+                searchLoadingIcon.style.display = 'block';
+                console.log('⏳ Waiting 150ms before search...');
+                
+                searchTimeout = setTimeout(() => {
+                    searchAddress(query);
+                }, 150);
+            }
+        });
+        
+        async function searchAddress(query) {
+            console.log('🔍 Searching for: ' + query);
+            
+            try {
+                addressResultsDiv.innerHTML = '<div style="padding: 15px; text-align: center; color: #667eea;"><i class="fas fa-search fa-spin"></i> Searching...</div>';
+                addressResultsDiv.style.display = 'block';
+                console.log('📡 Fetching from Nominatim API...');
+                
+                const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=10&addressdetails=1`;
+                console.log('🌐 URL: ' + url);
+                
+                const response = await fetch(url);
+                const results = await response.json();
+                
+                console.log('✅ Received ' + results.length + ' results');
+                searchLoadingIcon.style.display = 'none';
+                
+                if (results && results.length > 0) {
+                    displaySearchResults(results);
+                } else {
+                    console.log('⚠️ No results found');
+                    addressResultsDiv.innerHTML = '<div style="padding: 15px; text-align: center; color: #718096;">No results found</div>';
+                }
+            } catch (error) {
+                console.error('❌ Error: ' + error.message);
+                searchLoadingIcon.style.display = 'none';
+                addressResultsDiv.innerHTML = '<div style="padding: 15px; text-align: center; color: #e53e3e;">Error: ' + error.message + '</div>';
+            }
+        }
+        
+        function displaySearchResults(results) {
+            console.log('📋 Displaying ' + results.length + ' results');
+            addressResultsDiv.innerHTML = '';
+            searchResults = results;
+            
+            const header = document.createElement('div');
+            header.style.cssText = 'padding: 12px; background: #f7fafc; border-bottom: 2px solid #e2e8f0; font-weight: 600; color: #2d3748;';
+            header.innerHTML = `<i class="fas fa-map-marker-alt" style="color: #667eea;"></i> ${results.length} result(s) found`;
+            addressResultsDiv.appendChild(header);
+            
+            results.forEach((result, index) => {
+                const item = document.createElement('div');
+                item.className = 'result-item';
+                item.innerHTML = `
+                    <div style="font-weight: 600; color: #2d3748; margin-bottom: 4px;">${result.display_name}</div>
+                    <div style="font-size: 12px; color: #718096;">
+                        <i class="fas fa-location-arrow"></i> ${parseFloat(result.lat).toFixed(4)}, ${parseFloat(result.lon).toFixed(4)}
+                    </div>
+                `;
+                
+                item.addEventListener('click', () => selectAddress(result));
+                addressResultsDiv.appendChild(item);
+            });
+            
+            addressResultsDiv.style.display = 'block';
+            console.log('✅ Results displayed successfully');
+        }
+        
+        function selectAddress(result) {
+            console.log('✅ Address selected: ' + result.display_name);
+            
+            const addr = result.address || {};
+            const filledDataDiv = document.getElementById('filled-data');
+            
+            document.getElementById('result-address').textContent = addr.road || addr.pedestrian || 'N/A';
+            document.getElementById('result-city').textContent = addr.city || addr.town || addr.village || 'N/A';
+            document.getElementById('result-state').textContent = addr.state || addr.region || 'N/A';
+            document.getElementById('result-zip').textContent = addr.postcode || 'N/A';
+            document.getElementById('result-coords').textContent = `${result.lat}, ${result.lon}`;
+            
+            filledDataDiv.style.display = 'block';
+            addressResultsDiv.style.display = 'none';
+            addressSearchInput.value = result.display_name;
+            
+            console.log('📍 Address components extracted successfully');
+        }
+        
+        // Click outside to close
+        document.addEventListener('click', (e) => {
+            if (!addressSearchInput.contains(e.target) && !addressResultsDiv.contains(e.target)) {
+                addressResultsDiv.style.display = 'none';
+            }
+        });
+        
+        console.log('✅ Address Search ready!');
+    </script>
+</body>
+</html>
