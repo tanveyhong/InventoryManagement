@@ -1,0 +1,16 @@
+{
+    "user": {
+        "id": "gls1CuNG3qsLwmMdrlCP",
+        "last_name": "c",
+        "password_hash": "$2y$10$gvl2RFlb34Y9tTWQ9P3JM.gvKcaHWXQFye6aXToaDh1ZQGpVb8OGu",
+        "is_active": true,
+        "created_at": "2025-09-28T06:53:33-04:00",
+        "first_name": "jh",
+        "email": "jh@gmail.com",
+        "role": "admin",
+        "updated_at": "2025-09-28T06:53:33-04:00",
+        "username": "jh1"
+    },
+    "cached_at": "2025-10-16 07:33:33",
+    "user_id": "gls1CuNG3qsLwmMdrlCP"
+}

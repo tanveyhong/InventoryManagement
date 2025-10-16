@@ -189,3 +189,5 @@
 [2025-09-28 10:40:49] Failed login attempt Context: {"username":"owo","found_user":false,"user_id":null}
 [2025-09-28 10:42:59] Failed login attempt Context: {"username":"wow","found_user":false,"user_id":null,"probe":[]}
 [2025-10-15 23:47:27] Error: Array to string conversion in C:\Users\senpa\InventorySystem\firebase_rest_client.php on line 160
+[2025-10-16 07:33:33] Error: Undefined variable $user_id in C:\Users\Jun Hung\OneDrive\Documents\fyp jh\InventoryManagement\modules\users\profile.php on line 1710
+[2025-10-16 07:34:35] Error: Undefined variable $user_id in C:\Users\Jun Hung\OneDrive\Documents\fyp jh\InventoryManagement\modules\users\profile.php on line 1710

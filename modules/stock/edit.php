@@ -20,9 +20,7 @@ function db_obj() {
 function _find_product_by_sku_live(string $sku): ?array {
   $sku = norm_sku($sku);
   if ($sku === '') return null;
-  if (function_exists('fs_find_product_by_sku')) {
-    return fs_find_product_by_sku($sku);
-  }
+
   $all = fs_fetch_all_products();
   foreach ($all as $p) {
     if (!empty($p['sku']) && norm_sku((string)$p['sku']) === $sku) return $p;
@@ -122,8 +120,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // ---- UI ----
 $CATEGORY_OPTIONS = $CATEGORY_OPTIONS ?? [
-  'General','Beverages','Food','Snacks','Personal Care','Household','Electronics',
-  'Stationery','Fresh Produce','Frozen','Bakery'
+  'General','Foods','Beverages','Snacks','Personal Care','Furniture','Electronics',
+  'Stationery','Canned Foods','Frozen'
 ];
 
 function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
