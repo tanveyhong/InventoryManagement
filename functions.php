@@ -458,8 +458,10 @@ function paginate($page, $per_page, $total_records) {
 
 // ---------- Normalizer ----------
 function _fs_normalize_product(string $docId, array $d): array {
-    return [
-        'id'            => $docId,
+    // keep internal 'id' if it exists; store Firestore id as 'doc_id'
+    $row = [
+        'doc_id'        => $docId,                     // <- Firestore doc id (ALWAYS)
+        'id'            => $d['id'] ?? $docId,         // keep internal id, else doc id as fallback
         'sku'           => $d['sku']           ?? '',
         'name'          => $d['name']          ?? '(no name)',
         'category'      => $d['category']      ?? 'General',
@@ -471,13 +473,15 @@ function _fs_normalize_product(string $docId, array $d): array {
         'created_at'    => $d['created_at']    ?? null,
         'updated_at'    => $d['updated_at']    ?? null,
         'expiry_date'   => $d['expiry_date']   ?? null,
-        // extras (safe defaults)
         'image_url'     => $d['image_url']     ?? '',
         'barcode'       => $d['barcode']       ?? '',
         'supplier'      => $d['supplier']      ?? '',
         'location'      => $d['location']      ?? '',
         'unit'          => $d['unit']          ?? '',
+        'deleted_at'    => $d['deleted_at']    ?? null,
+        'status_db'     => $d['status']        ?? null, 
     ];
+    return $row;
 }
 
 // Unwrap Firestore REST typed field
@@ -573,15 +577,45 @@ function fs_get_product(string $key): ?array {
         }
     }
 
-    // 2) fallback: scan the same dataset as list.php
-    $all = fs_fetch_all_products();
-    if (!$all) return null;
+// 2) fallback: scan the same dataset as list.php
+$all = fs_fetch_all_products();
+if (!$all) return null;
 
-    foreach ($all as $p) {
-        if (!empty($p['id']) && (string)$p['id'] === (string)$key) return $p;
+// Prefer exact match on Firestore doc id
+foreach ($all as $p) {
+    if (!empty($p['doc_id']) && (string)$p['doc_id'] === (string)$key) return $p;
+}
+// Then match on SKU
+foreach ($all as $p) {
+    if (!empty($p['sku']) && (string)$p['sku'] === (string)$key) return $p;
+}
+// Finally (optional), match on *internal* id field
+foreach ($all as $p) {
+    if (isset($p['id']) && (string)$p['id'] === (string)$key) return $p;
+}
+return null;
+}
+
+function fs_get_product_by_doc(string $docId): ?array {
+    require_once __DIR__ . '/firebase_config.php';
+    require_once __DIR__ . '/firebase_rest_client.php';
+    require_once __DIR__ . '/getDB.php';
+
+    $db = function_exists('getDB') ? @getDB() : null;
+    if ($db && is_object($db) && method_exists($db, 'read')) {
+        // ✅ use Firestore document name, not internal id
+        $doc = $db->read('products', $docId);
+        if (is_array($doc) && !empty($doc)) {
+            return _fs_normalize_product($docId, $doc);
+        }
     }
+
+    // fallback: scan all and match doc_id
+    $all = fs_fetch_all_products();
     foreach ($all as $p) {
-        if (!empty($p['sku']) && (string)$p['sku'] === (string)$key) return $p;
+        if (!empty($p['doc_id']) && (string)$p['doc_id'] === (string)$docId) {
+            return $p;
+        }
     }
     return null;
 }

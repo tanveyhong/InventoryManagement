@@ -1,7 +1,4 @@
 <?php
-// Enable output compression for faster page loads
-ob_start('ob_gzhandler');
-
 require_once '../../config.php';
 require_once '../../functions.php';
 session_start();
@@ -12,100 +9,15 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
-// Helper function for caching
-function getCachedData($key, $callback, $ttl = 300) {
-    $cache_dir = '../../storage/cache/';
-    if (!is_dir($cache_dir)) {
-        @mkdir($cache_dir, 0755, true);
-    }
-    
-    $cache_file = $cache_dir . md5($key) . '.json';
-    
-    if (file_exists($cache_file) && (time() - filemtime($cache_file)) < $ttl) {
-        $data = json_decode(file_get_contents($cache_file), true);
-        if ($data !== null) {
-            return $data;
-        }
-    }
-    
-    $data = $callback();
-    file_put_contents($cache_file, json_encode($data));
-    return $data;
-}
-
-// Get filter parameters
-$store_filter = $_GET['store'] ?? '';
-$category_filter = $_GET['category'] ?? '';
-$search_query = $_GET['search'] ?? '';
-$status_filter = $_GET['status'] ?? '';
-$sort_by = isset($_GET['sort']) ? $_GET['sort'] : 'name';
-$sort_order = (isset($_GET['order']) && strtolower($_GET['order']) === 'desc') ? 'DESC' : 'ASC';
-$page = isset($_GET['page']) ? max(1, intval($_GET['page'])) : 1;
-$per_page = 20;
-$offset = ($page - 1) * $per_page;
-
-// Load products with smart caching
+// Load products from Firebase and map to template fields
 $all_products = [];
 $stores = [];
 $categories = [];
-
 try {
     $db = getDB();
 
-    // Cache stores and categories (they don't change often) - 10 min cache
-    $stores = getCachedData('stores_list', function() use ($db) {
-        $storeData = [];
-        try {
-            $storeDocs = $db->readAll('stores', [], null, 100);
-            foreach ($storeDocs as $s) {
-                $storeData[] = ['id' => $s['id'] ?? null, 'name' => $s['name'] ?? ($s['store_name'] ?? null)];
-            }
-        } catch (Exception $e) {
-            error_log("Error loading stores: " . $e->getMessage());
-        }
-        return $storeData;
-    }, 600);
-
-    $categories = getCachedData('categories_list', function() use ($db) {
-        $catData = [];
-        try {
-            $catDocs = $db->readAll('categories', [], null, 100);
-            if (!empty($catDocs)) {
-                foreach ($catDocs as $c) {
-                    $catData[] = ['name' => $c['name'] ?? null];
-                }
-            }
-        } catch (Exception $e) {
-            error_log("Error loading categories: " . $e->getMessage());
-        }
-        return $catData;
-    }, 600);
-
-    // Build store lookup for faster joins
-    $storeLookup = [];
-    foreach ($stores as $s) {
-        if (!empty($s['id'])) $storeLookup[$s['id']] = $s['name'];
-    }
-
-    // OPTIMIZED: Only load products with filters applied at database level
-    // This reduces data transfer dramatically
-    $conditions = [];
-    
-    // Apply filters at database level when possible
-    if ($store_filter) {
-        $conditions[] = ['store_id', '==', $store_filter];
-    }
-    if ($category_filter) {
-        $conditions[] = ['category', '==', $category_filter];
-    }
-    
-    // For status filters, we need to load more data client-side
-    // but still limit to reasonable amount
-    $fetch_limit = 500; // Reduced from 1000
-    
-    // Fetch products from Firebase with conditions
-    $productDocs = $db->readAll('products', $conditions, null, $fetch_limit);
-    
+    // Fetch products from Firebase
+    $productDocs = $db->readAll('products', [], null, 1000); // fetch up to 1000 for now
     foreach ($productDocs as $r) {
         $prod = [
             'id' => $r['id'] ?? null,
@@ -120,17 +32,48 @@ try {
             'category_name' => $r['category'] ?? ($r['category_name'] ?? null),
             'store_id' => $r['store_id'] ?? null,
             'store_name' => null,
+            'deleted_at' => $r['deleted_at'] ?? null,   // <-- keep soft-delete flag
+            'status_db'  => $r['status']     ?? null,   // <-- keep DB status, separate from stock status
+
+            '_raw' => $r,
         ];
-        
-        // Attach store name
-        if (!empty($prod['store_id']) && isset($storeLookup[$prod['store_id']])) {
-            $prod['store_name'] = $storeLookup[$prod['store_id']];
-        }
-        
         $all_products[] = $prod;
     }
 
-    // Derive categories from products if not already loaded
+    // Fetch stores from Firebase (if collection exists)
+    try {
+        $storeDocs = $db->readAll('stores', [], null, 1000);
+        foreach ($storeDocs as $s) {
+            $stores[] = ['id' => $s['id'] ?? null, 'name' => $s['name'] ?? ($s['store_name'] ?? null)];
+        }
+    } catch (Exception $e) {
+        $stores = [];
+    }
+
+    // Build quick store lookup to attach store_name to products
+    $storeLookup = [];
+    foreach ($stores as $s) {
+        if (!empty($s['id'])) $storeLookup[$s['id']] = $s['name'];
+    }
+    foreach ($all_products as &$p) {
+        if (!empty($p['store_id']) && isset($storeLookup[$p['store_id']])) {
+            $p['store_name'] = $storeLookup[$p['store_id']];
+        }
+    }
+    unset($p);
+
+    // Fetch categories collection if present, else derive from products
+    try {
+        $catDocs = $db->readAll('categories', [], null, 1000);
+        if (!empty($catDocs)) {
+            foreach ($catDocs as $c) {
+                $categories[] = ['name' => $c['name'] ?? null];
+            }
+        }
+    } catch (Exception $e) {
+        // Derive categories from product data
+    }
+
     if (empty($categories)) {
         $catNames = [];
         foreach ($all_products as $p) {
@@ -138,16 +81,27 @@ try {
         }
         $categories = array_map(fn($n) => ['name' => $n], array_keys($catNames));
     }
-    
 } catch (Exception $e) {
-    error_log("Error loading stock list: " . $e->getMessage());
+    // If Firebase not available, fall back to empty lists
     $all_products = [];
     $stores = [];
     $categories = [];
 }
 
+$store_filter = $_GET['store'] ?? '';
+$category_filter = $_GET['category'] ?? '';
+$search_query = $_GET['search'] ?? '';
+$status_filter = $_GET['status'] ?? '';
+$sort_by = isset($_GET['sort']) ? $_GET['sort'] : 'name';
+$sort_order = (isset($_GET['order']) && strtolower($_GET['order']) === 'desc') ? 'DESC' : 'ASC';
+$page = isset($_GET['page']) ? max(1, intval($_GET['page'])) : 1;
+$per_page = 20;
+$offset = ($page - 1) * $per_page;
+
 // Filtering
-$filtered_products = array_filter($all_products, function($p) use ($store_filter, $category_filter, $search_query, $status_filter) {
+$filtered_products = array_filter($all_products, function ($p) use ($store_filter, $category_filter, $search_query, $status_filter) {
+    if (!empty($p['deleted_at'])) return false;
+    if (isset($p['status_db']) && strtolower((string)$p['status_db']) === 'disabled') return false;
     if ($store_filter && (!isset($p['store_id']) || $p['store_id'] != $store_filter)) return false;
     if ($category_filter && (!isset($p['category_name']) || $p['category_name'] != $category_filter)) return false;
     if ($search_query) {
@@ -179,7 +133,7 @@ $valid_sorts = ['name', 'sku', 'quantity', 'unit_price', 'expiry_date', 'created
 if (!in_array($sort_by, $valid_sorts)) {
     $sort_by = 'name';
 }
-$sort_func = function($a, $b) use ($sort_by, $sort_order) {
+$sort_func = function ($a, $b) use ($sort_by, $sort_order) {
     $av = $a[$sort_by] ?? '';
     $bv = $b[$sort_by] ?? '';
     if ($av == $bv) return 0;
@@ -250,14 +204,11 @@ foreach ($filtered_products as $p) {
 }
 
 $page_title = 'Stock Management - Inventory System';
-
-// Add caching headers for better performance
-header('Cache-Control: private, max-age=180'); // 3 minutes
-header('Vary: Cookie');
 ?>
 
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -265,62 +216,20 @@ header('Vary: Cookie');
     <link rel="stylesheet" href="../../assets/css/style.css">
     <!-- Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    
-    <!-- Loading indicator -->
-    <style>
-        .page-loader {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(255,255,255,0.9);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 9999;
-            opacity: 1;
-            transition: opacity 0.3s ease;
-        }
-        
-        .page-loader.hidden {
-            opacity: 0;
-            pointer-events: none;
-        }
-        
-        .loader-spinner {
-            width: 50px;
-            height: 50px;
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #667eea;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-        
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-    </style>
 </head>
+
 <body>
-    <!-- Loading Indicator -->
-    <div class="page-loader" id="pageLoader">
-        <div class="loader-spinner"></div>
-    </div>
 
     <div class="container">
         <?php
-            include '../../includes/dashboard_header2.php'; 
+        include '../../includes/dashboard_header2.php';
         ?>
 
         <main>
             <div class="page-header">
-                <h2>Stock Inventory</h2>
+                <h2>Stock Management</h2>
                 <div class="page-actions">
-                    <a href="add.php" class="btn btn-primary">Add Product</a>
-                    <a href="import.php" class="btn btn-secondary">Import CSV</a>
-                    <a href="export.php" class="btn btn-outline">Export</a>
+                    <a href="add.php" class="btn btn-addprod">Add Product</a>
                 </div>
             </div>
 
@@ -340,7 +249,7 @@ header('Vary: Cookie');
                 </div>
                 <div class="summary-card info">
                     <h3>Total Value</h3>
-                    <p class="stat-number">$<?php echo number_format($summary_stats['total_value'], 2); ?></p>
+                    <p class="stat-number">RM <?php echo number_format($summary_stats['total_value'], 2); ?></p>
                 </div>
             </div>
 
@@ -409,7 +318,7 @@ header('Vary: Cookie');
 
                     <div class="filter-actions">
                         <button type="submit" class="btn btn-primary">Apply Filters</button>
-                        <a href="list.php" class="btn btn-outline">Clear All</a>
+                        <a href="list.php" class="btn btn-clear">Clear All</a>
                     </div>
                 </form>
             </div>
@@ -458,18 +367,28 @@ header('Vary: Cookie');
                                         </div>
                                     </td>
                                     <td>
-                                        <span class="price">$<?php echo number_format($product['unit_price'], 2); ?></span>
-                                        <br><small>Total: $<?php echo number_format($product['quantity'] * $product['unit_price'], 2); ?></small>
+                                        <span class="price">RM<?php echo number_format($product['unit_price'], 2); ?></span>
+                                        <br><small>Total: RM<?php echo number_format($product['quantity'] * $product['unit_price'], 2); ?></small>
                                     </td>
                                     <td>
                                         <span class="status-badge status-<?php echo $product['status']; ?>">
-                                            <?php 
-                                            switch($product['status']) {
-                                                case 'out_of_stock': echo 'Out of Stock'; break;
-                                                case 'low_stock': echo 'Low Stock'; break;
-                                                case 'expired': echo 'Expired'; break;
-                                                case 'expiring_soon': echo 'Expiring Soon'; break;
-                                                default: echo 'Normal'; break;
+                                            <?php
+                                            switch ($product['status']) {
+                                                case 'out_of_stock':
+                                                    echo 'Out of Stock';
+                                                    break;
+                                                case 'low_stock':
+                                                    echo 'Low Stock';
+                                                    break;
+                                                case 'expired':
+                                                    echo 'Expired';
+                                                    break;
+                                                case 'expiring_soon':
+                                                    echo 'Expiring Soon';
+                                                    break;
+                                                default:
+                                                    echo 'Normal';
+                                                    break;
                                             }
                                             ?>
                                         </span>
@@ -495,17 +414,31 @@ header('Vary: Cookie');
                                     </td>
                                     <td>
                                         <div class="action-buttons">
-                                            <a class="btn btn-small" href="./view.php?id=<?php echo urlencode($p['id']); ?>">
-  <i class="fas fa-eye"></i> View
-</a>
+                                            <?php
+                                            // Determine correct Firestore document id
+                                            $linkId = $product['doc_id'] ?? '';
 
+                                            // if doc_id missing, try using the array key or id (but only if it's a string Firestore id)
+                                            if ($linkId === '' && isset($product['id'])) {
+                                                $pid = (string)$product['id'];
+                                                if (!ctype_digit($pid) || strlen($pid) > 6) {
+                                                    $linkId = $pid;
+                                                }
+                                            }
 
-
+                                            // final fallback: if still empty, use numeric id (legacy)
+                                            if ($linkId === '' && isset($product['id'])) {
+                                                $linkId = (string)$product['id'];
+                                            }
+                                            ?>
+                                            <a class="btn btn-small btn-primary" title="View Product"
+                                                href="./view.php?id=<?php echo rawurlencode($linkId); ?>">
+                                                <i class="fas fa-eye"></i> View
+                                            </a>
 
                                             <a href="edit.php?id=<?php echo $product['id']; ?>" class="btn btn-sm btn-primary" title="Edit Product">Edit</a>
-                                            <a href="adjust.php?id=<?php echo $product['id']; ?>" class="btn btn-sm btn-warning" title="Adjust Stock">Adjust</a>
-                                            <a href="delete.php?id=<?php echo $product['id']; ?>" class="btn btn-sm btn-danger" 
-                                               onclick="return confirm('Are you sure you want to delete this product?')" title="Delete Product">Delete</a>
+                                            <a href="delete.php?id=<?php echo $product['id']; ?>" class="btn btn-sm btn-danger"
+                                                onclick="return confirm('Are you sure you want to delete this product?')" title="Delete Product">Delete</a>
                                         </div>
                                     </td>
                                 </tr>
@@ -518,8 +451,8 @@ header('Vary: Cookie');
                 <?php if ($pagination['total_pages'] > 1): ?>
                     <div class="pagination">
                         <?php if ($pagination['has_previous']): ?>
-                            <a href="?<?php echo http_build_query(array_merge($_GET, ['page' => $pagination['current_page'] - 1])); ?>" 
-                               class="btn btn-sm btn-outline">Previous</a>
+                            <a href="?<?php echo http_build_query(array_merge($_GET, ['page' => $pagination['current_page'] - 1])); ?>"
+                                class="btn btn-sm btn-outline">Previous</a>
                         <?php endif; ?>
 
                         <span class="pagination-info">
@@ -528,8 +461,8 @@ header('Vary: Cookie');
                         </span>
 
                         <?php if ($pagination['has_next']): ?>
-                            <a href="?<?php echo http_build_query(array_merge($_GET, ['page' => $pagination['current_page'] + 1])); ?>" 
-                               class="btn btn-sm btn-outline">Next</a>
+                            <a href="?<?php echo http_build_query(array_merge($_GET, ['page' => $pagination['current_page'] + 1])); ?>"
+                                class="btn btn-sm btn-outline">Next</a>
                         <?php endif; ?>
                     </div>
                 <?php endif; ?>
@@ -539,22 +472,10 @@ header('Vary: Cookie');
 
     <script src="../../assets/js/main.js"></script>
     <script>
-        // Hide loader when page is ready
-        window.addEventListener('load', function() {
-            setTimeout(function() {
-                document.getElementById('pageLoader').classList.add('hidden');
-            }, 200);
-        });
-        
-        // Show loader on navigation
-        window.addEventListener('beforeunload', function() {
-            document.getElementById('pageLoader').classList.remove('hidden');
-        });
-        
         // Auto-submit filters on change
         document.addEventListener('DOMContentLoaded', function() {
             const filterInputs = document.querySelectorAll('.filters-form select:not(#sort):not(#order)');
-            
+
             filterInputs.forEach(input => {
                 input.addEventListener('change', function() {
                     // Add a small delay for better UX
@@ -563,7 +484,7 @@ header('Vary: Cookie');
                     }, 100);
                 });
             });
-            
+
             // Submit search on Enter key
             const searchInput = document.getElementById('search');
             if (searchInput) {
@@ -582,7 +503,7 @@ header('Vary: Cookie');
             gap: 1rem;
             margin-bottom: 2rem;
         }
-        
+
         .summary-card {
             flex: 1;
             padding: 1.5rem;
@@ -591,56 +512,52 @@ header('Vary: Cookie');
             border-left: 4px solid #e0e0e0;
             text-align: center;
         }
-        
+
         .summary-card.warning {
             border-left-color: #ffc107;
             background-color: #fff8e1;
         }
-        
+
         .summary-card.danger {
             border-left-color: #dc3545;
             background-color: #ffebee;
         }
-        
+
         .summary-card.info {
             border-left-color: #2196f3;
             background-color: #e3f2fd;
         }
-        
+
         .filters-panel {
             background: white;
             padding: 1rem;
             border-radius: 8px;
             margin-bottom: 2rem;
         }
-        
+
         .filters-form {
             display: flex;
             flex-wrap: wrap;
             gap: 1rem;
             align-items: end;
         }
-        
+
         .filter-group {
             min-width: 150px;
         }
-        
+
         .product-row.status-out_of_stock {
             background-color: rgba(220, 53, 69, 0.1);
         }
-        
+
         .product-row.status-low_stock {
             background-color: rgba(255, 193, 7, 0.1);
         }
-        
-        .product-row.status-expired {
-            background-color: rgba(244, 67, 54, 0.1);
-        }
-        
-        .product-row.status-expiring_soon {
-            background-color: rgba(255, 152, 0, 0.1);
-        }
-        
+
+
+
+
+
         .status-badge {
             padding: 0.25rem 0.5rem;
             border-radius: 4px;
@@ -648,37 +565,126 @@ header('Vary: Cookie');
             font-weight: bold;
             text-transform: uppercase;
         }
-        
+
         .status-badge.status-normal {
             background-color: #4caf50;
             color: white;
         }
-        
+
         .status-badge.status-low_stock {
             background-color: #ffc107;
             color: #212529;
         }
-        
+
         .status-badge.status-out_of_stock {
             background-color: #dc3545;
             color: white;
         }
-        
+
         .status-badge.status-expired {
             background-color: #f44336;
             color: white;
         }
-        
+
         .status-badge.status-expiring_soon {
             background-color: #ff9800;
             color: white;
         }
-        
+
         .current-stock.status-out_of_stock,
         .current-stock.status-low_stock {
             color: #dc3545;
             font-weight: bold;
         }
+
+        .btn.btn-small.btn-primary {
+            background-color: #6b7280;
+            /* neutral grey */
+            border-color: #6b7280;
+            color: #fff;
+            transition: background 0.25s ease, transform 0.2s ease;
+        }
+
+        .btn.btn-small.btn-primary:hover {
+            background-color: #4b5563;
+            /* darker grey on hover */
+            border-color: #4b5563;
+            transform: translateY(-1px);
+        }
+
+        .btn.btn-sm.btn-danger {
+            background-color: #dc2626;
+            /* base red */
+            border-color: #dc2626;
+            color: #fff;
+            transition: background 0.25s ease, transform 0.2s ease;
+        }
+
+        .btn.btn-sm.btn-danger:hover {
+            background-color: #b91c1c;
+            /* darker red on hover */
+            border-color: #b91c1c;
+            color: #fff;
+            /* ensure text stays white */
+            transform: translateY(-1px);
+        }
+
+        .btn.btn-clear {
+            color: #dc2626;
+            /* red font */
+            background: transparent;
+            border: none;
+            transition: color 0.25s ease;
+        }
+
+        .btn.btn-clear:hover {
+            color: #b91c1c;
+        }
+
+        /* Page header layout */
+        .page-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 20px;
+            margin-bottom: 20px;
+        }
+
+        /* Title styling */
+        .page-header h2 {
+            font-size: 1.6rem;
+            font-weight: 700;
+            color: #1e293b;
+            /* dark navy tone */
+            margin: 0;
+        }
+
+        /* Add Product button */
+        .btn-addprod {
+            background-color: #3b82f6;
+            /* bright blue */
+            color: white;
+            font-weight: 600;
+            padding: 10px 18px;
+            border-radius: 8px;
+            text-decoration: none;
+            transition: all 0.25s ease;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Hover effect */
+        .btn-addprod:hover {
+            background-color: #2563eb;
+            /* darker blue */
+            transform: translateY(-1px);
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+        }
+
+        /* Optional: if button too close vertically */
+        .page-actions {
+            margin-top: 6px;
+        }
     </style>
 </body>
+
 </html>
