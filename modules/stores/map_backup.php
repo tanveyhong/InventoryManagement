@@ -276,79 +276,27 @@
         // Load store data from backend
         async function loadStoreData() {
             try {
-                const response = await fetch('api/get_stores_with_location.php');
+                const response = await fetch('api/get_stores_for_map.php');
                 const data = await response.json();
                 
-                if (data.success) {
+                if (data.success && data.stores && data.stores.length > 0) {
                     storesData = data.stores;
                     filteredStores = [...storesData];
                     updateStatistics();
                     renderStoreList();
                     updateMapMarkers();
+                    console.log(`✅ Loaded ${data.count} stores from Firebase`);
+                } else {
+                    throw new Error('No stores found in Firebase');
                 }
             } catch (error) {
-                console.error('Error loading store data:', error);
-                // Load sample data for demo
-                loadSampleData();
+                console.error('❌ Error loading store data from Firebase:', error);
+                alert('Unable to load stores from Firebase.\n\nPlease add stores using the Store Management module first.');
+                storesData = [];
+                filteredStores = [];
+                updateStatistics();
+                renderStoreList();
             }
-        }
-
-        // Load sample data for demonstration
-        function loadSampleData() {
-            storesData = [
-                {
-                    id: 1,
-                    name: 'Downtown Store',
-                    code: 'DT001',
-                    address: '123 Main St',
-                    city: 'New York',
-                    state: 'NY',
-                    latitude: 40.7128,
-                    longitude: -74.0060,
-                    store_type: 'retail',
-                    region_name: 'East Region',
-                    active: 1,
-                    total_inventory: 15000,
-                    inventory_value: 125000,
-                    staff_count: 5
-                },
-                {
-                    id: 2,
-                    name: 'Westside Warehouse',
-                    code: 'WW002',
-                    address: '456 West Ave',
-                    city: 'Los Angeles',
-                    state: 'CA',
-                    latitude: 34.0522,
-                    longitude: -118.2437,
-                    store_type: 'warehouse',
-                    region_name: 'West Region',
-                    active: 1,
-                    total_inventory: 50000,
-                    inventory_value: 450000,
-                    staff_count: 12
-                },
-                {
-                    id: 3,
-                    name: 'Central Distribution',
-                    code: 'CD003',
-                    address: '789 Central Blvd',
-                    city: 'Chicago',
-                    state: 'IL',
-                    latitude: 41.8781,
-                    longitude: -87.6298,
-                    store_type: 'distribution',
-                    region_name: 'Central Region',
-                    active: 1,
-                    total_inventory: 75000,
-                    inventory_value: 625000,
-                    staff_count: 20
-                }
-            ];
-            
-            filteredStores = [...storesData];
-            updateStatistics();
-            renderStoreList();
         }
 
         // Update statistics display

@@ -15,6 +15,60 @@ class FirebaseRestClient {
     }
     
     private function makeRequest($method, $url, $data = null) {
+        // Try cURL first (more reliable on Windows), fallback to file_get_contents
+        if (function_exists('curl_init')) {
+            return $this->makeRequestCurl($method, $url, $data);
+        } else {
+            return $this->makeRequestFileGetContents($method, $url, $data);
+        }
+    }
+    
+    private function makeRequestCurl($method, $url, $data = null) {
+        $ch = curl_init();
+        
+        curl_setopt_array($ch, [
+            CURLOPT_URL => $url,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CUSTOMREQUEST => $method,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_TIMEOUT => 10,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
+            CURLOPT_HTTPHEADER => [
+                'Content-Type: application/json',
+            ],
+        ]);
+        
+        if ($data !== null) {
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+        }
+        
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $error = curl_error($ch);
+        
+        curl_close($ch);
+        
+        if ($response === false) {
+            throw new Exception("Network error: Unable to connect to Firebase. " . $error);
+        }
+        
+        $decoded = json_decode($response, true);
+        
+        if ($decoded === null && json_last_error() !== JSON_ERROR_NONE) {
+            throw new Exception("Invalid JSON response from Firebase: " . json_last_error_msg());
+        }
+        
+        // Check for error response
+        if (isset($decoded['error'])) {
+            throw new Exception("Firebase API Error: " . $decoded['error']['message']);
+        }
+        
+        return $decoded;
+    }
+    
+    private function makeRequestFileGetContents($method, $url, $data = null) {
         // For now, we'll use the Firebase Web API without authentication
         // In production, you should implement proper authentication
         
@@ -25,17 +79,35 @@ class FirebaseRestClient {
                     'Content-Type: application/json',
                 ],
                 'content' => $data ? json_encode($data) : null,
-                'ignore_errors' => true
+                'ignore_errors' => true,
+                'timeout' => 5 // Add timeout to fail faster
             ]
         ]);
         
+        // Suppress warnings and capture errors
+        error_reporting(E_ERROR | E_PARSE);
         $response = @file_get_contents($url, false, $context);
+        error_reporting(E_ALL);
         
         if ($response === false) {
-            throw new Exception("Failed to make request to Firebase: " . error_get_last()['message']);
+            $error = error_get_last();
+            $errorMsg = $error ? $error['message'] : 'Unknown error';
+            
+            // Check if it's a network connectivity issue
+            if (strpos($errorMsg, 'getaddrinfo') !== false || 
+                strpos($errorMsg, 'No such host') !== false ||
+                strpos($errorMsg, 'Connection refused') !== false) {
+                throw new Exception("Network error: Unable to connect to Firebase. Please check your internet connection.");
+            }
+            
+            throw new Exception("Failed to make request to Firebase: " . $errorMsg);
         }
         
         $decoded = json_decode($response, true);
+        
+        if ($decoded === null && json_last_error() !== JSON_ERROR_NONE) {
+            throw new Exception("Invalid JSON response from Firebase: " . json_last_error_msg());
+        }
         
         // Check for error response
         if (isset($decoded['error'])) {

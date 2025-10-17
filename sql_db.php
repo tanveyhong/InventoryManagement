@@ -278,6 +278,58 @@ class SQLDatabase {
                 $this->pdo->exec("UPDATE products SET price = selling_price WHERE price IS NULL OR price = 0");
             }
             
+            // Check if firebase_id and manager columns exist in stores table
+            $storesColumns = $this->pdo->query("PRAGMA table_info(stores)")->fetchAll();
+            $hasFirebaseId = false;
+            $hasManager = false;
+            
+            foreach ($storesColumns as $column) {
+                if ($column['name'] === 'firebase_id') {
+                    $hasFirebaseId = true;
+                }
+                if ($column['name'] === 'manager') {
+                    $hasManager = true;
+                }
+            }
+            
+            // Add firebase_id and manager columns if missing (for syncing with Firebase stores)
+            if (!$hasFirebaseId) {
+                $this->pdo->exec("ALTER TABLE stores ADD COLUMN firebase_id VARCHAR(50)");
+            }
+            
+            // Add manager column if missing (for simple manager name)
+            if (!$hasManager) {
+                $this->pdo->exec("ALTER TABLE stores ADD COLUMN manager VARCHAR(100)");
+            }
+            
+            // Check for POS integration columns
+            $hasPosEnabled = false;
+            $hasPosTerminalId = false;
+            $hasPosType = false;
+            
+            foreach ($storesColumns as $column) {
+                if ($column['name'] === 'has_pos') {
+                    $hasPosEnabled = true;
+                }
+                if ($column['name'] === 'pos_terminal_id') {
+                    $hasPosTerminalId = true;
+                }
+                if ($column['name'] === 'pos_type') {
+                    $hasPosType = true;
+                }
+            }
+            
+            // Add POS integration columns if missing
+            if (!$hasPosEnabled) {
+                $this->pdo->exec("ALTER TABLE stores ADD COLUMN has_pos BOOLEAN DEFAULT 0");
+            }
+            if (!$hasPosTerminalId) {
+                $this->pdo->exec("ALTER TABLE stores ADD COLUMN pos_terminal_id VARCHAR(50)");
+            }
+            if (!$hasPosType) {
+                $this->pdo->exec("ALTER TABLE stores ADD COLUMN pos_type VARCHAR(50) DEFAULT 'quick_service'");
+            }
+            
         } catch (PDOException $e) {
             error_log("Database upgrade failed: " . $e->getMessage());
         }

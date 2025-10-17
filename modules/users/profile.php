@@ -1152,12 +1152,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <button class="tab-button active" data-tab="profile">
                     <i class="fas fa-user"></i> Profile Info
                 </button>
+                <?php 
+                $userRole = strtolower($user['role'] ?? 'user');
+                $isAdmin = ($userRole === 'admin');
+                $isManager = ($userRole === 'manager');
+                
+                // Show Activity Log and Permissions only to admins and managers
+                if ($isAdmin || $isManager):
+                ?>
                 <button class="tab-button" data-tab="activity">
                     <i class="fas fa-history"></i> Activity Log
                 </button>
+                <?php endif; ?>
+                
+                <?php if ($isAdmin): ?>
                 <button class="tab-button" data-tab="permissions">
                     <i class="fas fa-shield-alt"></i> Permissions
                 </button>
+                <?php endif; ?>
+                
                 <button class="tab-button" data-tab="stores">
                     <i class="fas fa-store"></i> Store Access
                 </button>
@@ -1207,7 +1220,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </form>
             </div>
             
-            <!-- Activity Tab (Lazy Loaded) -->
+            <!-- Activity Tab (Lazy Loaded) - Admin/Manager Only -->
+            <?php if ($isAdmin || $isManager): ?>
             <div class="tab-content" id="tab-activity">
                 <div id="activity-loading">
                     <div class="loading-skeleton" style="height: 80px;"></div>
@@ -1216,8 +1230,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </div>
                 <div id="activity-content" style="display: none;"></div>
             </div>
+            <?php endif; ?>
             
-            <!-- Permissions Tab (Lazy Loaded) -->
+            <!-- Permissions Tab (Lazy Loaded) - Admin Only -->
+            <?php if ($isAdmin): ?>
             <div class="tab-content" id="tab-permissions">
                 <div id="permissions-loading">
                     <div class="loading-skeleton" style="height: 100px;"></div>
@@ -1226,6 +1242,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </div>
                 <div id="permissions-content" style="display: none;"></div>
             </div>
+            <?php endif; ?>
             
             <!-- Stores Tab (Lazy Loaded) -->
             <div class="tab-content" id="tab-stores">
@@ -1267,7 +1284,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div> <!-- Close dashboard-content -->
     
     <script>
-        // Tab switching
+        // User role data
+        const userRole = <?= json_encode($userRole, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+        const isAdmin = <?= json_encode($isAdmin, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+        const isManager = <?= json_encode($isManager, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+        
+        // Tab switching (no lazy loading - all data loaded on page load)
         document.querySelectorAll('.tab-button').forEach(button => {
             button.addEventListener('click', function() {
                 const tabName = this.dataset.tab;
@@ -1278,76 +1300,338 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
                 this.classList.add('active');
                 document.getElementById('tab-' + tabName).classList.add('active');
-                
-                // Lazy load data when tab is clicked
-                if (tabName === 'activity' && !window.activityLoaded) {
-                    loadActivities();
-                    window.activityLoaded = true;
-                } else if (tabName === 'permissions' && !window.permissionsLoaded) {
-                    loadPermissions();
-                    window.permissionsLoaded = true;
-                } else if (tabName === 'stores' && !window.storesLoaded) {
-                    loadStores();
-                    window.storesLoaded = true;
-                }
             });
         });
         
-        let activityOffset = 0;
-        const activityLimit = 10;
+        // Utility: Debounce function
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        }
         
-        async function loadActivities(append = false) {
-            try {
-                if (!append) {
-                    activityOffset = 0;
+        // Activity Management Variables
+        let activityOffset = 0;
+        const activityLimit = 50; // Load more at once for pre-loading
+        let currentActivityUserId = null;
+        let allActivitiesCache = []; // Cache all loaded activities
+        let filteredActivitiesIndex = null; // Indexed filtered results
+        let currentFilter = ''; // Current filter value
+        let loadingActivities = false; // Prevent duplicate requests
+        let abortController = null; // For cancelling requests
+        let visibleActivitiesCount = 20; // Virtual scrolling - show only 20 at a time
+        
+        // Optimized render with virtual scrolling
+        function renderActivities() {
+            const container = document.getElementById('activity-content');
+            if (!container) return;
+            
+            const startTime = performance.now();
+            
+            // Get filter values
+            const searchTerm = (document.getElementById('activity-search')?.value || '').toLowerCase().trim();
+            const filterType = (document.getElementById('activity-filter')?.value || '').toLowerCase();
+            
+            // Fast filter using single pass
+            let filteredActivities;
+            if (!searchTerm && !filterType) {
+                filteredActivities = allActivitiesCache;
+            } else {
+                filteredActivities = [];
+                for (let i = 0; i < allActivitiesCache.length; i++) {
+                    const activity = allActivitiesCache[i];
+                    
+                    // Type filter (fastest check first)
+                    if (filterType && !(activity.action_type || '').toLowerCase().includes(filterType)) {
+                        continue;
+                    }
+                    
+                    // Search filter
+                    if (searchTerm) {
+                        const desc = (activity.description || '').toLowerCase();
+                        const type = (activity.action_type || '').toLowerCase();
+                        const user = (activity.user_name || '').toLowerCase();
+                        
+                        if (!desc.includes(searchTerm) && !type.includes(searchTerm) && !user.includes(searchTerm)) {
+                            continue;
+                        }
+                    }
+                    
+                    filteredActivities.push(activity);
+                }
+            }
+            
+            // Clear old items
+            const oldItems = container.querySelectorAll('.activity-item');
+            oldItems.forEach(item => item.remove());
+            
+            // Remove old count/no results
+            const oldCount = container.querySelector('.filter-count');
+            if (oldCount) oldCount.remove();
+            
+            // Render activities (virtual scrolling - only render visible ones)
+            if (filteredActivities.length > 0) {
+                const loadMoreBtn = document.getElementById('load-more-activities');
+                const fragment = document.createDocumentFragment();
+                
+                // Render only first batch for performance
+                const renderCount = Math.min(visibleActivitiesCount, filteredActivities.length);
+                
+                for (let i = 0; i < renderCount; i++) {
+                    const activity = filteredActivities[i];
+                    const item = document.createElement('div');
+                    item.className = 'activity-item';
+                    
+                    // Show username for admin viewing all users
+                    const userBadge = (isAdmin && activity.user_name) ? `
+                        <span style="background: #667eea; color: white; padding: 2px 8px; border-radius: 4px; font-size: 12px; margin-left: 10px;">
+                            ${escapeHtml(activity.user_name)}
+                        </span>
+                    ` : '';
+                    
+                    item.innerHTML = `
+                        <div class="activity-icon">
+                            <i class="fas fa-${getActivityIcon(activity.action_type || activity.activity_type)}"></i>
+                        </div>
+                        <div class="activity-content">
+                            <div class="activity-title">
+                                ${escapeHtml(activity.description || activity.action_type || activity.activity_type)}
+                                ${userBadge}
+                            </div>
+                            <div class="activity-meta">
+                                ${formatDate(activity.created_at)} • ${escapeHtml(activity.ip_address || 'N/A')}
+                            </div>
+                        </div>
+                    `;
+                    
+                    fragment.appendChild(item);
                 }
                 
-                const response = await fetch(`profile/api.php?action=get_activities&limit=${activityLimit}&offset=${activityOffset}`);
+                // Insert before load more button or append
+                if (loadMoreBtn) {
+                    container.insertBefore(fragment, loadMoreBtn);
+                } else {
+                    container.appendChild(fragment);
+                }
+                
+                // Show filter count
+                if (searchTerm || filterType) {
+                    const countDiv = document.createElement('div');
+                    countDiv.className = 'filter-count';
+                    countDiv.style.cssText = 'padding: 10px 15px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px; margin-bottom: 15px; text-align: center; color: white; font-weight: 600; box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);';
+                    countDiv.innerHTML = `<i class="fas fa-filter"></i> Showing ${renderCount} of ${filteredActivities.length} matching activities`;
+                    
+                    const firstItem = container.querySelector('.activity-item');
+                    if (firstItem) {
+                        container.insertBefore(countDiv, firstItem);
+                    }
+                    
+                    // Add "show more" if there are more filtered results
+                    if (filteredActivities.length > renderCount) {
+                        const showMoreBtn = document.createElement('button');
+                        showMoreBtn.className = 'btn load-more-btn';
+                        showMoreBtn.innerHTML = `<i class="fas fa-chevron-down"></i> Show ${Math.min(20, filteredActivities.length - renderCount)} More (${filteredActivities.length - renderCount} remaining)`;
+                        showMoreBtn.onclick = () => {
+                            visibleActivitiesCount += 20;
+                            renderActivities();
+                        };
+                        container.appendChild(showMoreBtn);
+                    }
+                } else if (allActivitiesCache.length > renderCount) {
+                    // Not filtered, but showing partial results
+                    const countDiv = document.createElement('div');
+                    countDiv.className = 'filter-count';
+                    countDiv.style.cssText = 'padding: 8px 12px; background: #f3f4f6; border-radius: 6px; margin-bottom: 12px; text-align: center; color: #6b7280; font-size: 13px;';
+                    countDiv.innerHTML = `Showing ${renderCount} of ${allActivitiesCache.length} activities`;
+                    
+                    const firstItem = container.querySelector('.activity-item');
+                    if (firstItem) {
+                        container.insertBefore(countDiv, firstItem);
+                    }
+                }
+            } else if (allActivitiesCache.length > 0) {
+                // Has activities but filtered out
+                const noResults = document.createElement('div');
+                noResults.innerHTML = `
+                    <div class="empty-state" style="padding: 40px 20px;">
+                        <i class="fas fa-search"></i>
+                        <h3>No Matching Activities</h3>
+                        <p>Try adjusting your search or filter</p>
+                        <button onclick="document.getElementById('activity-search').value=''; document.getElementById('activity-filter').value=''; renderActivities();" class="btn btn-primary" style="margin-top: 15px;">
+                            <i class="fas fa-times-circle"></i> Clear Filters
+                        </button>
+                    </div>
+                `;
+                container.appendChild(noResults);
+            }
+            
+            const endTime = performance.now();
+            console.log(`Rendered ${filteredActivities.length} activities in ${(endTime - startTime).toFixed(2)}ms`);
+        }
+        
+        async function loadActivities(append = false, skipCache = false) {
+            // Prevent duplicate simultaneous requests
+            if (loadingActivities && !skipCache) {
+                console.log('Already loading activities, skipping...');
+                return;
+            }
+            
+            try {
+                loadingActivities = true;
+                
+                if (!append) {
+                    activityOffset = 0;
+                    allActivitiesCache = [];
+                }
+                
+                // Cancel any pending request
+                if (abortController) {
+                    abortController.abort();
+                }
+                abortController = new AbortController();
+                
+                // Get selected user if admin
+                const userFilter = isAdmin ? (document.getElementById('activity-user-filter')?.value || 'all') : null;
+                const userParam = userFilter ? `&user_id=${userFilter}` : '';
+                
+                // Show loading indicator
+                if (!append) {
+                    document.getElementById('activity-loading').style.display = 'block';
+                    document.getElementById('activity-content').style.display = 'none';
+                }
+                
+                const response = await fetch(
+                    `profile/api.php?action=get_activities&limit=${activityLimit}&offset=${activityOffset}${userParam}`,
+                    { signal: abortController.signal }
+                );
                 const data = await response.json();
                 
                 document.getElementById('activity-loading').style.display = 'none';
                 document.getElementById('activity-content').style.display = 'block';
                 
                 if (data.success && data.data.length > 0) {
+                    // Add to cache
+                    if (append) {
+                        allActivitiesCache = allActivitiesCache.concat(data.data);
+                    } else {
+                        allActivitiesCache = data.data;
+                    }
+                    
                     const container = document.getElementById('activity-content');
                     
                     if (!append) {
-                        container.innerHTML = `
-                            <div style="margin-bottom: 20px;">
-                                <a href="profile/activity_manager.php" style="text-decoration: none; color: inherit;">
-                                    <div class="info-card" style="cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; border-left: 4px solid #667eea;">
-                                        <div style="display: flex; align-items: center; gap: 15px;">
-                                            <div style="width: 50px; height: 50px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
-                                                <i class="fas fa-history" style="font-size: 24px; color: white;"></i>
-                                            </div>
+                        // Add management toolbar for admin/manager
+                        let toolbarHTML = '';
+                        if (isAdmin || isManager) {
+                            // Load user list for admin
+                            let userSelectHTML = '';
+                            if (isAdmin) {
+                                userSelectHTML = `
+                                    <select id="activity-user-filter" class="form-input" style="width: auto; padding: 8px 12px; min-width: 180px;">
+                                        <option value="all">All Users</option>
+                                        <option value="<?= $_SESSION['user_id'] ?>">My Activities</option>
+                                    </select>
+                                `;
+                                // Load users dynamically (with caching)
+                                if (!window.usersListCache) {
+                                    fetch('profile/api.php?action=get_all_users')
+                                        .then(r => r.json())
+                                        .then(result => {
+                                            if (result.success) {
+                                                window.usersListCache = result.data;
+                                                const select = document.getElementById('activity-user-filter');
+                                                if (select) {
+                                                    result.data.forEach(u => {
+                                                        if (u.id !== '<?= $_SESSION['user_id'] ?>') {
+                                                            const opt = document.createElement('option');
+                                                            opt.value = u.id;
+                                                            opt.textContent = u.username + ' (' + u.role + ')';
+                                                            select.appendChild(opt);
+                                                        }
+                                                    });
+                                                    // Add change listener with debouncing
+                                                    select.addEventListener('change', debounce(() => {
+                                                        loadActivities(false, true);
+                                                    }, 300));
+                                                }
+                                            }
+                                        });
+                                } else {
+                                    // Use cached users
+                                    setTimeout(() => {
+                                        const select = document.getElementById('activity-user-filter');
+                                        if (select && window.usersListCache) {
+                                            window.usersListCache.forEach(u => {
+                                                if (u.id !== '<?= $_SESSION['user_id'] ?>') {
+                                                    const opt = document.createElement('option');
+                                                    opt.value = u.id;
+                                                    opt.textContent = u.username + ' (' + u.role + ')';
+                                                    select.appendChild(opt);
+                                                }
+                                            });
+                                            select.addEventListener('change', debounce(() => {
+                                                loadActivities(false, true);
+                                            }, 300));
+                                        }
+                                    }, 0);
+                                }
+                            }
+                            
+                            toolbarHTML = `
+                                <div style="background: #f8f9fa; padding: 15px; border-radius: 10px; margin-bottom: 20px;">
+                                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: ${isAdmin ? '15px' : '0'};">
+                                        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                                            <button onclick="exportActivities('csv')" class="btn" style="background: #10b981; color: white; padding: 8px 16px; font-size: 14px;">
+                                                <i class="fas fa-download"></i> Export CSV
+                                            </button>
+                                            <button onclick="exportActivities('json')" class="btn" style="background: #3b82f6; color: white; padding: 8px 16px; font-size: 14px;">
+                                                <i class="fas fa-file-code"></i> Export JSON
+                                            </button>
+                                            ${isAdmin ? `
+                                            <button onclick="if(confirm('Are you sure you want to clear the selected user\\'s activity history?')) clearActivities()" class="btn" style="background: #ef4444; color: white; padding: 8px 16px; font-size: 14px;">
+                                                <i class="fas fa-trash"></i> Clear History
+                                            </button>` : ''}
+                                        </div>
+                                        <div style="display: flex; gap: 10px; align-items: center;">
+                                            <input type="text" id="activity-search" placeholder="Search activities..." class="form-input" style="width: 200px; padding: 8px 12px; font-size: 14px;">
+                                            <select id="activity-filter" class="form-input" style="width: auto; padding: 8px 12px;">
+                                                <option value="">All Types</option>
+                                                <option value="login">Login</option>
+                                                <option value="logout">Logout</option>
+                                                <option value="create">Create</option>
+                                                <option value="update">Update</option>
+                                                <option value="delete">Delete</option>
+                                        </select>
+                                        <button onclick="loadActivities(false, true)" class="btn" style="background: #6b7280; color: white; padding: 8px 16px; font-size: 14px;">
+                                            <i class="fas fa-sync"></i> Refresh
+                                        </button>
+                                    </div>
+                                </div>
+                                ${isAdmin ? `
+                                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 15px; border-radius: 10px; margin-bottom: 20px; color: white;">
+                                        <div style="display: flex; align-items: center; gap: 12px;">
+                                            <i class="fas fa-users" style="font-size: 20px;"></i>
                                             <div style="flex: 1;">
-                                                <h4 style="margin: 0 0 5px 0; font-size: 16px;">Activity Manager</h4>
-                                                <p style="margin: 0; font-size: 14px; color: #666;">Track and manage all user activities</p>
+                                                <label style="display: block; margin-bottom: 8px; font-weight: 600;">View Activities For:</label>
+                                                ${userSelectHTML}
                                             </div>
-                                            <i class="fas fa-arrow-right" style="color: #667eea;"></i>
                                         </div>
                                     </div>
-                                </a>
+                                ` : ''}
                             </div>
-                        `;
+                            `;
+                        }
+                        container.innerHTML = toolbarHTML;
                     }
                     
-                    data.data.forEach(activity => {
-                        const item = document.createElement('div');
-                        item.className = 'activity-item';
-                        item.innerHTML = `
-                            <div class="activity-icon">
-                                <i class="fas fa-${getActivityIcon(activity.action_type || activity.activity_type)}"></i>
-                            </div>
-                            <div class="activity-content">
-                                <div class="activity-title">${escapeHtml(activity.description || activity.action_type || activity.activity_type)}</div>
-                                <div class="activity-meta">
-                                    ${formatDate(activity.created_at)} • ${escapeHtml(activity.ip_address || 'N/A')}
-                                </div>
-                            </div>
-                        `;
-                        container.appendChild(item);
-                    });
+                    // Render activities (will be filtered client-side)
+                    renderActivities();
                     
                     activityOffset += data.data.length;
                     
@@ -1360,30 +1644,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             loadMoreBtn.className = 'btn load-more-btn';
                             loadMoreBtn.innerHTML = '<i class="fas fa-chevron-down"></i> Load More';
                             loadMoreBtn.onclick = () => loadActivities(true);
-                            container.appendChild(loadMoreBtn);
+                            document.getElementById('activity-content').appendChild(loadMoreBtn);
                         }
                     } else {
                         const loadMoreBtn = document.getElementById('load-more-activities');
                         if (loadMoreBtn) loadMoreBtn.remove();
                     }
+                    
+                    // Add search and filter listeners (optimized with requestAnimationFrame)
+                    if (!append) {
+                        const searchInput = document.getElementById('activity-search');
+                        const filterSelect = document.getElementById('activity-filter');
+                        
+                        let rafId = null;
+                        
+                        if (searchInput) {
+                            // Use requestAnimationFrame for smooth 60fps filtering
+                            searchInput.addEventListener('input', () => {
+                                if (rafId) cancelAnimationFrame(rafId);
+                                rafId = requestAnimationFrame(() => {
+                                    visibleActivitiesCount = 20; // Reset visible count on filter
+                                    renderActivities();
+                                });
+                            });
+                        }
+                        
+                        if (filterSelect) {
+                            filterSelect.addEventListener('change', () => {
+                                visibleActivitiesCount = 20; // Reset visible count on filter
+                                renderActivities();
+                            });
+                        }
+                    }
                 } else if (!append) {
                     document.getElementById('activity-content').innerHTML = `
-                        <div style="margin-bottom: 20px;">
-                            <a href="profile/activity_manager.php" style="text-decoration: none; color: inherit;">
-                                <div class="info-card" style="cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; border-left: 4px solid #667eea;">
-                                    <div style="display: flex; align-items: center; gap: 15px;">
-                                        <div style="width: 50px; height: 50px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
-                                            <i class="fas fa-history" style="font-size: 24px; color: white;"></i>
-                                        </div>
-                                        <div style="flex: 1;">
-                                            <h4 style="margin: 0 0 5px 0; font-size: 16px;">Activity Manager</h4>
-                                            <p style="margin: 0; font-size: 14px; color: #666;">Track and manage all user activities</p>
-                                        </div>
-                                        <i class="fas fa-arrow-right" style="color: #667eea;"></i>
-                                    </div>
-                                </div>
-                            </a>
-                        </div>
                         <div class="empty-state">
                             <i class="fas fa-history"></i>
                             <h3>No Activity Yet</h3>
@@ -1392,6 +1686,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     `;
                 }
             } catch (error) {
+                if (error.name === 'AbortError') {
+                    console.log('Request cancelled');
+                    return;
+                }
                 console.error('Error loading activities:', error);
                 document.getElementById('activity-loading').style.display = 'none';
                 document.getElementById('activity-content').innerHTML = `
@@ -1401,6 +1699,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </div>
                 `;
                 document.getElementById('activity-content').style.display = 'block';
+            } finally {
+                loadingActivities = false;
             }
         }
         
@@ -1424,30 +1724,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         { key: 'can_configure_system', name: 'System Configuration', icon: 'cog', desc: 'Access system settings and configuration' }
                     ];
                     
-                    // Add Permissions Manager card at the top (admin only)
-                    let managerCardHTML = '';
-                    if (perms.role === 'Admin') {
-                        managerCardHTML = `
-                            <div style="margin-bottom: 20px;">
-                                <a href="profile/permissions_manager.php" style="text-decoration: none; color: inherit;">
-                                    <div class="info-card" style="cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; border-left: 4px solid #f5576c;">
-                                        <div style="display: flex; align-items: center; gap: 15px;">
-                                            <div style="width: 50px; height: 50px; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
-                                                <i class="fas fa-shield-alt" style="font-size: 24px; color: white;"></i>
-                                            </div>
-                                            <div style="flex: 1;">
-                                                <h4 style="margin: 0 0 5px 0; font-size: 16px;">Permissions Manager</h4>
-                                                <p style="margin: 0; font-size: 14px; color: #666;">Manage roles and user permissions</p>
-                                            </div>
-                                            <i class="fas fa-arrow-right" style="color: #f5576c;"></i>
-                                        </div>
-                                    </div>
-                                </a>
+                    // Add role information banner
+                    let roleHTML = `
+                        <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); padding: 20px; border-radius: 12px; margin-bottom: 25px; color: white;">
+                            <div style="display: flex; align-items: center; gap: 15px;">
+                                <div style="width: 60px; height: 60px; background: rgba(255,255,255,0.2); border-radius: 50%; display: flex; align-items: center; justify-content: center;">
+                                    <i class="fas fa-shield-alt" style="font-size: 28px;"></i>
+                                </div>
+                                <div style="flex: 1;">
+                                    <h3 style="margin: 0 0 8px 0; font-size: 24px;">Your Role: ${perms.role}</h3>
+                                    <p style="margin: 0; opacity: 0.95; font-size: 14px;">Your permissions and access level are displayed below</p>
+                                </div>
+                                ${perms.role === 'Admin' ? `
+                                <a href="../roles.php" style="background: white; color: #f5576c; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-weight: 600; display: inline-flex; align-items: center; gap: 8px;">
+                                    <i class="fas fa-users-cog"></i> Manage All Users
+                                </a>` : ''}
                             </div>
-                        `;
-                    }
+                        </div>
+                    `;
                     
-                    container.innerHTML = managerCardHTML + '<div class="permission-grid"></div>';
+                    container.innerHTML = roleHTML + '<div class="permission-grid"></div>';
                     const grid = container.querySelector('.permission-grid');
                     
                     permissionsList.forEach(perm => {
@@ -1489,24 +1785,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
                 if (data.success && data.data.length > 0) {
                     const container = document.getElementById('stores-content');
-                    container.innerHTML = `
-                        <div style="margin-bottom: 20px;">
-                            <a href="profile/stores_manager.php" style="text-decoration: none; color: inherit;">
-                                <div class="info-card" style="cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; border-left: 4px solid #00f2fe;">
-                                    <div style="display: flex; align-items: center; gap: 15px;">
-                                        <div style="width: 50px; height: 50px; background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
-                                            <i class="fas fa-store" style="font-size: 24px; color: white;"></i>
-                                        </div>
-                                        <div style="flex: 1;">
-                                            <h4 style="margin: 0 0 5px 0; font-size: 16px;">Stores Manager</h4>
-                                            <p style="margin: 0; font-size: 14px; color: #666;">Manage stores and user access</p>
-                                        </div>
-                                        <i class="fas fa-arrow-right" style="color: #00f2fe;"></i>
-                                    </div>
-                                </div>
-                            </a>
+                    
+                    // Add management toolbar
+                    let toolbarHTML = `
+                        <div style="background: #f8f9fa; padding: 15px; border-radius: 10px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                            <div>
+                                <h4 style="margin: 0 0 5px 0; color: #2d3748;">Your Store Access</h4>
+                                <p style="margin: 0; font-size: 14px; color: #6b7280;">You have access to ${data.data.length} store(s)</p>
+                            </div>
+                            <div style="display: flex; gap: 10px;">
+                                ${isAdmin || isManager ? `
+                                <a href="../stores/list.php" class="btn" style="background: #3b82f6; color: white; padding: 8px 16px; font-size: 14px; text-decoration: none;">
+                                    <i class="fas fa-list"></i> All Stores
+                                </a>
+                                <a href="../stores/add.php" class="btn" style="background: #10b981; color: white; padding: 8px 16px; font-size: 14px; text-decoration: none;">
+                                    <i class="fas fa-plus"></i> Add Store
+                                </a>` : ''}
+                            </div>
                         </div>
                     `;
+                    container.innerHTML = toolbarHTML;
                     
                     data.data.forEach(store => {
                         const card = document.createElement('div');
@@ -1527,26 +1825,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     });
                 } else {
                     document.getElementById('stores-content').innerHTML = `
-                        <div style="margin-bottom: 20px;">
-                            <a href="profile/stores_manager.php" style="text-decoration: none; color: inherit;">
-                                <div class="info-card" style="cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; border-left: 4px solid #00f2fe;">
-                                    <div style="display: flex; align-items: center; gap: 15px;">
-                                        <div style="width: 50px; height: 50px; background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
-                                            <i class="fas fa-store" style="font-size: 24px; color: white;"></i>
-                                        </div>
-                                        <div style="flex: 1;">
-                                            <h4 style="margin: 0 0 5px 0; font-size: 16px;">Stores Manager</h4>
-                                            <p style="margin: 0; font-size: 14px; color: #666;">Manage stores and user access</p>
-                                        </div>
-                                        <i class="fas fa-arrow-right" style="color: #00f2fe;"></i>
-                                    </div>
-                                </div>
-                            </a>
-                        </div>
                         <div class="empty-state">
                             <i class="fas fa-store"></i>
                             <h3>No Store Access</h3>
                             <p>You don't have access to any stores yet</p>
+                            ${isAdmin || isManager ? `
+                            <a href="../stores/add.php" class="btn btn-primary" style="margin-top: 20px; text-decoration: none;">
+                                <i class="fas fa-plus"></i> Add New Store
+                            </a>` : ''}
                         </div>
                     `;
                 }
@@ -1875,6 +2161,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     // Start auto-refresh when page loads
     document.addEventListener('DOMContentLoaded', () => {
+        console.log('=== Profile Page Loading ===');
+        
+        // Pre-load all tab data immediately (no lazy loading)
+        console.log('Pre-loading all tab data...');
+        const loadStartTime = performance.now();
+        
+        // Load activities if tab exists (for admin/manager)
+        if (document.getElementById('tab-activity')) {
+            console.log('Loading activities...');
+            loadActivities().then(() => {
+                console.log('Activities loaded');
+            });
+        }
+        
+        // Load permissions if tab exists (for admin)
+        if (document.getElementById('tab-permissions')) {
+            console.log('Loading permissions...');
+            loadPermissions().then(() => {
+                console.log('Permissions loaded');
+            });
+        }
+        
+        // Load stores (for all users)
+        if (document.getElementById('tab-stores')) {
+            console.log('Loading stores...');
+            loadStores().then(() => {
+                console.log('Stores loaded');
+                const loadEndTime = performance.now();
+                console.log(`All tabs loaded in ${(loadEndTime - loadStartTime).toFixed(2)}ms`);
+            });
+        }
+        
         // Attach click handler to refresh button
         const refreshBtn = document.getElementById('refreshCacheBtn');
         if (refreshBtn) {
@@ -1903,6 +2221,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         console.log('window.refreshCache exists:', typeof window.refreshCache);
         console.log('typeof window.refreshCache:', typeof window.refreshCache);
     });
+    
+    // Activity Management Functions
+    async function exportActivities(format) {
+        try {
+            const userFilter = isAdmin ? (document.getElementById('activity-user-filter')?.value || 'all') : '';
+            const userParam = userFilter ? `&user_id=${userFilter}` : '';
+            
+            const response = await fetch(`profile/api.php?action=export_activities&format=${format}${userParam}`);
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `activities_${new Date().toISOString().split('T')[0]}.${format}`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+        } catch (error) {
+            console.error('Export failed:', error);
+            alert('Failed to export activities');
+        }
+    }
+    
+    async function clearActivities() {
+        try {
+            const userFilter = isAdmin ? (document.getElementById('activity-user-filter')?.value || 'all') : '';
+            
+            const response = await fetch('profile/api.php?action=clear_activities', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_id: userFilter })
+            });
+            const data = await response.json();
+            if (data.success) {
+                alert(data.message || 'Activity history cleared successfully');
+                loadActivities(); // Reload activities
+            } else {
+                alert('Failed to clear activities: ' + (data.error || 'Unknown error'));
+            }
+        } catch (error) {
+            console.error('Clear failed:', error);
+            alert('Failed to clear activities');
+        }
+    }
     </script>
 </body>
 </html>

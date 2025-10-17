@@ -668,6 +668,76 @@ header('Vary: Cookie');
             </div>
             <?php endif; ?>
 
+            <!-- POS System Section -->
+            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; border-radius: 16px; margin-bottom: 30px; box-shadow: 0 10px 30px rgba(0,0,0,0.1);">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
+                    <div style="color: white;">
+                        <h2 style="margin: 0 0 5px 0; font-size: 1.8rem; display: flex; align-items: center; gap: 10px;">
+                            <i class="fas fa-cash-register"></i>
+                            Point of Sale System
+                        </h2>
+                        <p style="margin: 0; opacity: 0.9; font-size: 1rem;">Fast checkout • Real-time inventory sync • Professional receipts</p>
+                    </div>
+                </div>
+                
+                <div style="max-width: 600px;">
+                    <!-- Quick Service POS -->
+                    <a href="modules/pos/quick_service.php" style="text-decoration: none;">
+                        <div style="background: white; padding: 30px; border-radius: 12px; transition: all 0.3s ease; cursor: pointer; box-shadow: 0 4px 20px rgba(0,0,0,0.08);" onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 8px 30px rgba(0,0,0,0.12)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 20px rgba(0,0,0,0.08)';">
+                            <div style="display: flex; align-items: center; gap: 20px; margin-bottom: 20px;">
+                                <div style="width: 70px; height: 70px; background: linear-gradient(135deg, #667eea, #764ba2); border-radius: 16px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4);">
+                                    <i class="fas fa-cash-register" style="font-size: 32px; color: white;"></i>
+                                </div>
+                                <div style="flex: 1;">
+                                    <h3 style="margin: 0 0 8px 0; color: #2c3e50; font-size: 1.5rem;">Point of Sale Terminal</h3>
+                                    <p style="margin: 0; color: #7f8c8d; font-size: 1rem;">Store-linked checkout system with barcode support</p>
+                                </div>
+                                <div style="color: #667eea; font-size: 24px;">
+                                    <i class="fas fa-arrow-right"></i>
+                                </div>
+                            </div>
+                            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;">
+                                <div style="display: flex; align-items: center; gap: 10px; color: #555;">
+                                    <i class="fas fa-check-circle" style="color: #4ecdc4; font-size: 18px;"></i>
+                                    <span>Quick checkout</span>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 10px; color: #555;">
+                                    <i class="fas fa-check-circle" style="color: #4ecdc4; font-size: 18px;"></i>
+                                    <span>Barcode scanning</span>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 10px; color: #555;">
+                                    <i class="fas fa-check-circle" style="color: #4ecdc4; font-size: 18px;"></i>
+                                    <span>Auto inventory sync</span>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 10px; color: #555;">
+                                    <i class="fas fa-check-circle" style="color: #4ecdc4; font-size: 18px;"></i>
+                                    <span>Receipt printing</span>
+                                </div>
+                            </div>
+                        </div>
+                    </a>
+                                    <p style="margin: 0; color: #7f8c8d; font-size: 0.9rem;">Monitor transactions</p>
+                                </div>
+                            </div>
+                            <ul style="list-style: none; padding: 0; margin: 0; color: #555;">
+                                <li style="padding: 8px 0; border-bottom: 1px solid #f0f0f0; display: flex; align-items: center; gap: 8px;">
+                                    <i class="fas fa-check" style="color: #4ecdc4;"></i>
+                                    Real-time sales statistics
+                                </li>
+                                <li style="padding: 8px 0; border-bottom: 1px solid #f0f0f0; display: flex; align-items: center; gap: 8px;">
+                                    <i class="fas fa-check" style="color: #4ecdc4;"></i>
+                                    Transaction history & analytics
+                                </li>
+                                <li style="padding: 8px 0; display: flex; align-items: center; gap: 8px;">
+                                    <i class="fas fa-check" style="color: #4ecdc4;"></i>
+                                    Auto-refresh every 30 seconds
+                                </li>
+                            </ul>
+                        </div>
+                    </a>
+                </div>
+            </div>
+
             <!-- Quick Actions -->
             <div class="quick-actions-grid">
                 <a href="modules/stock/add.php" class="action-card">
@@ -678,12 +748,12 @@ header('Vary: Cookie');
                     <div class="action-desc">Add new items to inventory</div>
                 </a>
 
-                <a href="pos_terminal.php" class="action-card">
-                    <div class="action-icon">
+                <a href="modules/pos/quick_service.php" class="action-card" style="border-left: 4px solid #667eea;">
+                    <div class="action-icon" style="background: linear-gradient(135deg, #667eea, #764ba2);">
                         <i class="fas fa-cash-register"></i>
                     </div>
-                    <div class="action-title">POS Terminal</div>
-                    <div class="action-desc">Process sales transactions</div>
+                    <div class="action-title">Point of Sale</div>
+                    <div class="action-desc">Process store transactions</div>
                 </a>
 
                 <a href="modules/stores/enhanced_map.php" class="action-card">
@@ -1024,9 +1094,443 @@ header('Vary: Cookie');
             }
         }
         
+        /**
+         * DataPreloader - Global data pre-loading and caching system
+         * 
+         * PURPOSE:
+         * - Pre-loads STORES and PROFILE data when dashboard first loads
+         * - Caches data in localStorage with 5-minute TTL
+         * - Makes data instantly available to stores and profile modules
+         * 
+         * USAGE IN OTHER MODULES:
+         * 
+         * // STORES MODULE - Get pre-loaded store data
+         * const stores = window.getPreloadedStores();     // Returns array of stores with locations
+         * const storeStats = window.getPreloadedData('storeStats'); // Store performance metrics
+         * 
+         * // PROFILE MODULE - Get pre-loaded profile data
+         * const users = window.getPreloadedUsers();       // Returns array of users
+         * const activities = window.getPreloadedActivities(); // Recent activity log
+         * const permissions = window.getPreloadedData('permissions'); // User permissions
+         * 
+         * // Get raw cache object
+         * const storeData = window.getPreloadedData('stores');  // Returns {stores: [...], success: true}
+         * 
+         * // Invalidate cache (force refresh on next load)
+         * window.invalidatePreloadCache('stores');  // Invalidate specific cache
+         * window.invalidatePreloadCache();          // Invalidate all caches
+         * 
+         * BENEFITS:
+         * - Instant stores module loading (map, list, inventory viewer)
+         * - Instant profile module loading (activity, permissions, users)
+         * - Reduced API calls on subsequent page visits (localStorage cache)
+         * - Parallel loading (all APIs called at once)
+         * - Automatic cache expiration (5 minutes)
+         * 
+         * CACHE KEYS:
+         * - stores: Store list with locations (for stores module)
+         * - storeStats: Store statistics (for stores analytics)
+         * - users: User list (for profile management)
+         * - activities: Recent activity log (for profile tab)
+         * - permissions: User permissions (for profile access control)
+         */
+        // Global Data Cache Manager with localStorage
+        class DataPreloader {
+            constructor() {
+                this.cache = {
+                    stores: null,
+                    users: null,
+                    activities: null,
+                    storeStats: null,
+                    permissions: null
+                };
+                this.loadingStatus = {
+                    stores: false,
+                    users: false,
+                    activities: false,
+                    storeStats: false,
+                    permissions: false
+                };
+                this.startTime = performance.now();
+                this.CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+                this.CACHE_PREFIX = 'inv_preload_';
+            }
+            
+            async preloadAll() {
+                console.log('🚀 Pre-loading stores & profile data...');
+                this.showProgressIndicator();
+                
+                // Check cache first
+                const cachedData = this.loadFromLocalStorage();
+                if (cachedData) {
+                    console.log('📦 Using cached stores & profile data');
+                    Object.assign(this.cache, cachedData);
+                    const duration = (performance.now() - this.startTime).toFixed(2);
+                    this.hideProgressIndicator();
+                    this.showPreloadComplete(duration, true);
+                    return;
+                }
+                
+                // Pre-load stores and profile data in parallel
+                // Focus on most frequently accessed data: stores and user profile
+                const promises = [
+                    this.preloadStores(),        // Store list with locations
+                    this.preloadStoreStats(),    // Store statistics
+                    this.preloadUsers(),         // User list (for profile management)
+                    this.preloadActivities(),    // Profile activity log
+                    this.preloadPermissions()    // Profile permissions
+                ];
+                
+                try {
+                    await Promise.allSettled(promises);
+                    const endTime = performance.now();
+                    const duration = (endTime - this.startTime).toFixed(2);
+                    
+                    // Save to localStorage
+                    this.saveToLocalStorage();
+                    
+                    console.log(`✅ Stores & profile data pre-loaded in ${duration}ms`);
+                    this.hideProgressIndicator();
+                    this.showPreloadComplete(duration, false);
+                } catch (error) {
+                    console.error('❌ Pre-load error:', error);
+                    this.hideProgressIndicator();
+                }
+            }
+            
+            saveToLocalStorage() {
+                try {
+                    const cacheData = {
+                        timestamp: Date.now(),
+                        data: this.cache
+                    };
+                    localStorage.setItem(this.CACHE_PREFIX + 'data', JSON.stringify(cacheData));
+                    console.log('💾 Data saved to localStorage');
+                } catch (error) {
+                    console.warn('Failed to save to localStorage:', error);
+                }
+            }
+            
+            loadFromLocalStorage() {
+                try {
+                    const cached = localStorage.getItem(this.CACHE_PREFIX + 'data');
+                    if (!cached) return null;
+                    
+                    const cacheData = JSON.parse(cached);
+                    const age = Date.now() - cacheData.timestamp;
+                    
+                    if (age > this.CACHE_TTL) {
+                        console.log('🕒 Cache expired, clearing...');
+                        localStorage.removeItem(this.CACHE_PREFIX + 'data');
+                        return null;
+                    }
+                    
+                    console.log(`📦 Cache hit (age: ${(age/1000).toFixed(1)}s)`);
+                    return cacheData.data;
+                } catch (error) {
+                    console.warn('Failed to load from localStorage:', error);
+                    return null;
+                }
+            }
+            
+            clearLocalStorage() {
+                localStorage.removeItem(this.CACHE_PREFIX + 'data');
+                console.log('🗑️ localStorage cache cleared');
+            }
+            
+            showProgressIndicator() {
+                const indicator = document.createElement('div');
+                indicator.id = 'preload-progress';
+                indicator.innerHTML = `
+                    <div class="spinner"></div>
+                    <span>Loading stores & profile data...</span>
+                `;
+                indicator.style.cssText = `
+                    position: fixed;
+                    top: 20px;
+                    right: 20px;
+                    background: linear-gradient(135deg, #667eea, #764ba2);
+                    color: white;
+                    padding: 12px 20px;
+                    border-radius: 25px;
+                    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+                    z-index: 10000;
+                    font-size: 14px;
+                    font-weight: 600;
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    animation: slideIn 0.3s ease;
+                `;
+                
+                const style = document.createElement('style');
+                style.textContent = `
+                    @keyframes slideIn {
+                        from { transform: translateX(100%); opacity: 0; }
+                        to { transform: translateX(0); opacity: 1; }
+                    }
+                    @keyframes spin {
+                        to { transform: rotate(360deg); }
+                    }
+                    #preload-progress .spinner {
+                        width: 16px;
+                        height: 16px;
+                        border: 2px solid rgba(255,255,255,0.3);
+                        border-top-color: white;
+                        border-radius: 50%;
+                        animation: spin 0.8s linear infinite;
+                    }
+                `;
+                document.head.appendChild(style);
+                document.body.appendChild(indicator);
+            }
+            
+            hideProgressIndicator() {
+                const indicator = document.getElementById('preload-progress');
+                if (indicator) {
+                    indicator.style.opacity = '0';
+                    setTimeout(() => indicator.remove(), 300);
+                }
+            }
+            
+            async preloadStores() {
+                if (this.loadingStatus.stores) return;
+                this.loadingStatus.stores = true;
+                
+                const startTime = performance.now();
+                try {
+                    const response = await fetch('modules/stores/api/get_stores_with_location.php');
+                    if (response.ok) {
+                        const data = await response.json();
+                        this.cache.stores = data;
+                        const duration = (performance.now() - startTime).toFixed(2);
+                        console.log(`✓ Stores loaded (${data.stores?.length || 0} items) in ${duration}ms`);
+                        return data;
+                    }
+                } catch (error) {
+                    console.error('Failed to pre-load stores:', error);
+                } finally {
+                    this.loadingStatus.stores = false;
+                }
+                return null;
+            }
+            
+            async preloadUsers() {
+                if (this.loadingStatus.users) return;
+                this.loadingStatus.users = true;
+                
+                const startTime = performance.now();
+                try {
+                    const response = await fetch('modules/users/profile/api.php?action=get_all_users');
+                    if (response.ok) {
+                        const data = await response.json();
+                        this.cache.users = data;
+                        const duration = (performance.now() - startTime).toFixed(2);
+                        console.log(`✓ Users loaded (${data.data?.length || 0} items) in ${duration}ms`);
+                        return data;
+                    }
+                } catch (error) {
+                    console.error('Failed to pre-load users:', error);
+                } finally {
+                    this.loadingStatus.users = false;
+                }
+                return null;
+            }
+            
+            async preloadActivities() {
+                if (this.loadingStatus.activities) return;
+                this.loadingStatus.activities = true;
+                
+                const startTime = performance.now();
+                try {
+                    const response = await fetch('modules/users/profile/api.php?action=get_activities&limit=50');
+                    if (response.ok) {
+                        const data = await response.json();
+                        this.cache.activities = data;
+                        const duration = (performance.now() - startTime).toFixed(2);
+                        console.log(`✓ Activities loaded (${data.data?.length || 0} items) in ${duration}ms`);
+                        return data;
+                    }
+                } catch (error) {
+                    console.error('Failed to pre-load activities:', error);
+                } finally {
+                    this.loadingStatus.activities = false;
+                }
+                return null;
+            }
+            
+            async preloadStoreStats() {
+                if (this.loadingStatus.storeStats) return;
+                this.loadingStatus.storeStats = true;
+                
+                const startTime = performance.now();
+                try {
+                    const response = await fetch('modules/stores/api/statistics.php');
+                    if (response.ok) {
+                        const data = await response.json();
+                        this.cache.storeStats = data;
+                        const duration = (performance.now() - startTime).toFixed(2);
+                        console.log(`✓ Store statistics loaded in ${duration}ms`);
+                        return data;
+                    }
+                } catch (error) {
+                    console.error('Failed to pre-load store stats:', error);
+                } finally {
+                    this.loadingStatus.storeStats = false;
+                }
+                return null;
+            }
+            
+            async preloadPermissions() {
+                if (this.loadingStatus.permissions) return;
+                this.loadingStatus.permissions = true;
+                
+                const startTime = performance.now();
+                try {
+                    const response = await fetch('modules/users/profile/api.php?action=get_permissions');
+                    if (response.ok) {
+                        const data = await response.json();
+                        this.cache.permissions = data;
+                        const duration = (performance.now() - startTime).toFixed(2);
+                        console.log(`✓ Permissions loaded in ${duration}ms`);
+                        return data;
+                    }
+                } catch (error) {
+                    console.error('Failed to pre-load permissions:', error);
+                } finally {
+                    this.loadingStatus.permissions = false;
+                }
+                return null;
+            }
+            
+            getCache(key) {
+                if (key) {
+                    return this.cache[key];
+                }
+                // Return all cache if no key specified
+                return this.cache;
+            }
+            
+            getCachedStores() {
+                return this.cache.stores?.stores || [];
+            }
+            
+            getCachedUsers() {
+                return this.cache.users?.data || [];
+            }
+            
+            getCachedActivities() {
+                return this.cache.activities?.data || [];
+            }
+            
+            getCachedStoreStats() {
+                return this.cache.storeStats || {};
+            }
+            
+            getCachedPermissions() {
+                return this.cache.permissions?.data || [];
+            }
+            
+            invalidateCache(key) {
+                if (key) {
+                    this.cache[key] = null;
+                    console.log(`🔄 Cache invalidated: ${key}`);
+                } else {
+                    this.cache = {
+                        stores: null,
+                        users: null,
+                        activities: null,
+                        storeStats: null,
+                        permissions: null
+                    };
+                    console.log('🔄 All caches invalidated');
+                }
+                // Clear localStorage too
+                this.clearLocalStorage();
+            }
+            
+            showPreloadComplete(duration, fromCache) {
+                const indicator = document.createElement('div');
+                const cacheIcon = fromCache ? '<i class="fas fa-database"></i>' : '<i class="fas fa-check-circle"></i>';
+                const cacheLabel = fromCache ? 'from cache' : 'fresh';
+                
+                indicator.innerHTML = `
+                    ${cacheIcon} 
+                    Stores & profile ready (${duration}ms ${cacheLabel})
+                `;
+                indicator.style.cssText = `
+                    position: fixed;
+                    bottom: 20px;
+                    left: 20px;
+                    background: linear-gradient(135deg, #27ae60, #229954);
+                    color: white;
+                    padding: 12px 20px;
+                    border-radius: 25px;
+                    box-shadow: 0 4px 15px rgba(39, 174, 96, 0.3);
+                    z-index: 10000;
+                    font-size: 14px;
+                    font-weight: 600;
+                    opacity: 0;
+                    transition: all 0.3s ease;
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                `;
+                
+                document.body.appendChild(indicator);
+                
+                setTimeout(() => indicator.style.opacity = '1', 10);
+                setTimeout(() => {
+                    indicator.style.opacity = '0';
+                    setTimeout(() => document.body.removeChild(indicator), 300);
+                }, 3000);
+            }
+        }
+                }, 3000);
+            }
+        }
+        
         // Initialize dashboard when page loads
         document.addEventListener('DOMContentLoaded', function() {
+            console.log('📊 Initializing dashboard...');
+            
+            // Initialize data preloader
+            window.dataPreloader = new DataPreloader();
+            
+            // Initialize dashboard manager
             window.dashboardManager = new DashboardManager();
+            
+            // Start pre-loading data immediately
+            window.dataPreloader.preloadAll();
+            
+            // Make helper functions globally available
+            window.getPreloadedData = function(key) {
+                if (!window.dataPreloader) {
+                    console.warn('DataPreloader not initialized');
+                    return null;
+                }
+                return window.dataPreloader.getCache(key);
+            };
+            
+            window.getPreloadedStores = function() {
+                return window.dataPreloader ? window.dataPreloader.getCachedStores() : [];
+            };
+            
+            window.getPreloadedUsers = function() {
+                return window.dataPreloader ? window.dataPreloader.getCachedUsers() : [];
+            };
+            
+            window.getPreloadedActivities = function() {
+                return window.dataPreloader ? window.dataPreloader.getCachedActivities() : [];
+            };
+            
+            window.invalidatePreloadCache = function(key) {
+                if (window.dataPreloader) {
+                    window.dataPreloader.invalidateCache(key);
+                }
+            };
+            
+            console.log('✅ Global preload helpers registered');
         });
         
         // Cleanup on page unload

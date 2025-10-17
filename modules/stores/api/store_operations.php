@@ -129,7 +129,7 @@ try {
  * Toggle store active status
  */
 function toggleStoreStatus() {
-    global $db, $currentUser;
+    global $db, $currentUser, $currentUserId;
     
     $store_id = $_POST['store_id'] ?? '';
     if (empty($store_id)) {
@@ -146,19 +146,27 @@ function toggleStoreStatus() {
         return;
     }
     
-    // Toggle status
-    $newStatus = isset($store['active']) ? !$store['active'] : true;
+    // Toggle status (soft deactivate)
+    $currentStatus = isset($store['active']) ? (bool)$store['active'] : false;
+    $newStatus = !$currentStatus;
     
-    $result = $db->update('stores', $store_id, [
-        'active' => $newStatus,
-        'updated_at' => date('c'),
-        'updated_by' => $currentUser
-    ]);
+    $updateData = [
+        'active' => $newStatus ? 1 : 0,
+        'updated_at' => date('c')
+    ];
+    
+    // Add updated_by if available
+    if (!empty($currentUserId)) {
+        $updateData['updated_by'] = $currentUserId;
+    }
+    
+    $result = $db->update('stores', $store_id, $updateData);
     
     if ($result) {
+        $statusText = $newStatus ? 'activated' : 'deactivated';
         echo json_encode([
             'success' => true,
-            'message' => 'Store status updated successfully',
+            'message' => "Store '{$store['name']}' {$statusText} successfully",
             'new_status' => $newStatus
         ]);
     } else {
@@ -265,7 +273,7 @@ function quickEditStore() {
  * Bulk activate stores
  */
 function bulkActivate() {
-    global $db, $currentUser;
+    global $db, $currentUser, $currentUserId;
     
     $store_ids = $_POST['store_ids'] ?? [];
     
@@ -284,11 +292,16 @@ function bulkActivate() {
     $failCount = 0;
     
     foreach ($store_ids as $store_id) {
-        $result = $db->update('stores', $store_id, [
-            'active' => true,
-            'updated_at' => date('c'),
-            'updated_by' => $currentUser
-        ]);
+        $updateData = [
+            'active' => 1,
+            'updated_at' => date('c')
+        ];
+        
+        if (!empty($currentUserId)) {
+            $updateData['updated_by'] = $currentUserId;
+        }
+        
+        $result = $db->update('stores', $store_id, $updateData);
         
         if ($result) {
             $successCount++;
@@ -309,7 +322,7 @@ function bulkActivate() {
  * Bulk deactivate stores
  */
 function bulkDeactivate() {
-    global $db, $currentUser;
+    global $db, $currentUser, $currentUserId;
     
     $store_ids = $_POST['store_ids'] ?? [];
     
@@ -328,11 +341,16 @@ function bulkDeactivate() {
     $failCount = 0;
     
     foreach ($store_ids as $store_id) {
-        $result = $db->update('stores', $store_id, [
-            'active' => false,
-            'updated_at' => date('c'),
-            'updated_by' => $currentUser
-        ]);
+        $updateData = [
+            'active' => 0,
+            'updated_at' => date('c')
+        ];
+        
+        if (!empty($currentUserId)) {
+            $updateData['updated_by'] = $currentUserId;
+        }
+        
+        $result = $db->update('stores', $store_id, $updateData);
         
         if ($result) {
             $successCount++;

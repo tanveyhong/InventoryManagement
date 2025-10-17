@@ -52,6 +52,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $square_footage = sanitizeInput($_POST['square_footage'] ?? '');
     $max_capacity = sanitizeInput($_POST['max_capacity'] ?? '');
     
+    // POS Integration fields
+    $has_pos = isset($_POST['has_pos']) ? 1 : 0;
+    $pos_terminal_id = sanitizeInput($_POST['pos_terminal_id'] ?? '');
+    $pos_type = sanitizeInput($_POST['pos_type'] ?? 'quick_service');
+    $pos_notes = sanitizeInput($_POST['pos_notes'] ?? '');
+    
     // Validation
     if (empty($name)) {
         $errors[] = 'Store name is required';
@@ -104,17 +110,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'created_at' => date('c'),
                 'updated_at' => date('c'),
                 'active' => 1,
-                'status' => 'active'
+                'status' => 'active',
+                // POS Integration
+                'has_pos' => $has_pos,
+                'pos_terminal_id' => $pos_terminal_id,
+                'pos_type' => $pos_type,
+                'pos_notes' => $pos_notes,
+                'pos_enabled_at' => $has_pos ? date('c') : null
             ];
             $result = $db->create('stores', $storeData);
             if ($result) {
+                // If POS is enabled, also sync to SQL database for POS usage
+                if ($has_pos) {
+                    try {
+                        require_once '../../sql_db.php';
+                        $sqlDb = getSQLDB();
+                        
+                        $sqlDb->execute(
+                            "INSERT OR REPLACE INTO stores (name, code, address, city, phone, manager, firebase_id, has_pos, pos_terminal_id, pos_type, created_at) 
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
+                            [
+                                $name, 
+                                $code, 
+                                $address, 
+                                $city, 
+                                $phone, 
+                                $manager_name, 
+                                $result, 
+                                1, 
+                                $pos_terminal_id, 
+                                $pos_type
+                            ]
+                        );
+                        error_log("Store synced to SQL for POS: {$name} (Firebase ID: {$result})");
+                    } catch (Exception $e) {
+                        error_log("Failed to sync store to SQL: " . $e->getMessage());
+                        // Don't fail the whole operation if SQL sync fails
+                    }
+                }
+                
                 // Log the activity
                 error_log("Store created with ID: {$result}, Name: {$name}, User: {$_SESSION['user_id']}");
                 
                 $activityResult = logStoreActivity('created', $result, $name);
                 error_log("Activity logging result: " . ($activityResult ? 'SUCCESS' : 'FAILED'));
                 
-                addNotification('Store created successfully!', 'success');
+                addNotification('Store created successfully!' . ($has_pos ? ' POS integration enabled.' : ''), 'success');
                 header('Location: list.php');
                 exit;
             } else {
@@ -865,6 +906,54 @@ $page_title = 'Add New Store - Inventory System';
                     </div>
 
                     <div class="form-section">
+                        <h3><i class="fas fa-cash-register" style="color: #667eea;"></i> POS Integration</h3>
+                        
+                        <div class="form-group">
+                            <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                                <input type="checkbox" id="has_pos" name="has_pos" value="1" 
+                                       <?php echo (isset($_POST['has_pos']) && $_POST['has_pos']) ? 'checked' : ''; ?>
+                                       style="width: auto;">
+                                <span><i class="fas fa-link"></i> Link POS System to this store</span>
+                            </label>
+                            <small>Enable if this store location has a Point of Sale (POS) system connected to our inventory</small>
+                        </div>
+                        
+                        <div id="pos_details" style="<?php echo (isset($_POST['has_pos']) && $_POST['has_pos']) ? '' : 'display: none;'; ?> background: #f8f9fa; padding: 20px; border-radius: 8px; margin-top: 15px;">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="pos_terminal_id">POS Terminal ID:</label>
+                                    <input type="text" id="pos_terminal_id" name="pos_terminal_id" 
+                                           value="<?php echo htmlspecialchars($_POST['pos_terminal_id'] ?? ''); ?>" 
+                                           placeholder="e.g., TERM-001">
+                                    <small>Unique identifier for the POS terminal</small>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label for="pos_type">POS System Type:</label>
+                                    <select id="pos_type" name="pos_type">
+                                        <option value="quick_service" <?php echo (($_POST['pos_type'] ?? '') === 'quick_service') ? 'selected' : ''; ?>>Quick Service POS</option>
+                                        <option value="integrated" <?php echo (($_POST['pos_type'] ?? '') === 'integrated') ? 'selected' : ''; ?>>Integrated System</option>
+                                        <option value="third_party" <?php echo (($_POST['pos_type'] ?? '') === 'third_party') ? 'selected' : ''; ?>>Third Party POS</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="pos_notes">POS Integration Notes:</label>
+                                <textarea id="pos_notes" name="pos_notes" rows="3" 
+                                          placeholder="Any special notes about the POS integration..."><?php echo htmlspecialchars($_POST['pos_notes'] ?? ''); ?></textarea>
+                            </div>
+                            
+                            <div style="background: white; padding: 15px; border-radius: 6px; border-left: 4px solid #667eea;">
+                                <p style="margin: 0; font-size: 14px; color: #555;">
+                                    <i class="fas fa-info-circle" style="color: #667eea;"></i> 
+                                    <strong>Benefits:</strong> Sales from this POS will automatically update inventory, track transactions, and appear in reports.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-section">
                         <h3><i class="fas fa-sticky-note" style="color: #667eea;"></i> Additional Information</h3>
                         
                         <div class="form-group">
@@ -907,6 +996,20 @@ $page_title = 'Add New Store - Inventory System';
         // Wait for DOM to be ready
         document.addEventListener('DOMContentLoaded', function() {
             console.log('✅ Address Search initialized');
+            
+            // POS Integration Toggle
+            const hasPosCheckbox = document.getElementById('has_pos');
+            const posDetailsDiv = document.getElementById('pos_details');
+            
+            if (hasPosCheckbox && posDetailsDiv) {
+                hasPosCheckbox.addEventListener('change', function() {
+                    if (this.checked) {
+                        posDetailsDiv.style.display = 'block';
+                    } else {
+                        posDetailsDiv.style.display = 'none';
+                    }
+                });
+            }
             
             // Address Search Functionality - Get elements
             addressSearchInput = document.getElementById('address-search');
