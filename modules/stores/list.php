@@ -1,10 +1,11 @@
 <?php
-// Store List Page - Optimized for Fast Loading
+// Store List Page - Optimized for Fast Loading with Offline Support
 ob_start('ob_gzhandler'); // Enable compression
 
 require_once '../../config.php';
 require_once '../../db.php';
 require_once '../../functions.php';
+require_once '../../firebase_rest_client.php';
 
 // Start session if not already started
 if (session_status() === PHP_SESSION_NONE) {
@@ -17,36 +18,119 @@ if (!isLoggedIn()) {
     exit;
 }
 
-// Helper function for caching
-function getCachedStoreData($key, $callback, $ttl = 300) {
-    $cache_dir = '../../storage/cache/';
-    if (!is_dir($cache_dir)) {
-        @mkdir($cache_dir, 0755, true);
-    }
-    
-    $cache_file = $cache_dir . md5($key) . '.json';
-    
-    if (file_exists($cache_file) && (time() - filemtime($cache_file)) < $ttl) {
-        $data = json_decode(file_get_contents($cache_file), true);
-        if ($data !== null) {
-            return $data;
-        }
-    }
-    
-    $data = $callback();
-    file_put_contents($cache_file, json_encode($data));
-    return $data;
+// Cache configuration
+$cacheDir = '../../storage/cache/';
+if (!is_dir($cacheDir)) {
+    @mkdir($cacheDir, 0755, true);
 }
 
-$db = getDB();
+$cacheFile = $cacheDir . 'stores_list_' . md5('stores_list_data') . '.cache';
+$cacheMaxAge = 300; // 5 minutes
+$isOfflineMode = false;
+$cacheAgeDisplay = '';
+$message = '';
+$messageType = '';
+
+// Check if manual refresh is requested
+$shouldRefreshCache = isset($_GET['refresh_cache']);
+
+// Check cache age
+$cacheExists = file_exists($cacheFile);
+$cacheAge = $cacheExists ? (time() - filemtime($cacheFile)) : PHP_INT_MAX;
+$cacheIsFresh = $cacheAge < $cacheMaxAge;
+
+// Calculate cache age display
+if ($cacheExists) {
+    $cacheTimestamp = filemtime($cacheFile);
+    $cacheAgeSeconds = time() - $cacheTimestamp;
+    
+    if ($cacheAgeSeconds < 60) {
+        $cacheAgeDisplay = 'just now';
+    } elseif ($cacheAgeSeconds < 3600) {
+        $minutes = floor($cacheAgeSeconds / 60);
+        $cacheAgeDisplay = $minutes . ' ' . ($minutes == 1 ? 'minute' : 'minutes') . ' ago';
+    } elseif ($cacheAgeSeconds < 86400) {
+        $hours = floor($cacheAgeSeconds / 3600);
+        $cacheAgeDisplay = $hours . ' ' . ($hours == 1 ? 'hour' : 'hours') . ' ago';
+    } else {
+        $days = floor($cacheAgeSeconds / 86400);
+        $cacheAgeDisplay = $days . ' ' . ($days == 1 ? 'day' : 'days') . ' ago';
+    }
+}
+
+// Initialize variables
+$all_stores = [];
+$all_products = [];
+$fetchedFromFirebase = false;
+
+// Try to fetch from Firebase if cache is stale or refresh requested
+if ($shouldRefreshCache || !$cacheIsFresh) {
+    try {
+        $client = new FirebaseRestClient();
+        $firebaseStores = $client->queryCollection('stores');
+        $firebaseProducts = $client->queryCollection('products', 500);
+        
+        error_log("Firebase fetch attempt - Stores count: " . count($firebaseStores) . ", Products count: " . count($firebaseProducts));
+        
+        // Check if we got data (not just empty arrays from errors)
+        if (is_array($firebaseStores) && count($firebaseStores) > 0) {
+            // Filter active stores
+            $all_stores = array_filter($firebaseStores, function($s) {
+                return isset($s['active']) && $s['active'] == 1;
+            });
+            
+            // Filter active products (might be empty, that's ok)
+            $all_products = is_array($firebaseProducts) ? array_filter($firebaseProducts, function($p) {
+                return isset($p['active']) && $p['active'] == 1;
+            }) : [];
+            
+            // Save to cache
+            $cacheData = [
+                'stores' => array_values($all_stores),
+                'products' => array_values($all_products),
+                'timestamp' => time()
+            ];
+            file_put_contents($cacheFile, json_encode($cacheData));
+            
+            $fetchedFromFirebase = true;
+            error_log("Firebase fetch successful - saved to cache");
+            
+            if ($shouldRefreshCache && !isset($_GET['silent'])) {
+                $message = 'Cache refreshed successfully! You\'re viewing the latest data.';
+                $messageType = 'success';
+            }
+        } else {
+            error_log("Firebase returned empty or invalid data");
+            throw new Exception('Firebase returned no data');
+        }
+    } catch (Exception $e) {
+        error_log('Firebase fetch failed for stores list: ' . $e->getMessage());
+        // Fall through to cache loading below
+    }
+}
+
+// Load from cache if Firebase fetch failed or wasn't attempted
+if (empty($all_stores) && $cacheExists) {
+    $cacheData = json_decode(file_get_contents($cacheFile), true);
+    if ($cacheData) {
+        $all_stores = $cacheData['stores'] ?? [];
+        $all_products = $cacheData['products'] ?? [];
+        // Only set offline mode if we tried to fetch from Firebase but failed
+        if ($shouldRefreshCache || !$cacheIsFresh) {
+            $isOfflineMode = true;
+        }
+    }
+}
+
+// If still no data, show error
+if (empty($all_stores)) {
+    die('Unable to load store data. Please check your connection and try again.');
+}
+
+// Pagination and search
 $page = isset($_GET['page']) ? max(1, intval($_GET['page'])) : 1;
 $per_page = 20;
 $search = sanitizeInput($_GET['search'] ?? '');
-
-// OPTIMIZED: Cache stores list (5 min cache)
-$all_stores = getCachedStoreData('all_stores_active', function() use ($db) {
-    return $db->readAll('stores', [['active', '==', 1]]);
-}, 300);
 
 $stores = [];
 if (!empty($search)) {
@@ -73,11 +157,6 @@ if (!empty($search)) {
 $total_records = count($stores);
 $pagination = paginate($page, $per_page, $total_records);
 $stores = array_slice($stores, $pagination['offset'], $pagination['per_page']);
-
-// OPTIMIZED: Load ALL products ONCE and group by store_id (instead of N queries)
-$all_products = getCachedStoreData('all_products_for_stores', function() use ($db) {
-    return $db->readAll('products', [['active', '==', 1]], null, 500);
-}, 300);
 
 // Group products by store_id for fast lookup
 $products_by_store = [];
@@ -1127,6 +1206,20 @@ $page_title = 'Store Management - Inventory System';
     include '../../includes/dashboard_header.php'; 
     ?>
     <div class="container">
+        <!-- Offline Mode Banner -->
+        <?php if ($isOfflineMode): ?>
+        <div class="alert" style="background: #fef3c7; color: #92400e; border-left: 4px solid #f59e0b; margin-bottom: 20px; padding: 15px 20px; border-radius: 8px; display: flex; align-items: center; gap: 10px;">
+            <i class="fas fa-exclamation-triangle"></i>
+            <strong>Offline Mode:</strong> You're viewing cached store data (updated <?= $cacheAgeDisplay ?>). Some features may be limited.
+        </div>
+        <?php endif; ?>
+        
+        <?php if ($message): ?>
+        <div class="alert alert-<?= $messageType ?>" style="padding: 15px 20px; border-radius: 8px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; <?= $messageType === 'success' ? 'background: #10b981; color: white;' : 'background: #3b82f6; color: white;' ?>">
+            <i class="fas fa-<?= $messageType === 'success' ? 'check-circle' : 'info-circle' ?>"></i>
+            <?= htmlspecialchars($message) ?>
+        </div>
+        <?php endif; ?>
 
         <!-- Page header (rendered by the page since header include no longer prints it) -->
         <div class="page-header">
@@ -1137,16 +1230,19 @@ $page_title = 'Store Management - Inventory System';
                 <div class="header-text">
                     <h1><?php echo htmlspecialchars($header_title ?? 'Store Management'); ?></h1>
                     <p><?php echo htmlspecialchars($header_subtitle ?? 'Manage your store locations and monitor performance'); ?></p>
+                    <small id="cacheStatus" style="display: block; margin-top: 5px; color: #6b7280; font-size: 12px;">
+                        Last updated: <?= $cacheAgeDisplay ?>
+                    </small>
                 </div>
             </div>
-            <?php if (!empty($show_compact_toggle)): ?>
-            <div class="header-actions">
+            <div class="header-actions" style="display: flex; align-items: center; gap: 10px;">
+                <?php if (!empty($show_compact_toggle)): ?>
                 <button class="btn-compact-toggle" onclick="toggleCompactView()">
                     <i class="fas fa-compress"></i>
                     <span>Compact View</span>
                 </button>
+                <?php endif; ?>
             </div>
-            <?php endif; ?>
         </div>
 
         <?php if (!empty($header_stats)): ?>
@@ -1498,6 +1594,14 @@ $page_title = 'Store Management - Inventory System';
                                                     title="<?php echo (isset($store['active']) && $store['active']) ? 'Deactivate' : 'Activate'; ?> Store">
                                                 <i class="fas fa-<?php echo (isset($store['active']) && $store['active']) ? 'check' : 'times'; ?>-circle"></i>
                                             </button>
+                                            <?php if (isset($store['has_pos']) && $store['has_pos']): ?>
+                                            <a href="../pos/quick_service.php?store_firebase_id=<?php echo htmlspecialchars($store['id']); ?>" 
+                                               class="btn btn-sm" 
+                                               style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;" 
+                                               title="Open POS for <?php echo htmlspecialchars($store['name']); ?>">
+                                                <i class="fas fa-cash-register"></i> POS
+                                            </a>
+                                            <?php endif; ?>
                                         </div>
                                     </td>
                                 </tr>
@@ -1533,5 +1637,45 @@ $page_title = 'Store Management - Inventory System';
     </div>
 
     <script src="../../assets/js/main.js"></script>
+    
+    <script>
+        // Background auto-refresh (every 30 seconds when online)
+        document.addEventListener('DOMContentLoaded', () => {
+            let autoRefreshInterval = null;
+            
+            function startAutoRefresh() {
+                if (navigator.onLine) {
+                    autoRefreshInterval = setInterval(() => {
+                        if (navigator.onLine) {
+                            fetch(window.location.href + (window.location.search ? '&' : '?') + 'refresh_cache=1&silent=1')
+                                .then(response => {
+                                    if (response.ok) {
+                                        console.log('Background cache refresh successful');
+                                        const status = document.getElementById('cacheStatus');
+                                        if (status) {
+                                            status.textContent = 'Last updated: just now';
+                                        }
+                                    }
+                                })
+                                .catch(error => {
+                                    console.log('Background refresh failed:', error);
+                                });
+                        }
+                    }, 30000); // 30 seconds
+                }
+            }
+            
+            function stopAutoRefresh() {
+                if (autoRefreshInterval) {
+                    clearInterval(autoRefreshInterval);
+                    autoRefreshInterval = null;
+                }
+            }
+            
+            startAutoRefresh();
+            window.addEventListener('online', startAutoRefresh);
+            window.addEventListener('offline', stopAutoRefresh);
+        });
+    </script>
 </body>
 </html>

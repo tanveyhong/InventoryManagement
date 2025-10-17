@@ -1,0 +1,12 @@
+{
+    "user": {
+        "id": "9hhB9eqIscyxxEJfgkzn",
+        "username": "TestUser",
+        "email": "test@example.com",
+        "first_name": "Test",
+        "last_name": "User",
+        "role": "admin"
+    },
+    "cached_at": "2025-10-16 05:51:10",
+    "user_id": "9hhB9eqIscyxxEJfgkzn"
+}

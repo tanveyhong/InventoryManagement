@@ -107,6 +107,12 @@ if (strpos($currentPath, 'modules/users/profile/') !== false) {
 
             <!-- Right Section: User Actions -->
             <div class="navbar-user">
+                <!-- Online/Offline Indicator -->
+                <div id="connection-status" class="connection-status online">
+                    <div class="status-dot"></div>
+                    <span class="status-text">Online</span>
+                </div>
+                
                 <div class="user-dropdown">
                     <a href="#" class="user-profile">
                         <div class="user-avatar">
@@ -379,6 +385,72 @@ body {
     align-items: center;
     gap: 1rem;
     flex-shrink: 0;
+}
+
+/* Connection Status Indicator */
+.connection-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    transition: all 0.3s ease;
+    border: 1px solid;
+}
+
+.connection-status.online {
+    background: #f0fdf4;
+    color: #15803d;
+    border-color: #86efac;
+}
+
+.connection-status.offline {
+    background: #fef2f2;
+    color: #b91c1c;
+    border-color: #fca5a5;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    animation: pulse 2s ease-in-out infinite;
+}
+
+.connection-status.online .status-dot {
+    background: #22c55e;
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+}
+
+.connection-status.offline .status-dot {
+    background: #ef4444;
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+    animation: pulse-offline 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+    }
+    50% {
+        box-shadow: 0 0 0 6px rgba(34, 197, 94, 0);
+    }
+}
+
+@keyframes pulse-offline {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+    }
+    50% {
+        box-shadow: 0 0 0 6px rgba(239, 68, 68, 0);
+    }
+}
+
+.status-text {
+    font-size: 0.875rem;
+    letter-spacing: 0.01em;
 }
 
 .user-dropdown {
@@ -690,6 +762,16 @@ body {
     
     .brand-subtitle {
         font-size: 0.75rem;
+    }
+    
+    /* Connection status on mobile */
+    .connection-status .status-text {
+        display: none;
+    }
+    
+    .connection-status {
+        padding: 6px 8px;
+        min-width: auto;
     }
     
     .dashboard-content {
@@ -1154,6 +1236,54 @@ document.addEventListener('DOMContentLoaded', function() {
         card.style.animationDelay = `${index * 0.1}s`;
         card.classList.add('fade-in-up');
     });
+    
+    // Connection Status Monitor
+    const connectionStatus = document.getElementById('connection-status');
+    const statusDot = connectionStatus?.querySelector('.status-dot');
+    const statusText = connectionStatus?.querySelector('.status-text');
+    
+    function updateConnectionStatus() {
+        if (!connectionStatus) return;
+        
+        if (navigator.onLine) {
+            connectionStatus.classList.remove('offline');
+            connectionStatus.classList.add('online');
+            if (statusText) statusText.textContent = 'Online';
+        } else {
+            connectionStatus.classList.remove('online');
+            connectionStatus.classList.add('offline');
+            if (statusText) statusText.textContent = 'Offline';
+        }
+    }
+    
+    // Initial check
+    updateConnectionStatus();
+    
+    // Listen for online/offline events
+    window.addEventListener('online', function() {
+        updateConnectionStatus();
+        console.log('Connection restored');
+        
+        // Show brief notification
+        if (typeof showNotification === 'function') {
+            showNotification('Connection restored', 'success');
+        }
+    });
+    
+    window.addEventListener('offline', function() {
+        updateConnectionStatus();
+        console.log('Connection lost');
+        
+        // Show brief notification
+        if (typeof showNotification === 'function') {
+            showNotification('Connection lost - Working offline', 'warning');
+        }
+    });
+    
+    // Periodic check (every 10 seconds) as backup
+    setInterval(function() {
+        updateConnectionStatus();
+    }, 10000);
 });
 
 // Add CSS animation classes

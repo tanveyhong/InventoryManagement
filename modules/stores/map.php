@@ -3,6 +3,7 @@
 require_once '../../config.php';
 require_once '../../db.php';
 require_once '../../functions.php';
+require_once '../../firebase_rest_client.php';
 
 // Start session if not already started
 if (session_status() === PHP_SESSION_NONE) {
@@ -15,12 +16,114 @@ if (!isLoggedIn()) {
     exit;
 }
 
-// Get Firebase database instance
-$db = getDB();
+// Cache configuration
+$cacheDir = '../../storage/cache/';
+if (!is_dir($cacheDir)) {
+    @mkdir($cacheDir, 0755, true);
+}
 
-// Fetch all stores with location data
-$all_stores = $db->readAll('stores', [['active', '==', 1]]);
-$regions = $db->readAll('regions', [['active', '==', 1]]);
+$cacheFile = $cacheDir . 'stores_map_' . md5('stores_map_data') . '.cache';
+$cacheMaxAge = 300; // 5 minutes
+$isOfflineMode = false;
+$cacheAgeDisplay = '';
+$message = '';
+$messageType = '';
+
+// Check if manual refresh is requested
+$shouldRefreshCache = isset($_GET['refresh_cache']);
+
+// Check cache age
+$cacheExists = file_exists($cacheFile);
+$cacheAge = $cacheExists ? (time() - filemtime($cacheFile)) : PHP_INT_MAX;
+$cacheIsFresh = $cacheAge < $cacheMaxAge;
+
+// Calculate cache age display
+if ($cacheExists) {
+    $cacheTimestamp = filemtime($cacheFile);
+    $cacheAgeSeconds = time() - $cacheTimestamp;
+    
+    if ($cacheAgeSeconds < 60) {
+        $cacheAgeDisplay = 'just now';
+    } elseif ($cacheAgeSeconds < 3600) {
+        $minutes = floor($cacheAgeSeconds / 60);
+        $cacheAgeDisplay = $minutes . ' ' . ($minutes == 1 ? 'minute' : 'minutes') . ' ago';
+    } elseif ($cacheAgeSeconds < 86400) {
+        $hours = floor($cacheAgeSeconds / 3600);
+        $cacheAgeDisplay = $hours . ' ' . ($hours == 1 ? 'hour' : 'hours') . ' ago';
+    } else {
+        $days = floor($cacheAgeSeconds / 86400);
+        $cacheAgeDisplay = $days . ' ' . ($days == 1 ? 'day' : 'days') . ' ago';
+    }
+}
+
+// Initialize variables
+$all_stores = [];
+$regions = [];
+$fetchedFromFirebase = false;
+
+// Try to fetch from Firebase if cache is stale or refresh requested
+if ($shouldRefreshCache || !$cacheIsFresh) {
+    try {
+        $client = new FirebaseRestClient();
+        $firebaseStores = $client->queryCollection('stores');
+        $firebaseRegions = $client->queryCollection('regions');
+        
+        error_log("Firebase fetch attempt - Stores count: " . count($firebaseStores) . ", Regions count: " . count($firebaseRegions));
+        
+        // Check if we got data (not just empty arrays from errors)
+        if (is_array($firebaseStores) && count($firebaseStores) > 0) {
+            // Filter active stores
+            $all_stores = array_filter($firebaseStores, function($s) {
+                return isset($s['active']) && $s['active'] == 1;
+            });
+            
+            // Filter active regions (might be empty, that's ok)
+            $regions = is_array($firebaseRegions) ? array_filter($firebaseRegions, function($r) {
+                return isset($r['active']) && $r['active'] == 1;
+            }) : [];
+            
+            // Save to cache
+            $cacheData = [
+                'stores' => array_values($all_stores),
+                'regions' => array_values($regions),
+                'timestamp' => time()
+            ];
+            file_put_contents($cacheFile, json_encode($cacheData));
+            
+            $fetchedFromFirebase = true;
+            error_log("Firebase fetch successful - saved to cache");
+            
+            if ($shouldRefreshCache && !isset($_GET['silent'])) {
+                $message = 'Cache refreshed successfully! You\'re viewing the latest data.';
+                $messageType = 'success';
+            }
+        } else {
+            error_log("Firebase returned empty or invalid data");
+            throw new Exception('Firebase returned no data');
+        }
+    } catch (Exception $e) {
+        error_log('Firebase fetch failed for stores map: ' . $e->getMessage());
+        // Fall through to cache loading below
+    }
+}
+
+// Load from cache if Firebase fetch failed or wasn't attempted
+if (empty($all_stores) && $cacheExists) {
+    $cacheData = json_decode(file_get_contents($cacheFile), true);
+    if ($cacheData) {
+        $all_stores = $cacheData['stores'] ?? [];
+        $regions = $cacheData['regions'] ?? [];
+        // Only set offline mode if we tried to fetch from Firebase but failed
+        if ($shouldRefreshCache || !$cacheIsFresh) {
+            $isOfflineMode = true;
+        }
+    }
+}
+
+// If still no data, show error
+if (empty($all_stores)) {
+    die('Unable to load store data. Please check your connection and try again.');
+}
 
 // Calculate statistics
 $total_stores = count($all_stores);
@@ -682,13 +785,31 @@ $page_title = 'Interactive Store Map - Inventory System';
     ?>
     
     <div class="container">
+        <!-- Offline Mode Banner -->
+        <?php if ($isOfflineMode): ?>
+        <div class="alert" style="background: #fef3c7; color: #92400e; border-left: 4px solid #f59e0b; margin-bottom: 20px;">
+            <i class="fas fa-exclamation-triangle"></i>
+            <strong>Offline Mode:</strong> You're viewing cached map data (updated <?= $cacheAgeDisplay ?>). Some features may be limited.
+        </div>
+        <?php endif; ?>
+        
+        <?php if ($message): ?>
+        <div class="alert alert-<?= $messageType ?>">
+            <i class="fas fa-<?= $messageType === 'success' ? 'check-circle' : 'info-circle' ?>"></i>
+            <?= htmlspecialchars($message) ?>
+        </div>
+        <?php endif; ?>
+        
         <!-- Page Header -->
         <div class="page-header">
             <div>
                 <h1><i class="fas fa-map-marked-alt"></i> Interactive Store Map</h1>
                 <p style="margin: 5px 0 0 0; color: #718096;">Visualize and manage all store locations</p>
+                <small id="cacheStatus" style="display: block; margin-top: 5px; color: #6b7280; font-size: 12px;">
+                    Last updated: <?= $cacheAgeDisplay ?>
+                </small>
             </div>
-            <div class="nav-links">
+            <div class="nav-links" style="display: flex; align-items: center; gap: 10px;">
                 <a href="../../index.php" class="btn btn-outline">
                     <i class="fas fa-home"></i> Dashboard
                 </a>
@@ -958,9 +1079,17 @@ $page_title = 'Interactive Store Map - Inventory System';
                 }
             });
             
-            // Add cluster group to map if clustering is enabled
-            if (isClusteringEnabled && !map.hasLayer(clusterGroup)) {
-                map.addLayer(clusterGroup);
+            // Add appropriate layer to map based on clustering state
+            if (isClusteringEnabled) {
+                // Add cluster group to map
+                if (!map.hasLayer(clusterGroup)) {
+                    map.addLayer(clusterGroup);
+                }
+            } else {
+                // Add regular markers layer to map
+                if (!map.hasLayer(markersLayer)) {
+                    map.addLayer(markersLayer);
+                }
             }
         }
         
@@ -970,13 +1099,16 @@ $page_title = 'Interactive Store Map - Inventory System';
             const clusterText = document.getElementById('cluster-text');
             
             if (isClusteringEnabled) {
+                // Remove regular markers, enable clustering
                 map.removeLayer(markersLayer);
                 clusterText.textContent = 'Disable Clustering';
             } else {
+                // Remove cluster group, enable regular markers
                 map.removeLayer(clusterGroup);
                 clusterText.textContent = 'Enable Clustering';
             }
             
+            // Reload markers with new clustering state
             loadStoreMarkers(filteredStores);
         }
         
@@ -1109,6 +1241,46 @@ $page_title = 'Interactive Store Map - Inventory System';
                     applyFilters();
                 }
             });
+        });
+    </script>
+    
+    <script>
+        // Background auto-refresh (every 30 seconds when online)
+        document.addEventListener('DOMContentLoaded', () => {
+            let autoRefreshInterval = null;
+            
+            function startAutoRefresh() {
+                if (navigator.onLine) {
+                    autoRefreshInterval = setInterval(() => {
+                        if (navigator.onLine) {
+                            fetch(window.location.href + (window.location.search ? '&' : '?') + 'refresh_cache=1&silent=1')
+                                .then(response => {
+                                    if (response.ok) {
+                                        console.log('Background cache refresh successful');
+                                        const status = document.getElementById('cacheStatus');
+                                        if (status) {
+                                            status.textContent = 'Last updated: just now';
+                                        }
+                                    }
+                                })
+                                .catch(error => {
+                                    console.log('Background refresh failed:', error);
+                                });
+                        }
+                    }, 30000); // 30 seconds
+                }
+            }
+            
+            function stopAutoRefresh() {
+                if (autoRefreshInterval) {
+                    clearInterval(autoRefreshInterval);
+                    autoRefreshInterval = null;
+                }
+            }
+            
+            startAutoRefresh();
+            window.addEventListener('online', startAutoRefresh);
+            window.addEventListener('offline', stopAutoRefresh);
         });
     </script>
 </body>

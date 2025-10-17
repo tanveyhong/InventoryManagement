@@ -32,6 +32,11 @@
                     <li><a href="../../modules/stores/regional_dashboard.php">Regional Dashboard</a></li>
                 </ul>
             </li>
+            <li>
+                <a href="../../modules/pos/quick_service.php" class="nav-link">
+                    <i class="fas fa-cash-register"></i> Point of Sale
+                </a>
+            </li>
             <li class="dropdown">
                 <a href="#" class="nav-link dropdown-toggle">
                     <i class="fas fa-chart-line"></i> Reports <i class="fas fa-chevron-down"></i>

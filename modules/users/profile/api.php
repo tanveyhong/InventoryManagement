@@ -44,21 +44,152 @@ try {
         case 'get_activities':
             $limit = intval($_GET['limit'] ?? 20);
             $offset = intval($_GET['offset'] ?? 0);
+            $targetUserId = $_GET['user_id'] ?? $userId; // Allow admin to view any user's activities
+            
+            // Check permission - only admin can view other users' activities
+            $currentUser = $db->read('users', $userId);
+            $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
+            
+            // If requesting another user's activities, must be admin
+            if ($targetUserId !== $userId && !$isAdmin) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'error' => 'Permission denied']);
+                exit;
+            }
+            
+            // Build query
+            $conditions = [['deleted_at', '==', null]];
+            
+            // If specific user requested or not admin, filter by user
+            if ($targetUserId !== 'all') {
+                $conditions[] = ['user_id', '==', $targetUserId];
+            } elseif (!$isAdmin) {
+                // Non-admins can only see their own activities
+                $conditions[] = ['user_id', '==', $userId];
+            }
             
             // Optimized query with limit
-            $activities = $db->readAll('user_activities', [
-                ['user_id', '==', $userId],
-                ['deleted_at', '==', null]
-            ], ['created_at', 'DESC'], $limit + $offset);
+            $activities = $db->readAll('user_activities', $conditions, ['created_at', 'DESC'], $limit + $offset);
             
             // Apply offset manually
             $activities = array_slice($activities, $offset, $limit);
+            
+            // Enrich activities with user info for admin view
+            if ($isAdmin && $targetUserId === 'all') {
+                foreach ($activities as &$activity) {
+                    if (!empty($activity['user_id'])) {
+                        $activityUser = $db->read('users', $activity['user_id']);
+                        $activity['user_name'] = $activityUser ? ($activityUser['username'] ?? 'Unknown') : 'Unknown';
+                    }
+                }
+            }
             
             echo json_encode([
                 'success' => true,
                 'data' => $activities,
                 'has_more' => count($activities) === $limit
             ]);
+            break;
+            
+        case 'get_all_users':
+            // Admin only - get list of users for activity filtering
+            $currentUser = $db->read('users', $userId);
+            $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
+            
+            if (!$isAdmin) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'error' => 'Permission denied']);
+                exit;
+            }
+            
+            $users = $db->readAll('users', []);
+            $userList = [];
+            foreach ($users as $user) {
+                $userList[] = [
+                    'id' => $user['id'] ?? '',
+                    'username' => $user['username'] ?? 'Unknown',
+                    'role' => $user['role'] ?? 'user'
+                ];
+            }
+            
+            echo json_encode(['success' => true, 'data' => $userList]);
+            break;
+            
+        case 'export_activities':
+            $format = $_GET['format'] ?? 'csv';
+            $targetUserId = $_GET['user_id'] ?? $userId;
+            
+            // Check permission
+            $currentUser = $db->read('users', $userId);
+            $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
+            
+            if ($targetUserId !== $userId && $targetUserId !== 'all' && !$isAdmin) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'error' => 'Permission denied']);
+                exit;
+            }
+            
+            // Get activities
+            $conditions = [['deleted_at', '==', null]];
+            if ($targetUserId !== 'all') {
+                $conditions[] = ['user_id', '==', $targetUserId];
+            }
+            
+            $activities = $db->readAll('user_activities', $conditions, ['created_at', 'DESC']);
+            
+            if ($format === 'csv') {
+                header('Content-Type: text/csv');
+                header('Content-Disposition: attachment; filename="activities_' . date('Y-m-d') . '.csv"');
+                
+                $output = fopen('php://output', 'w');
+                $headers = ['Timestamp', 'User', 'Action Type', 'Description', 'IP Address'];
+                fputcsv($output, $headers);
+                
+                foreach ($activities as $act) {
+                    $actUser = isset($act['user_id']) ? $db->read('users', $act['user_id']) : null;
+                    fputcsv($output, [
+                        $act['created_at'] ?? '',
+                        $actUser['username'] ?? 'Unknown',
+                        $act['action_type'] ?? '',
+                        $act['description'] ?? '',
+                        $act['ip_address'] ?? ''
+                    ]);
+                }
+                fclose($output);
+                exit;
+            } else {
+                header('Content-Type: application/json');
+                header('Content-Disposition: attachment; filename="activities_' . date('Y-m-d') . '.json"');
+                echo json_encode($activities, JSON_PRETTY_PRINT);
+                exit;
+            }
+            break;
+            
+        case 'clear_activities':
+            // Admin only for now
+            $currentUser = $db->read('users', $userId);
+            $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
+            
+            if (!$isAdmin) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'error' => 'Permission denied']);
+                exit;
+            }
+            
+            $data = json_decode(file_get_contents('php://input'), true);
+            $targetUserId = $data['user_id'] ?? $userId;
+            
+            // Clear activities by soft delete
+            $activities = $db->readAll('user_activities', [['user_id', '==', $targetUserId]]);
+            $count = 0;
+            foreach ($activities as $act) {
+                if (isset($act['id'])) {
+                    $db->update('user_activities', $act['id'], ['deleted_at' => date('c')]);
+                    $count++;
+                }
+            }
+            
+            echo json_encode(['success' => true, 'message' => "Cleared {$count} activities"]);
             break;
             
         case 'get_permissions':
