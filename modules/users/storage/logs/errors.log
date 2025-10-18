@@ -201,3 +201,5 @@
 [2025-10-17 02:42:11] Error: Undefined variable $user_id in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1996
 [2025-10-17 02:42:46] Error: Undefined variable $user_id in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1996
 [2025-10-17 04:13:13] Error: Undefined variable $user_id in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1996
+[2025-10-18 00:34:03] Error: Undefined variable $user_id in C:\Users\Jun Hung\OneDrive\Documents\fyp jh\InventoryManagement\modules\users\profile.php on line 1996
+[2025-10-18 00:34:35] Failed login attempt Context: {"username":"NoodleDuckShenangaend","found_user":true,"user_id":"9hhB9eqIscyxxEJfgkzn","probe":{"password_hash":"no-match","password":"missing","pass":"missing"}}

@@ -498,6 +498,22 @@ $page_title = 'Stock Management - Inventory System';
     </script>
 
     <style>
+        .data-table thead tr {
+            background-color: #1e293b;
+            /* dark slate gray tone */
+            color: #ffffff;
+            /* white text for contrast */
+        }
+
+        .data-table thead th {
+            padding: 12px 14px;
+            font-weight: 600;
+
+            letter-spacing: 0.5px;
+            border-bottom: 2px solid #2f3237ff;
+            /* subtle darker border */
+        }
+
         .stock-summary {
             display: flex;
             gap: 1rem;
