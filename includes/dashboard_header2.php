@@ -71,11 +71,26 @@
                         <a href="<?php echo (strpos($_SERVER['PHP_SELF'], 'modules') !== false) ? '../../modules/reports/sales.php' : 'modules/reports/sales.php'; ?>">
                             <i class="fas fa-dollar-sign"></i> Sales Reports
                         </a>
-                        <a href="<?php echo (strpos($_SERVER['PHP_SELF'], 'modules') !== false) ? '../../modules/reports/inventory.php' : 'modules/reports/inventory.php'; ?>">
+                        <a href="<?php echo (strpos($_SERVER['PHP_SELF'], 'modules') !== false) ? '../../modules/reports/inventory_report.php' : 'modules/reports/inventory.php'; ?>">
                             <i class="fas fa-boxes"></i> Inventory Reports
                         </a>
-                        <a href="<?php echo (strpos($_SERVER['PHP_SELF'], 'modules') !== false) ? '../../modules/reports/alerts.php' : 'modules/reports/alerts.php'; ?>">
-                            <i class="fas fa-exclamation-triangle"></i> Alerts
+                    </div>
+                </div>
+                <div class="nav-dropdown">
+                    <a href="#" class="nav-item">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <span>Alerts</span>
+                        <i class="fas fa-chevron-down dropdown-arrow"></i>
+                    </a>
+                    <div class="dropdown-content">
+                        <a href="<?php echo (strpos($_SERVER['PHP_SELF'], 'modules') !== false) ? '../../modules/alerts/expiry_alert.php' : 'modules/alerts/expiry_alert.php'; ?>">
+                            Expiry Products
+                        </a>
+                        <a href="<?php echo $baseUrl . 'modules/reports/inventory_report.php'; ?>">
+                            2
+                        </a>
+                        <a href="<?php echo $baseUrl . 'modules/reports/alerts.php'; ?>">
+                            3
                         </a>
                     </div>
                 </div>
@@ -83,6 +98,11 @@
 
             <!-- Right Section: User Actions -->
             <div class="navbar-user">
+                <!-- Online/Offline Indicator -->
+                <div id="connection-status" class="connection-status online">
+                    <div class="status-dot"></div>
+                    <span class="status-text">Online</span>
+                </div>
                 <div class="user-dropdown">
                     <a href="#" class="user-profile">
                         <div class="user-avatar">
@@ -354,6 +374,72 @@ body {
     align-items: center;
     gap: 1rem;
     flex-shrink: 0;
+}
+
+/* Connection Status Indicator */
+.connection-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    transition: all 0.3s ease;
+    border: 1px solid;
+}
+
+.connection-status.online {
+    background: #f0fdf4;
+    color: #15803d;
+    border-color: #86efac;
+}
+
+.connection-status.offline {
+    background: #fef2f2;
+    color: #b91c1c;
+    border-color: #fca5a5;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    animation: pulse 2s ease-in-out infinite;
+}
+
+.connection-status.online .status-dot {
+    background: #22c55e;
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+}
+
+.connection-status.offline .status-dot {
+    background: #ef4444;
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+    animation: pulse-offline 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+    }
+    50% {
+        box-shadow: 0 0 0 6px rgba(34, 197, 94, 0);
+    }
+}
+
+@keyframes pulse-offline {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+    }
+    50% {
+        box-shadow: 0 0 0 6px rgba(239, 68, 68, 0);
+    }
+}
+
+.status-text {
+    font-size: 0.875rem;
+    letter-spacing: 0.01em;
 }
 
 .user-dropdown {
