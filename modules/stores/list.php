@@ -1032,6 +1032,49 @@ $page_title = 'Store Management - Inventory System';
             }
         }
         
+        async function enablePOS(storeId, storeName) {
+            if (!confirm(`Enable POS for "${storeName}"?\n\nThis will allow this store to use the Point of Sale system.`)) {
+                return;
+            }
+            
+            const button = document.getElementById(`enable-pos-${storeId}`);
+            if (button) {
+                button.disabled = true;
+                button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Enabling...';
+            }
+            
+            try {
+                const formData = new FormData();
+                formData.append('store_id', storeId);
+                
+                const response = await fetch('api/enable_pos.php', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert(data.message);
+                    location.reload();
+                } else {
+                    alert('Error: ' + data.message);
+                    if (button) {
+                        button.disabled = false;
+                        button.innerHTML = '<i class="fas fa-plus-circle"></i> Enable POS';
+                    }
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('An error occurred while enabling POS');
+                if (button) {
+                    button.disabled = false;
+                    button.innerHTML = '<i class="fas fa-plus-circle"></i> Enable POS';
+                }
+            }
+        }
+
+        
         // Quick Edit Modal Functions
         async function openQuickEdit(storeId) {
             try {
@@ -1595,12 +1638,19 @@ $page_title = 'Store Management - Inventory System';
                                                 <i class="fas fa-<?php echo (isset($store['active']) && $store['active']) ? 'check' : 'times'; ?>-circle"></i>
                                             </button>
                                             <?php if (isset($store['has_pos']) && $store['has_pos']): ?>
-                                            <a href="../pos/quick_service.php?store_firebase_id=<?php echo htmlspecialchars($store['id']); ?>" 
+                                            <a href="../pos/full_retail.php?store_firebase_id=<?php echo htmlspecialchars($store['id']); ?>" 
                                                class="btn btn-sm" 
                                                style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;" 
                                                title="Open POS for <?php echo htmlspecialchars($store['name']); ?>">
                                                 <i class="fas fa-cash-register"></i> POS
                                             </a>
+                                            <?php else: ?>
+                                            <button onclick="enablePOS('<?php echo $store['id']; ?>', '<?php echo htmlspecialchars($store['name']); ?>')" 
+                                                    class="btn btn-sm btn-outline-primary" 
+                                                    title="Enable POS for <?php echo htmlspecialchars($store['name']); ?>"
+                                                    id="enable-pos-<?php echo $store['id']; ?>">
+                                                <i class="fas fa-plus-circle"></i> Enable POS
+                                            </button>
                                             <?php endif; ?>
                                         </div>
                                     </td>

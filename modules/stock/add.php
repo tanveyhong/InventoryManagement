@@ -209,10 +209,11 @@ $page_title = 'Add Product - Inventory System';
 </head>
 
 <body>
-    <?php include '../../includes/dashboard_header2.php'; ?>
-    <div class="container">
-
-        <main>
+    <?php include '../../includes/dashboard_header.php'; ?>
+    
+    <div class="main-content">
+        <div class="container">
+            <main>
             <!-- Page Header -->
             <div class="page-header">
                 <div class="page-header-inner">
@@ -347,6 +348,7 @@ $page_title = 'Add Product - Inventory System';
                 </form>
             </div>
         </main>
+        </div>
     </div>
 
     <script src="../../assets/js/main.js"></script>
@@ -398,6 +400,18 @@ $page_title = 'Add Product - Inventory System';
     </script>
 
     <style>
+        /* Main content spacing */
+        .main-content {
+            margin-top: 80px;
+            padding: 20px 0;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
         .form-container {
             max-width: 900px;
             margin: 0 auto;

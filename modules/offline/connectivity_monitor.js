@@ -272,32 +272,37 @@ class ConnectivityMonitor {
     }
 }
 
-// Add CSS animations
-const style = document.createElement('style');
-style.textContent = `
-    @keyframes slideIn {
-        from {
-            transform: translateX(400px);
-            opacity: 0;
+// Add CSS animations (only if not already added)
+if (!document.getElementById('connectivity-monitor-styles')) {
+    const styleElement = document.createElement('style');
+    styleElement.id = 'connectivity-monitor-styles';
+    styleElement.textContent = `
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
         }
-        to {
-            transform: translateX(0);
-            opacity: 1;
-        }
-    }
 
-    @keyframes slideOut {
-        from {
-            transform: translateX(0);
-            opacity: 1;
+        @keyframes slideOut {
+            from {
+                transform: translateX(0);
+                opacity: 1;
+            }
+            to {
+                transform: translateX(400px);
+                opacity: 0;
+            }
         }
-        to {
-            transform: translateX(400px);
-            opacity: 0;
-        }
-    }
-`;
-document.head.appendChild(style);
+    `;
+    document.head.appendChild(styleElement);
+}
 
-// Export as global instance
-window.connectivityMonitor = new ConnectivityMonitor();
+// Export as global instance (only if not already created)
+if (!window.connectivityMonitor) {
+    window.connectivityMonitor = new ConnectivityMonitor();
+}

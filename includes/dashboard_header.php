@@ -62,6 +62,9 @@ if (strpos($currentPath, 'modules/users/profile/') !== false) {
                         <a href="<?php echo $baseUrl . 'modules/stock/adjust.php'; ?>">
                             <i class="fas fa-edit"></i> Adjustments
                         </a>
+                        <a href="<?php echo $baseUrl . 'modules/pos/stock_pos_integration.php'; ?>">
+                            <i class="fas fa-cash-register"></i> POS Integration
+                        </a>
                     </div>
                 </div>
                 <div class="nav-dropdown">

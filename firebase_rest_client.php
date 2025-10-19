@@ -215,7 +215,12 @@ class FirebaseRestClient {
             
             if (isset($response['documents'])) {
                 foreach ($response['documents'] as $doc) {
-                    $documents[] = $this->convertFromFirestoreFormat($doc);
+                    $converted = $this->convertFromFirestoreFormat($doc);
+                    if ($converted && isset($converted['id'])) {
+                        // Use document ID as array key to preserve it
+                        $documentId = $converted['id'];
+                        $documents[$documentId] = $converted;
+                    }
                 }
             }
             

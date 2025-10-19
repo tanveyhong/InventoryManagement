@@ -71,6 +71,21 @@ try {
             // Optimized query with limit
             $activities = $db->readAll('user_activities', $conditions, ['created_at', 'DESC'], $limit + $offset);
             
+            // Handle database errors
+            if ($activities === false) {
+                http_response_code(500);
+                echo json_encode([
+                    'success' => false,
+                    'error' => 'Failed to retrieve activities from database'
+                ]);
+                exit;
+            }
+            
+            // Ensure activities is an array
+            if (!is_array($activities)) {
+                $activities = [];
+            }
+            
             // Apply offset manually
             $activities = array_slice($activities, $offset, $limit);
             

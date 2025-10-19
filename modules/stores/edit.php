@@ -37,6 +37,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $email = sanitizeInput($_POST['email'] ?? '');
     $manager_name = sanitizeInput($_POST['manager_name'] ?? '');
     $description = sanitizeInput($_POST['description'] ?? '');
+    $has_pos = isset($_POST['has_pos']) ? 1 : 0;
     
     // Validation
     if (empty($name)) {
@@ -71,13 +72,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($store['city'] !== $city) $changes['city'] = ['old' => $store['city'], 'new' => $city];
             if ($store['state'] !== $state) $changes['state'] = ['old' => $store['state'], 'new' => $state];
             if ($store['manager_name'] !== $manager_name) $changes['manager_name'] = ['old' => $store['manager_name'], 'new' => $manager_name];
+            if (($store['has_pos'] ?? 0) != $has_pos) $changes['has_pos'] = ['old' => ($store['has_pos'] ?? 0), 'new' => $has_pos];
             
             $sql = "UPDATE stores SET name = ?, code = ?, address = ?, city = ?, state = ?, zip_code = ?, 
-                    phone = ?, email = ?, manager_name = ?, description = ?, updated_at = NOW() WHERE id = ?";
+                    phone = ?, email = ?, manager_name = ?, description = ?, has_pos = ?, updated_at = NOW() WHERE id = ?";
             
             $params = [
                 $name, $code, $address, $city, $state, $zip_code,
-                $phone, $email, $manager_name, $description, $store_id
+                $phone, $email, $manager_name, $description, $has_pos, $store_id
             ];
             
             $result = $db->query($sql, $params);
@@ -228,6 +230,57 @@ $page_title = 'Edit Store - Inventory System';
                                        value="<?php echo htmlspecialchars($_POST['zip_code'] ?? $store['zip_code']); ?>" 
                                        maxlength="20">
                             </div>
+                        </div>
+                    </div>
+
+                    <div class="form-section">
+                        <h3>Contact Information</h3>
+                        
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="phone">Phone:</label>
+                                <input type="tel" id="phone" name="phone" 
+                                       value="<?php echo htmlspecialchars($_POST['phone'] ?? $store['phone']); ?>" 
+                                       maxlength="20">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="email">Email:</label>
+                                <input type="email" id="email" name="email" 
+                                       value="<?php echo htmlspecialchars($_POST['email'] ?? $store['email']); ?>" 
+                                       maxlength="100">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="manager_name">Manager Name:</label>
+                                <input type="text" id="manager_name" name="manager_name" 
+                                       value="<?php echo htmlspecialchars($_POST['manager_name'] ?? $store['manager_name']); ?>" 
+                                       maxlength="100">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-section">
+                        <h3>Additional Information</h3>
+                        
+                        <div class="form-group">
+                            <label for="description">Description:</label>
+                            <textarea id="description" name="description" rows="4" 
+                                      maxlength="500"><?php echo htmlspecialchars($_POST['description'] ?? $store['description']); ?></textarea>
+                        </div>
+                    </div>
+
+                    <div class="form-section">
+                        <h3><i class="fas fa-cash-register" style="color: #667eea;"></i> POS Integration</h3>
+                        
+                        <div class="form-group">
+                            <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                                <input type="checkbox" id="has_pos" name="has_pos" value="1" 
+                                       <?php echo (isset($_POST['has_pos']) ? ($_POST['has_pos'] ? 'checked' : '') : (isset($store['has_pos']) && $store['has_pos'] ? 'checked' : '')); ?>
+                                       style="width: auto;">
+                                <span><i class="fas fa-link"></i> Enable POS System for this store</span>
+                            </label>
+                            <small>Enable if this store location uses the Point of Sale (POS) system</small>
                         </div>
                     </div>
 

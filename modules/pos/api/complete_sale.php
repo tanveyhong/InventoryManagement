@@ -119,22 +119,26 @@ try {
             throw new Exception("Insufficient stock for product ID: " . $item['product_id']);
         }
         
-        // Log inventory change
-        logInventoryChange(
-            $item['product_id'],
-            -$item['quantity'],
-            'sale',
-            "POS Sale: " . $transactionId,
-            $userId
-        );
+        // Log inventory change (if function exists)
+        if (function_exists('logInventoryChange')) {
+            logInventoryChange(
+                $item['product_id'],
+                -$item['quantity'],
+                'sale',
+                "POS Sale: " . $transactionId,
+                $userId
+            );
+        }
     }
     
-    // Log user activity
-    logUserActivity(
-        $userId,
-        'pos_sale',
-        "Completed POS sale: $transactionId, Amount: $" . number_format($totalAmount, 2)
-    );
+    // Log user activity (if function exists)
+    if (function_exists('logUserActivity')) {
+        logUserActivity(
+            $userId,
+            'pos_sale',
+            "Completed POS sale: $transactionId, Amount: $" . number_format($totalAmount, 2)
+        );
+    }
     
     $db->commit();
     

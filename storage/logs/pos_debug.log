@@ -1,0 +1,9 @@
+=== POS DEBUG START ===
+Time: 2025-10-19 11:23:12
+DB_NAME constant: C:\Users\senpa\InventorySystem/storage/database.sqlite
+Current working directory: C:\Users\senpa\InventorySystem\modules\pos
+Resolved DB path: C:\Users\senpa\InventorySystem\storage\database.sqlite
+Firebase ID from URL: xPHAv0hTdZlwAh0nN7pr
+About to query database...
+Query executed. Result: {"id":14,"name":"POS testing diablo"}
+SUCCESS! Store ID: 14, Name: POS testing diablo

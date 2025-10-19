@@ -38,6 +38,9 @@
                         <a href="<?php echo (strpos($_SERVER['PHP_SELF'], 'modules') !== false) ? '../../modules/stock/adjust.php' : 'modules/stock/adjust.php'; ?>">
                             <i class="fas fa-edit"></i> Adjustments
                         </a>
+                        <a href="<?php echo (strpos($_SERVER['PHP_SELF'], 'modules') !== false) ? '../../modules/pos/stock_pos_integration.php' : 'modules/pos/stock_pos_integration.php'; ?>">
+                            <i class="fas fa-cash-register"></i> POS Integration
+                        </a>
                     </div>
                 </div>
                 <div class="nav-dropdown">

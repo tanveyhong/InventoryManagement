@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Enable POS</title>
+</head>
+<body>
+    <h1>Test Enable POS API</h1>
+    <button onclick="testEnablePOS()">Enable POS for Store 8</button>
+    <div id="result"></div>
+
+    <script>
+        async function testEnablePOS() {
+            const storeId = 8;
+            const storeName = "Vey Hong Tandddd";
+            
+            try {
+                console.log('Calling enable POS API...');
+                const formData = new FormData();
+                formData.append('store_id', storeId);
+                
+                const response = await fetch('modules/stores/api/enable_pos.php', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                console.log('Response status:', response.status);
+                const data = await response.json();
+                console.log('Response data:', data);
+                
+                document.getElementById('result').innerHTML = 
+                    `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+                
+                if (data.success) {
+                    alert('Success: ' + data.message);
+                } else {
+                    alert('Error: ' + data.message);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('result').innerHTML = 
+                    `<pre style="color: red;">Error: ${error.message}</pre>`;
+                alert('An error occurred: ' + error.message);
+            }
+        }
+    </script>
+</body>
+</html>

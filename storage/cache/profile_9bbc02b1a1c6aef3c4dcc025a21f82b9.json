@@ -1,17 +1,17 @@
 {
     "user": {
         "id": "9hhB9eqIscyxxEJfgkzn",
-        "updated_at": "2025-10-16T06:05:24-04:00",
-        "password_hash": "$2y$10$TwC4mPbqSDt8ar5niRLyDutRz.s8qHuf0cohIqy7XjA3SP1V4SAZu",
-        "role": "admin",
         "last_name": "432",
-        "created_at": "2025-10-16T00:40:04-04:00",
-        "username": "NoodleDuckShenangaend",
-        "phone": "",
         "first_name": "NoodleDuckeq",
+        "is_active": true,
         "email": "noodleduckshenangain@gmail.com",
-        "is_active": true
+        "phone": "",
+        "created_at": "2025-10-16T00:40:04-04:00",
+        "updated_at": "2025-10-16T06:05:24-04:00",
+        "role": "admin",
+        "password_hash": "$2y$10$TwC4mPbqSDt8ar5niRLyDutRz.s8qHuf0cohIqy7XjA3SP1V4SAZu",
+        "username": "NoodleDuckShenangaend"
     },
-    "cached_at": "2025-10-17 04:13:13",
+    "cached_at": "2025-10-19 13:32:20",
     "user_id": "9hhB9eqIscyxxEJfgkzn"
 }

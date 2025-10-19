@@ -668,76 +668,6 @@ header('Vary: Cookie');
             </div>
             <?php endif; ?>
 
-            <!-- POS System Section -->
-            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; border-radius: 16px; margin-bottom: 30px; box-shadow: 0 10px 30px rgba(0,0,0,0.1);">
-                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
-                    <div style="color: white;">
-                        <h2 style="margin: 0 0 5px 0; font-size: 1.8rem; display: flex; align-items: center; gap: 10px;">
-                            <i class="fas fa-cash-register"></i>
-                            Point of Sale System
-                        </h2>
-                        <p style="margin: 0; opacity: 0.9; font-size: 1rem;">Fast checkout • Real-time inventory sync • Professional receipts</p>
-                    </div>
-                </div>
-                
-                <div style="max-width: 600px;">
-                    <!-- Quick Service POS -->
-                    <a href="modules/pos/quick_service.php" style="text-decoration: none;">
-                        <div style="background: white; padding: 30px; border-radius: 12px; transition: all 0.3s ease; cursor: pointer; box-shadow: 0 4px 20px rgba(0,0,0,0.08);" onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 8px 30px rgba(0,0,0,0.12)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 20px rgba(0,0,0,0.08)';">
-                            <div style="display: flex; align-items: center; gap: 20px; margin-bottom: 20px;">
-                                <div style="width: 70px; height: 70px; background: linear-gradient(135deg, #667eea, #764ba2); border-radius: 16px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4);">
-                                    <i class="fas fa-cash-register" style="font-size: 32px; color: white;"></i>
-                                </div>
-                                <div style="flex: 1;">
-                                    <h3 style="margin: 0 0 8px 0; color: #2c3e50; font-size: 1.5rem;">Point of Sale Terminal</h3>
-                                    <p style="margin: 0; color: #7f8c8d; font-size: 1rem;">Store-linked checkout system with barcode support</p>
-                                </div>
-                                <div style="color: #667eea; font-size: 24px;">
-                                    <i class="fas fa-arrow-right"></i>
-                                </div>
-                            </div>
-                            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;">
-                                <div style="display: flex; align-items: center; gap: 10px; color: #555;">
-                                    <i class="fas fa-check-circle" style="color: #4ecdc4; font-size: 18px;"></i>
-                                    <span>Quick checkout</span>
-                                </div>
-                                <div style="display: flex; align-items: center; gap: 10px; color: #555;">
-                                    <i class="fas fa-check-circle" style="color: #4ecdc4; font-size: 18px;"></i>
-                                    <span>Barcode scanning</span>
-                                </div>
-                                <div style="display: flex; align-items: center; gap: 10px; color: #555;">
-                                    <i class="fas fa-check-circle" style="color: #4ecdc4; font-size: 18px;"></i>
-                                    <span>Auto inventory sync</span>
-                                </div>
-                                <div style="display: flex; align-items: center; gap: 10px; color: #555;">
-                                    <i class="fas fa-check-circle" style="color: #4ecdc4; font-size: 18px;"></i>
-                                    <span>Receipt printing</span>
-                                </div>
-                            </div>
-                        </div>
-                    </a>
-                                    <p style="margin: 0; color: #7f8c8d; font-size: 0.9rem;">Monitor transactions</p>
-                                </div>
-                            </div>
-                            <ul style="list-style: none; padding: 0; margin: 0; color: #555;">
-                                <li style="padding: 8px 0; border-bottom: 1px solid #f0f0f0; display: flex; align-items: center; gap: 8px;">
-                                    <i class="fas fa-check" style="color: #4ecdc4;"></i>
-                                    Real-time sales statistics
-                                </li>
-                                <li style="padding: 8px 0; border-bottom: 1px solid #f0f0f0; display: flex; align-items: center; gap: 8px;">
-                                    <i class="fas fa-check" style="color: #4ecdc4;"></i>
-                                    Transaction history & analytics
-                                </li>
-                                <li style="padding: 8px 0; display: flex; align-items: center; gap: 8px;">
-                                    <i class="fas fa-check" style="color: #4ecdc4;"></i>
-                                    Auto-refresh every 30 seconds
-                                </li>
-                            </ul>
-                        </div>
-                    </a>
-                </div>
-            </div>
-
             <!-- Quick Actions -->
             <div class="quick-actions-grid">
                 <a href="modules/stock/add.php" class="action-card">
@@ -746,14 +676,6 @@ header('Vary: Cookie');
                     </div>
                     <div class="action-title">Add Product</div>
                     <div class="action-desc">Add new items to inventory</div>
-                </a>
-
-                <a href="modules/pos/quick_service.php" class="action-card" style="border-left: 4px solid #667eea;">
-                    <div class="action-icon" style="background: linear-gradient(135deg, #667eea, #764ba2);">
-                        <i class="fas fa-cash-register"></i>
-                    </div>
-                    <div class="action-title">Point of Sale</div>
-                    <div class="action-desc">Process store transactions</div>
                 </a>
 
                 <a href="modules/stores/enhanced_map.php" class="action-card">
