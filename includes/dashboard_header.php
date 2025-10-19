@@ -98,11 +98,26 @@ if (strpos($currentPath, 'modules/users/profile/') !== false) {
                         <a href="<?php echo $baseUrl . 'modules/reports/sales.php'; ?>">
                             <i class="fas fa-dollar-sign"></i> Sales Reports
                         </a>
-                        <a href="<?php echo $baseUrl . 'modules/reports/inventory.php'; ?>">
+                        <a href="<?php echo $baseUrl . 'modules/reports/inventory_report.php'; ?>">
                             <i class="fas fa-boxes"></i> Inventory Reports
                         </a>
+                    </div>
+                </div>
+                <div class="nav-dropdown">
+                    <a href="#" class="nav-item">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <span>Alerts</span>
+                        <i class="fas fa-chevron-down dropdown-arrow"></i>
+                    </a>
+                    <div class="dropdown-content">
+                        <a href="<?php echo $baseUrl . 'modules/alerts/expiry_alert.php'; ?>">
+                            Expiry Products
+                        </a>
+                        <a href="<?php echo $baseUrl . 'modules/reports/inventory_report.php'; ?>">
+                            2
+                        </a>
                         <a href="<?php echo $baseUrl . 'modules/reports/alerts.php'; ?>">
-                            <i class="fas fa-exclamation-triangle"></i> Alerts
+                            3
                         </a>
                     </div>
                 </div>
