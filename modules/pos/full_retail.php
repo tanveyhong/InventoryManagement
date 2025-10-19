@@ -5,6 +5,11 @@
  * Features: Advanced search, discounts, customer management, detailed receipts
  */
 
+// Prevent caching - force fresh data every time
+header("Cache-Control: no-cache, no-store, must-revalidate, max-age=0");
+header("Pragma: no-cache");
+header("Expires: 0");
+
 require_once '../../config.php';
 require_once '../../db.php';
 require_once '../../functions.php';
@@ -21,8 +26,27 @@ $db = getSQLDB(); // Use SQL database for POS
 $userId = $_SESSION['user_id'];
 $userName = $_SESSION['username'] ?? 'Cashier';
 
-// Get selected store from session or URL parameter
-$selectedStoreId = $_GET['store'] ?? $_SESSION['pos_store_id'] ?? null;
+// Check if Firebase ID is passed (from store list POS button)
+$firebaseStoreId = $_GET['store_firebase_id'] ?? null;
+$selectedStoreId = null;
+
+// If Firebase ID is provided, find the corresponding SQL store ID
+if ($firebaseStoreId) {
+    try {
+        $sqlStore = $db->fetch("SELECT id, name FROM stores WHERE firebase_id = ?", [$firebaseStoreId]);
+        if ($sqlStore) {
+            $selectedStoreId = $sqlStore['id'];
+            $_SESSION['pos_store_id'] = $selectedStoreId;
+        }
+    } catch (Exception $e) {
+        error_log("Error finding store by Firebase ID: " . $e->getMessage());
+    }
+}
+
+// If no Firebase ID or not found, try regular store parameter or session
+if (!$selectedStoreId) {
+    $selectedStoreId = $_GET['store'] ?? $_SESSION['pos_store_id'] ?? null;
+}
 
 // Get list of stores user has access to
 $userStores = [];
@@ -30,14 +54,14 @@ try {
     $userStores = $db->fetchAll("
         SELECT s.* FROM stores s
         LEFT JOIN user_stores us ON s.id = us.store_id
-        WHERE (s.deleted_at IS NULL OR s.deleted_at = '')
+        WHERE (s.active = 1 OR s.active IS NULL)
         AND (us.user_id = ? OR ? IN (SELECT id FROM users WHERE role = 'admin'))
         ORDER BY s.name
     ", [$userId, $userId]);
 } catch (Exception $e) {
     // Fallback: get all stores if user_stores table doesn't exist
     try {
-        $userStores = $db->fetchAll("SELECT * FROM stores WHERE deleted_at IS NULL OR deleted_at = '' ORDER BY name");
+        $userStores = $db->fetchAll("SELECT * FROM stores WHERE active = 1 OR active IS NULL ORDER BY name");
     } catch (Exception $e2) {
         $userStores = $db->fetchAll("SELECT * FROM stores ORDER BY name");
     }
@@ -64,6 +88,9 @@ if ($selectedStoreId) {
         }
     }
 }
+
+// Set store name for page title
+$storeName = $currentStore ? $currentStore['name'] : 'Select Store';
 ?>
 
 <!DOCTYPE html>
@@ -787,7 +814,7 @@ if ($selectedStoreId) {
     </style>
 </head>
 <body>
-    <?php if (!$selectedStoreId || count($userStores) > 1): ?>
+    <?php if (!$selectedStoreId): ?>
     <!-- Store Selection Modal -->
     <div id="storeSelector" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 9999; display: flex; align-items: center; justify-content: center;">
         <div style="background: white; padding: 40px; border-radius: 16px; max-width: 600px; width: 90%;">
@@ -1366,7 +1393,7 @@ if ($selectedStoreId) {
                 customer_email: document.getElementById('customerEmail').value || null,
                 discount_percent: discountPercent,
                 store_id: storeId,
-                user_id: <?php echo $userId; ?>
+                user_id: <?php echo json_encode($userId); ?>
             };
             
             try {

@@ -1510,6 +1510,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     `profile/api.php?action=get_activities&limit=${activityLimit}&offset=${activityOffset}${userParam}`,
                     { signal: abortController.signal }
                 );
+                
+                // Check for HTTP errors
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
                 const data = await response.json();
                 
                 document.getElementById('activity-loading').style.display = 'none';
@@ -1594,7 +1600,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                                 <i class="fas fa-file-code"></i> Export JSON
                                             </button>
                                             ${isAdmin ? `
-                                            <button onclick="if(confirm('Are you sure you want to clear the selected user\\'s activity history?')) clearActivities()" class="btn" style="background: #ef4444; color: white; padding: 8px 16px; font-size: 14px;">
+                                            <button onclick="if(confirm('Are you sure you want to clear the selected user&apos;s activity history?')) clearActivities()" class="btn" style="background: #ef4444; color: white; padding: 8px 16px; font-size: 14px;">
                                                 <i class="fas fa-trash"></i> Clear History
                                             </button>` : ''}
                                         </div>
@@ -1993,7 +1999,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
                         
                         try {
-                            const userId = '<?php echo $user_id; ?>';
+                            const userId = '<?php echo $userId; ?>';
                             await window.profileOfflineStorage.savePendingUpdate(userId, updateData);
                             
                             window.connectivityMonitor.showNotification(
@@ -2172,6 +2178,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             console.log('Loading activities...');
             loadActivities().then(() => {
                 console.log('Activities loaded');
+            }).catch((error) => {
+                console.error('Failed to load activities:', error);
+                // Ensure loading is hidden even if promise rejects
+                document.getElementById('activity-loading').style.display = 'none';
+                document.getElementById('activity-content').style.display = 'block';
             });
         }
         

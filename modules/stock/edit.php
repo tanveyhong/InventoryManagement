@@ -174,12 +174,25 @@ function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
   .alert{margin:10px 0;padding:10px 12px;border-radius:10px}
   .alert-error{background:#fee2e2;color:#7f1d1d;border:1px solid #fecaca}
   .alert-ok{background:#ecfdf5;color:#065f46;border:1px solid #d1fae5}
+
+  /* Main content spacing */
+  .main-content {
+      margin-top: 80px;
+      padding: 20px 0;
+  }
+
+  .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 0 20px;
+  }
 </style>
 </head>
 <body>
-    <?php
-        include '../../includes/dashboard_header2.php';
-        ?>
+    <?php include '../../includes/dashboard_header.php'; ?>
+    
+<div class="main-content">
+<div class="container">
 <div class="shell">
 
   <div class="page-header"> 
@@ -282,6 +295,8 @@ function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
       </div>
     </form>
   </div>
+</div>
+</div>
 </div>
 
 <script>

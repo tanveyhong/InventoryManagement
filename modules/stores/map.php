@@ -882,7 +882,19 @@ $page_title = 'Interactive Store Map - Inventory System';
             </div>
             
             <!-- Map Container -->
-            <div id="map"></div>
+            <div id="map">
+                <div id="mapLoading" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; z-index: 1000; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+                    <div style="width: 50px; height: 50px; border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 15px;"></div>
+                    <p style="margin: 0; color: #555; font-size: 14px;">Loading map...</p>
+                </div>
+            </div>
+            
+            <style>
+                @keyframes spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                }
+            </style>
             
             <!-- Legend -->
             <div class="legend">
@@ -971,14 +983,46 @@ $page_title = 'Interactive Store Map - Inventory System';
         
         // Initialize map
         function initMap() {
-            // Create map centered on US (or adjust to your region)
-            map = L.map('map').setView([39.8283, -98.5795], 4);
+            try {
+                // Hide loading indicator
+                const loadingEl = document.getElementById('mapLoading');
+                if (loadingEl) {
+                    loadingEl.style.display = 'none';
+                }
+                
+                // Create map centered on US (or adjust to your region)
+                map = L.map('map').setView([39.8283, -98.5795], 4);
+                
+                // Force map to invalidate size after a short delay (fixes blank map issue)
+                setTimeout(() => {
+                    if (map) {
+                        map.invalidateSize();
+                        console.log('Map size invalidated');
+                    }
+                }, 100);
+            } catch (error) {
+                console.error('Error creating map:', error);
+                const mapContainer = document.getElementById('map');
+                if (mapContainer) {
+                    mapContainer.innerHTML = '<div style="padding: 40px; text-align: center; color: #e53e3e;"><i class="fas fa-exclamation-triangle" style="font-size: 48px; margin-bottom: 15px;"></i><p>Error loading map. Please refresh the page.</p></div>';
+                }
+                throw error;
+            }
             
             // Add OpenStreetMap tiles
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            const tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '© OpenStreetMap contributors',
                 maxZoom: 19
             }).addTo(map);
+            
+            // Log when tiles are loaded
+            tileLayer.on('load', function() {
+                console.log('Map tiles loaded successfully');
+            });
+            
+            tileLayer.on('tileerror', function(error) {
+                console.error('Error loading map tiles:', error);
+            });
             
             // Initialize marker layers
             markersLayer = L.layerGroup().addTo(map);
@@ -1230,18 +1274,46 @@ $page_title = 'Interactive Store Map - Inventory System';
             });
         }
         
-        // Initialize on page load
-        document.addEventListener('DOMContentLoaded', function() {
-            initMap();
-            renderStoreList();
-            
-            // Add enter key support for search
-            document.getElementById('search-input').addEventListener('keypress', function(e) {
-                if (e.key === 'Enter') {
-                    applyFilters();
+        // Initialize on page load - Wait for both DOM and Leaflet to be ready
+        let domReady = false;
+        let leafletReady = false;
+        
+        function tryInit() {
+            if (domReady && leafletReady) {
+                console.log('Initializing map...');
+                try {
+                    initMap();
+                    renderStoreList();
+                    
+                    // Add enter key support for search
+                    document.getElementById('search-input').addEventListener('keypress', function(e) {
+                        if (e.key === 'Enter') {
+                            applyFilters();
+                        }
+                    });
+                    console.log('Map initialized successfully');
+                } catch (error) {
+                    console.error('Map initialization error:', error);
+                    setTimeout(tryInit, 500); // Retry after 500ms
                 }
-            });
+            }
+        }
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            domReady = true;
+            tryInit();
         });
+        
+        // Check if Leaflet is loaded
+        function checkLeaflet() {
+            if (typeof L !== 'undefined' && L.map) {
+                leafletReady = true;
+                tryInit();
+            } else {
+                setTimeout(checkLeaflet, 100);
+            }
+        }
+        checkLeaflet();
     </script>
     
     <script>

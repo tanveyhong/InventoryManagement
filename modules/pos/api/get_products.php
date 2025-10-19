@@ -40,7 +40,7 @@ try {
             s.name as store_name
         FROM products p
         LEFT JOIN stores s ON p.store_id = s.id
-        WHERE (p.deleted_at IS NULL OR p.deleted_at = '')
+        WHERE (p.active = 1 OR p.active IS NULL)
     ";
     
     $params = [];

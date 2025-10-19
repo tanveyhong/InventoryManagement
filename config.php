@@ -7,7 +7,7 @@ define('APP_TIMEZONE', 'America/New_York');
 // Database Configuration - SQLite for local development
 define('DB_HOST', 'localhost');
 define('DB_PORT', 5432);
-define('DB_NAME', 'storage/database.sqlite'); // SQLite database file
+define('DB_NAME', __DIR__ . '/storage/database.sqlite'); // SQLite database file (absolute path)
 define('DB_USERNAME', 'user');
 define('DB_PASSWORD', 'password');
 define('DB_CHARSET', 'utf8');

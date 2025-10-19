@@ -219,13 +219,10 @@ $page_title = 'Stock Management - Inventory System';
 </head>
 
 <body>
+    <?php include '../../includes/dashboard_header.php'; ?>
 
-    <div class="container">
-        <?php
-        include '../../includes/dashboard_header2.php';
-        ?>
-
-        <main>
+    <div class="main-content">
+        <div class="container">
             <div class="page-header">
                 <h2>Stock Management</h2>
                 <div class="page-actions">
@@ -467,7 +464,7 @@ $page_title = 'Stock Management - Inventory System';
                     </div>
                 <?php endif; ?>
             <?php endif; ?>
-        </main>
+        </div>
     </div>
 
     <script src="../../assets/js/main.js"></script>
@@ -498,6 +495,22 @@ $page_title = 'Stock Management - Inventory System';
     </script>
 
     <style>
+        /* Main content spacing after navigation */
+        .main-content {
+            margin-top: 80px; /* Space for fixed navigation */
+            padding: 20px 0;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        .page-header {
+            margin-bottom: 25px;
+        }
+
         .stock-summary {
             display: flex;
             gap: 1rem;
