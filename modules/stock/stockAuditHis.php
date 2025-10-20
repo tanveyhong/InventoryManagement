@@ -358,7 +358,7 @@ try {
 </head>
 
 <body>
-    <?php include '../../includes/dashboard_header2.php'; ?>
+    <?php include '../../includes/dashboard_header.php'; ?>
     <div class="audit-wrap">
         <h1>Stock Audit History (Admin)</h1>
 

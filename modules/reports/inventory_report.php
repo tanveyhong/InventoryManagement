@@ -539,7 +539,7 @@ $page_title = 'Inventory Report – Stock Management';
 
 <body>
   <?php
-  include '../../includes/dashboard_header2.php';
+  include '../../includes/dashboard_header.php';
   ?>
   <div class="wrap">
     <div class="page-header">
