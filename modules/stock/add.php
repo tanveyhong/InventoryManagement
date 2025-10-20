@@ -260,7 +260,7 @@ $page_title = 'Add Product - Inventory System';
 </head>
 
 <body>
-    <?php include '../../includes/dashboard_header2.php'; ?>
+    <?php include '../../includes/dashboard_header.php'; ?>
     <div class="container">
 
         <main>

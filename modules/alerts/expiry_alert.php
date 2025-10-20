@@ -363,7 +363,7 @@ $page_title = 'Expiry Alerts - Inventory System';
 
 <body>
     <div class="container">
-        <?php include __DIR__ . '/../../includes/dashboard_header2.php'; ?>
+        <?php include __DIR__ . '/../../includes/dashboard_header.php'; ?>
 
         <main>
             <div class="page-header">

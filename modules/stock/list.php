@@ -222,7 +222,7 @@ $page_title = 'Stock Management - Inventory System';
 
     <div class="container">
         <?php
-        include '../../includes/dashboard_header2.php';
+        include '../../includes/dashboard_header.php';
         ?>
 
         <main>
