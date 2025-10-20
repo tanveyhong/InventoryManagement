@@ -979,21 +979,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             color: #718096;
         }
         
+        .stores-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+            gap: 20px;
+        }
+        
         .store-card {
             padding: 20px;
-            background: #f7fafc;
-            border-radius: 10px;
-            margin-bottom: 15px;
+            background: white;
+            border-radius: 12px;
+            border: 2px solid #e2e8f0;
             display: flex;
             justify-content: space-between;
             align-items: center;
             transition: all 0.3s ease;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
         }
         
         .store-card:hover {
-            background: #edf2f7;
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            border-color: #667eea;
+            transform: translateY(-4px);
+            box-shadow: 0 8px 24px rgba(102, 126, 234, 0.15);
         }
         
         .store-info h4 {
@@ -2018,11 +2025,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     const container = document.getElementById('permissions-content');
                     
                     const permissionsList = [
-                        { key: 'can_view_reports', name: 'View Reports', icon: 'chart-bar', desc: 'Access and view system reports' },
-                        { key: 'can_manage_inventory', name: 'Manage Inventory', icon: 'boxes', desc: 'Add, edit, and delete inventory items' },
-                        { key: 'can_manage_users', name: 'Manage Users', icon: 'users', desc: 'Create and manage user accounts' },
-                        { key: 'can_manage_stores', name: 'Manage Stores', icon: 'store', desc: 'Add and configure store locations' },
-                        { key: 'can_configure_system', name: 'System Configuration', icon: 'cog', desc: 'Access system settings and configuration' }
+                        { 
+                            key: 'can_view_reports', 
+                            name: 'View Reports', 
+                            icon: 'chart-bar', 
+                            desc: 'Access and view system reports',
+                            details: 'View sales reports, inventory reports, and analytics dashboards'
+                        },
+                        { 
+                            key: 'can_manage_inventory', 
+                            name: 'Manage Inventory', 
+                            icon: 'boxes', 
+                            desc: 'Add, edit, and delete inventory items',
+                            details: 'Create new products, update stock levels, adjust inventory, and manage product information'
+                        },
+                        { 
+                            key: 'can_manage_users', 
+                            name: 'Manage Users', 
+                            icon: 'users', 
+                            desc: 'Create and manage user accounts',
+                            details: 'Add new users, modify user roles, view activity logs, and manage user permissions'
+                        },
+                        { 
+                            key: 'can_manage_stores', 
+                            name: 'Manage Stores', 
+                            icon: 'store', 
+                            desc: 'Add and configure store locations',
+                            details: 'Create new stores, edit store details, manage store inventory, and configure POS integration'
+                        },
+                        { 
+                            key: 'can_configure_system', 
+                            name: 'System Configuration', 
+                            icon: 'cog', 
+                            desc: 'Access system settings and configuration',
+                            details: 'Modify system settings, configure integrations, manage API keys, and access admin panel'
+                        }
                     ];
                     
                     // Add role information banner
@@ -2044,20 +2081,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </div>
                     `;
                     
-                    container.innerHTML = roleHTML + '<div class="permission-grid"></div>';
+                    // Add permissions summary
+                    const grantedCount = permissionsList.filter(p => perms[p.key]).length;
+                    const summaryHTML = `
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 25px;">
+                            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; border-radius: 12px; color: white;">
+                                <div style="font-size: 14px; opacity: 0.9; margin-bottom: 5px;">Total Permissions</div>
+                                <div style="font-size: 32px; font-weight: 700;">${grantedCount}/${permissionsList.length}</div>
+                            </div>
+                            <div style="background: ${grantedCount === permissionsList.length ? 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)' : 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)'}; padding: 20px; border-radius: 12px; color: white;">
+                                <div style="font-size: 14px; opacity: 0.9; margin-bottom: 5px;">Access Level</div>
+                                <div style="font-size: 24px; font-weight: 700;">${grantedCount === permissionsList.length ? 'Full Access' : 'Limited Access'}</div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    container.innerHTML = roleHTML + summaryHTML + '<div class="permission-grid"></div>';
                     const grid = container.querySelector('.permission-grid');
                     
                     permissionsList.forEach(perm => {
                         const granted = perms[perm.key] || false;
                         const card = document.createElement('div');
                         card.className = `permission-card ${granted ? 'granted' : 'denied'}`;
+                        card.title = perm.details; // Add tooltip
                         card.innerHTML = `
                             <div class="permission-icon">
                                 <i class="fas fa-${perm.icon}"></i>
                             </div>
                             <div class="permission-info">
-                                <h4>${perm.name}</h4>
-                                <p>${perm.desc}</p>
+                                <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
+                                    <h4 style="margin: 0;">${perm.name}</h4>
+                                    <span style="padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; ${granted ? 'background: #d4edda; color: #155724;' : 'background: #f8d7da; color: #721c24;'}">
+                                        ${granted ? '<i class="fas fa-check"></i> Granted' : '<i class="fas fa-times"></i> Denied'}
+                                    </span>
+                                </div>
+                                <p style="margin: 0 0 10px 0; font-size: 14px; color: #6b7280;">${perm.desc}</p>
+                                <small style="font-size: 12px; color: #9ca3af; display: block;">${perm.details}</small>
                             </div>
                         `;
                         grid.appendChild(card);
@@ -2134,17 +2193,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             const container = document.getElementById('stores-content');
             
             if (data.success && data.data.length > 0) {
+                    // Add statistics banner
+                    const statsHTML = `
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px; margin-bottom: 20px;">
+                            <div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); padding: 20px; border-radius: 12px; color: white;">
+                                <div style="display: flex; align-items: center; gap: 15px;">
+                                    <div style="width: 50px; height: 50px; background: rgba(255,255,255,0.2); border-radius: 50%; display: flex; align-items: center; justify-content: center;">
+                                        <i class="fas fa-store" style="font-size: 24px;"></i>
+                                    </div>
+                                    <div>
+                                        <div style="font-size: 14px; opacity: 0.9;">Assigned Stores</div>
+                                        <div style="font-size: 32px; font-weight: 700;">${data.data.length}</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); padding: 20px; border-radius: 12px; color: white;">
+                                <div style="display: flex; align-items: center; gap: 15px;">
+                                    <div style="width: 50px; height: 50px; background: rgba(255,255,255,0.2); border-radius: 50%; display: flex; align-items: center; justify-content: center;">
+                                        <i class="fas fa-boxes" style="font-size: 24px;"></i>
+                                    </div>
+                                    <div>
+                                        <div style="font-size: 14px; opacity: 0.9;">Total Products</div>
+                                        <div style="font-size: 32px; font-weight: 700;" id="total-products-count">
+                                            <i class="fas fa-spinner fa-spin"></i>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    
                     // Add management toolbar
                     let toolbarHTML = `
                         <div style="background: #f8f9fa; padding: 15px; border-radius: 10px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
                             <div>
                                 <h4 style="margin: 0 0 5px 0; color: #2d3748;">Your Store Access</h4>
-                                <p style="margin: 0; font-size: 14px; color: #6b7280;">You have access to ${data.data.length} store(s)</p>
+                                <p style="margin: 0; font-size: 14px; color: #6b7280;">Manage stores you have access to</p>
                             </div>
                             <div style="display: flex; gap: 10px;">
+                                <button onclick="refreshStores()" class="btn" style="background: #6b7280; color: white; padding: 8px 16px; font-size: 14px;">
+                                    <i class="fas fa-sync-alt"></i> Refresh
+                                </button>
                                 ${isAdmin || isManager ? `
                                 <a href="../stores/list.php" class="btn" style="background: #3b82f6; color: white; padding: 8px 16px; font-size: 14px; text-decoration: none;">
-                    <i class="fas fa-list"></i> All Stores
+                                    <i class="fas fa-list"></i> All Stores
                                 </a>
                                 <a href="../stores/add.php" class="btn" style="background: #10b981; color: white; padding: 8px 16px; font-size: 14px; text-decoration: none;">
                                     <i class="fas fa-plus"></i> Add Store
@@ -2152,25 +2244,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             </div>
                         </div>
                     `;
-                    container.innerHTML = toolbarHTML;
+                    
+                    container.innerHTML = statsHTML + toolbarHTML + '<div class="stores-grid"></div>';
+                    const storesGrid = container.querySelector('.stores-grid');
+                    
+                    // Calculate total products
+                    let totalProducts = 0;
                     
                     data.data.forEach(store => {
+                        // Add to product count if available
+                        if (store.product_count) {
+                            totalProducts += parseInt(store.product_count);
+                        }
+                        
                         const card = document.createElement('div');
                         card.className = 'store-card';
                         card.innerHTML = `
                             <div class="store-info">
-                                <h4>${escapeHtml(store.store_name)}</h4>
+                                <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
+                                    <h4 style="margin: 0;">${escapeHtml(store.store_name)}</h4>
+                                    ${store.active ? '<span style="padding: 4px 10px; background: #d4edda; color: #155724; border-radius: 12px; font-size: 12px; font-weight: 600;"><i class="fas fa-check-circle"></i> Active</span>' : '<span style="padding: 4px 10px; background: #f8d7da; color: #721c24; border-radius: 12px; font-size: 12px; font-weight: 600;"><i class="fas fa-times-circle"></i> Inactive</span>'}
+                                </div>
                                 <div class="store-meta">
                                     <span><i class="fas fa-map-marker-alt"></i> ${escapeHtml(store.city || 'N/A')}, ${escapeHtml(store.state || 'N/A')}</span>
                                     ${store.phone ? `<span><i class="fas fa-phone"></i> ${escapeHtml(store.phone)}</span>` : ''}
+                                    ${store.product_count ? `<span><i class="fas fa-boxes"></i> ${store.product_count} products</span>` : ''}
                                 </div>
                             </div>
-                            <a href="../stores/profile.php?id=${store.id}" class="btn btn-primary">
-                                <i class="fas fa-eye"></i> View
-                            </a>
+                            <div style="display: flex; gap: 8px;">
+                                <a href="../stores/profile.php?id=${store.id}" class="btn btn-primary" style="text-decoration: none;">
+                                    <i class="fas fa-eye"></i> View
+                                </a>
+                                ${isAdmin || isManager ? `
+                                <a href="../stores/edit.php?id=${store.id}" class="btn" style="background: #3b82f6; color: white; text-decoration: none;">
+                                    <i class="fas fa-edit"></i> Edit
+                                </a>` : ''}
+                            </div>
                         `;
-                        container.appendChild(card);
+                        storesGrid.appendChild(card);
                     });
+                    
+                    // Update total products count
+                    if (totalProducts > 0) {
+                        document.getElementById('total-products-count').textContent = totalProducts.toLocaleString();
+                    } else {
+                        document.getElementById('total-products-count').textContent = 'N/A';
+                    }
             } else {
                 container.innerHTML = `
                     <div class="empty-state">
@@ -2758,6 +2877,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             matchIndicator.style.color = '#ef4444';
             matchIndicator.innerHTML = '<i class="fas fa-times-circle"></i> Passwords do not match';
         }
+    }
+    
+    // Refresh stores data
+    async function refreshStores() {
+        // Clear cache
+        localStorage.removeItem('stores_cache');
+        localStorage.removeItem('stores_last_load');
+        
+        // Show loading
+        document.getElementById('stores-content').style.display = 'none';
+        document.getElementById('stores-loading').style.display = 'block';
+        
+        // Reload
+        await loadStores();
+        
+        showNotification('Stores data refreshed successfully!', 'success');
     }
     
     // Start auto-refresh when page loads
