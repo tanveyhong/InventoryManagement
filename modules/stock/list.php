@@ -392,8 +392,8 @@ $page_title = 'Stock Management - Inventory System';
                                         </div>
                                     </td>
                                     <td>
-                                        <span class="price">RM<?php echo number_format($product['unit_price'], 2); ?></span>
-                                        <br><small>Total: RM<?php echo number_format($product['quantity'] * $product['unit_price'], 2); ?></small>
+                                        <span class="price">RM <?php echo number_format($product['unit_price'], 2); ?></span>
+                                        <br><small>Total: RM <?php echo number_format($product['quantity'] * $product['unit_price'], 2); ?></small>
                                     </td>
                                     <td>
                                         <span class="status-badge status-<?php echo $product['status']; ?>">

@@ -22,46 +22,46 @@ function db_obj()
   return function_exists('getDB') ? @getDB() : null;
 }
 
-// ---------- Load lookups (categories, locations) ----------
-$db = db_obj();
+// Firestore for products, SQL for stores
+$fs     = db_obj();      // Firestore wrapper
+$sqlDb  = getDB();       // SQL wrapper (same one add.php uses)
+
 $all_products = [];
-$categories = [];
-$locations = [];
-if ($db) {
+$categories   = [];
+
+// ---- Load products from Firestore ----
+if ($fs) {
   try {
-    // Read all products (limit to 2000)
-    $productDocs = $db->readAll('products', [], null, 2000);
-
+    $productDocs = $fs->readAll('products', [], null, 2000);
     foreach ($productDocs as $r) {
-      // Normalize to the same keys used by stock list
-    if (!empty($r['deleted_at'])) continue;
-    if (isset($r['status']) && $r['status'] === 'disabled') continue;
+      if (!empty($r['deleted_at'])) continue;
+      if (isset($r['status']) && $r['status'] === 'disabled') continue;
 
-    // 🟡 Skip out-of-stock items
-    if (isset($r['quantity']) && (int)$r['quantity'] === 0) continue;
-      $p = [
-        'doc_id'         => $r['id'] ?? ($r['doc_id'] ?? null), // prefer doc id if your wrapper sets it
-        'id'             => $r['id'] ?? null,
-        'name'           => $r['name'] ?? '',
-        'sku'            => $r['sku'] ?? '',
-        'description'    => $r['description'] ?? '',
-        'quantity'       => isset($r['quantity']) ? (int)$r['quantity'] : 0,
+      // Skip out-of-stock items
+      if (isset($r['quantity']) && (int)$r['quantity'] === 0) continue;
+
+      $all_products[] = [
+        'doc_id'          => $r['id'] ?? ($r['doc_id'] ?? null),
+        'id'              => $r['id'] ?? null,
+        'name'            => $r['name'] ?? '',
+        'sku'             => $r['sku'] ?? '',
+        'description'     => $r['description'] ?? '',
+        'quantity'        => isset($r['quantity']) ? (int)$r['quantity'] : 0,
         'min_stock_level' => isset($r['reorder_level']) ? (int)$r['reorder_level'] : (isset($r['min_stock_level']) ? (int)$r['min_stock_level'] : 0),
-        'unit_price'     => isset($r['price']) ? (float)$r['price'] : (isset($r['unit_price']) ? (float)$r['unit_price'] : 0.0),
-        'expiry_date'    => $r['expiry_date'] ?? null,
-        'created_at'     => $r['created_at'] ?? null,
-        'updated_at'     => $r['updated_at'] ?? null,
-        'category_name'  => $r['category'] ?? ($r['category_name'] ?? null),
-        'store_id'       => $r['store_id'] ?? null,
-        'location'       => $r['location'] ?? '',
-        'deleted_at'     => $r['deleted_at'] ?? null,
-        'status_db'      => $r['status'] ?? null,
-        '_raw'           => $r,
+        'unit_price'      => isset($r['price']) ? (float)$r['price'] : (isset($r['unit_price']) ? (float)$r['unit_price'] : 0.0),
+        'expiry_date'     => $r['expiry_date'] ?? null,
+        'created_at'      => $r['created_at'] ?? null,
+        'updated_at'      => $r['updated_at'] ?? null,
+        'category_name'   => $r['category'] ?? ($r['category_name'] ?? null),
+        'store_id'        => $r['store_id'] ?? null,
+        '_raw'            => $r,
       ];
-      $all_products[] = $p;
 
-      if (!empty($p['category_name'])) $categories[$p['category_name']] = true;
-      if (!empty($p['location'])) $locations[$p['location']] = true;
+      if (!empty($r['category'] ?? null)) {
+        $categories[$r['category']] = true;
+      } elseif (!empty($r['category_name'] ?? null)) {
+        $categories[$r['category_name']] = true;
+      }
     }
   } catch (Throwable $e) {
     error_log('Inventory report load failed: ' . $e->getMessage());
@@ -70,17 +70,34 @@ if ($db) {
 }
 $categories = array_keys($categories);
 sort($categories, SORT_NATURAL | SORT_FLAG_CASE);
-$locations  = array_keys($locations);
-sort($locations, SORT_NATURAL | SORT_FLAG_CASE);
 
-// ---------- Read filters ----------
+
 $category     = isset($_GET['category']) ? trim((string)$_GET['category']) : '';
-$location     = isset($_GET['location']) ? trim((string)$_GET['location']) : '';
+$storeFilter  = isset($_GET['store_id'])
+                  ? trim((string)$_GET['store_id'])
+                  : trim((string)($_GET['location'] ?? '')); // legacy fallback
 $date_field   = isset($_GET['date_field']) ? trim((string)$_GET['date_field']) : 'created_at'; // created_at | updated_at | expiry_date
 $from_date    = isset($_GET['from']) ? trim((string)$_GET['from']) : '';
 $to_date      = isset($_GET['to']) ? trim((string)$_GET['to']) : '';
 $do_preview   = isset($_GET['run']) && $_GET['run'] === '1';
 $export       = isset($_GET['export']) ? trim((string)$_GET['export']) : ''; // excel | pdf
+
+$stores = [];
+try {
+  if ($sqlDb && method_exists($sqlDb, 'fetchAll')) {
+    $stores = $sqlDb->fetchAll("SELECT id, name FROM stores WHERE COALESCE(is_active,1)=1 ORDER BY name");
+  }
+} catch (Throwable $t) {
+  error_log('Load stores failed: ' . $t->getMessage());
+}
+
+// Build store id => name map
+$storeMap = [];
+foreach ($stores as $s) {
+  $sid = (string)($s['id'] ?? '');
+  $sname = (string)($s['name'] ?? '');
+  if ($sid !== '' && $sname !== '') $storeMap[$sid] = $sname;
+}
 
 // ---------- Filter + hide disabled ----------
 function is_active_product(array $p): bool
@@ -93,11 +110,11 @@ function is_active_product(array $p): bool
 
 $filtered = [];
 if ($do_preview || $export) {
-  $filtered = array_values(array_filter($all_products, function ($p) use ($category, $location, $date_field, $from_date, $to_date) {
+  $filtered = array_values(array_filter($all_products, function ($p) use ($category, $storeFilter, $date_field, $from_date, $to_date) {
     if (!is_active_product($p)) return false;
 
     if ($category !== '' && ($p['category_name'] ?? '') !== $category) return false;
-    if ($location !== '' && ($p['location'] ?? '') !== $location) return false;
+    if ($storeFilter !== '' && (string)($p['store_id'] ?? '') !== $storeFilter) return false;
 
     // Date range filter
     if (!in_array($date_field, ['created_at', 'updated_at', 'expiry_date'], true)) $date_field = 'created_at';
@@ -114,11 +131,23 @@ if ($do_preview || $export) {
   }));
 }
 
+$storeFilter = isset($_GET['store_id'])
+  ? trim((string)$_GET['store_id'])
+  : trim((string)($_GET['location'] ?? ''));
+
+// load stores for dropdown (id, name)
+$stores = [];
+try {
+  $stores = $db->fetchAll("SELECT id, name FROM stores WHERE COALESCE(is_active,1)=1 ORDER BY name");
+} catch (Throwable $t) {
+  error_log('Load stores failed: ' . $t->getMessage());
+}
+
 // ---------- Export handlers ----------
 if ($export === 'excel') {
   // Try PhpSpreadsheet if available; else fall back to CSV (Excel opens it fine).
   $filename = 'Inventory Report_' . date('Ymd_His');
-  $columns = ['Name', 'SKU', 'Category', 'Location', 'Quantity', 'Min Level', 'Unit Price (RM)', 'Total Value (RM)', 'Expiry Date', 'Created At'];
+  $columns = ['Name', 'SKU', 'Category', 'Store', 'Quantity', 'Min Level', 'Unit Price (RM)', 'Total Value (RM)', 'Expiry Date', 'Created At'];
 
   // Fallback CSV
   header('Content-Type: text/csv; charset=utf-8');
@@ -127,21 +156,24 @@ if ($export === 'excel') {
   $out = fopen('php://output', 'w');
   fputcsv($out, $columns);
 
-  foreach ($filtered as $p) {
-    $row = [
-      $p['name'] ?? '',
-      $p['sku'] ?? '',
-      $p['category_name'] ?? '',
-      $p['location'] ?? '',
-      (string)($p['quantity'] ?? 0),
-      (string)($p['min_stock_level'] ?? 0),
-      number_format((float)($p['unit_price'] ?? 0), 2, '.', ''),
-      number_format(((float)($p['unit_price'] ?? 0) * (int)($p['quantity'] ?? 0)), 2, '.', ''),
-      $p['expiry_date'] ?? '',
-      $p['created_at'] ?? '',
-    ];
-    fputcsv($out, $row);
-  }
+foreach ($filtered as $p) {
+  $sid = (string)($p['store_id'] ?? '');
+  $storeName = ($sid !== '' && isset($storeMap[$sid])) ? $storeMap[$sid] : '';
+
+  $row = [
+    $p['name'] ?? '',
+    $p['sku'] ?? '',
+    $p['category_name'] ?? '',
+    $storeName,
+    (string)($p['quantity'] ?? 0),
+    (string)($p['min_stock_level'] ?? 0),
+    number_format((float)($p['unit_price'] ?? 0), 2, '.', ''),
+    number_format(((float)($p['unit_price'] ?? 0) * (int)($p['quantity'] ?? 0)), 2, '.', ''),
+    $p['expiry_date'] ?? '',
+    $p['created_at'] ?? '',
+  ];
+  fputcsv($out, $row);
+}
   fclose($out);
   exit;
 }
@@ -152,12 +184,12 @@ if ($export === 'pdf') {
   if ($hasDompdf) {
     $html = '<h2 style="margin:0 0 10px">Inventory Report</h2>';
     $html .= '<div style="font-size:12px;margin-bottom:8px">';
-    $html .= 'Category: ' . h($category ?: 'All') . ' &nbsp; | &nbsp; Location: ' . h($location ?: 'All') . ' &nbsp; | &nbsp; Date Field: ' . h($date_field);
+    $html .= 'Category: ' . h($category ?: 'All') . ' &nbsp; | &nbsp; Store: ' . h($storeFilter ?: 'All') . ' &nbsp; | &nbsp; Date Field: ' . h($date_field);
     if ($from_date || $to_date) $html .= ' &nbsp; | &nbsp; Range: ' . h($from_date ?: '—') . ' to ' . h($to_date ?: '—');
     $html .= '</div>';
     $html .= '<table width="100%" cellspacing="0" cellpadding="6" style="border-collapse:collapse;font-size:12px">';
     $html .= '<thead><tr style="background:#e5e7eb">';
-    $heads = ['Name', 'SKU', 'Category', 'Location', 'Qty', 'Min', 'Unit Price (RM)', 'Total (RM)', 'Expiry', 'Created'];
+    $heads = ['Name', 'SKU', 'Category', 'Store', 'Qty', 'Min', 'Unit Price (RM)', 'Total (RM)', 'Expiry', 'Created'];
     foreach ($heads as $hcell) $html .= '<th style="border:1px solid #cbd5e1;text-align:left">' . $h($hcell) . '</th>';
     $html .= '</tr></thead><tbody>';
     foreach ($filtered as $p) {
@@ -165,7 +197,9 @@ if ($export === 'pdf') {
       $html .= '<td style="border:1px solid #e5e7eb">' . h($p['name'] ?? '') . '</td>';
       $html .= '<td style="border:1px solid #e5e7eb">' . h($p['sku'] ?? '') . '</td>';
       $html .= '<td style="border:1px solid #e5e7eb">' . h($p['category_name'] ?? '') . '</td>';
-      $html .= '<td style="border:1px solid #e5e7eb">' . h($p['location'] ?? '') . '</td>';
+$sid = (string)($p['store_id'] ?? '');
+$storeName = ($sid !== '' && isset($storeMap[$sid])) ? $storeMap[$sid] : '';
+$html .= '<td style="border:1px solid #e5e7eb">' . h($storeName) . '</td>';
       $html .= '<td style="border:1px solid #e5e7eb">' . (int)($p['quantity'] ?? 0) . '</td>';
       $html .= '<td style="border:1px solid #e5e7eb">' . (int)($p['min_stock_level'] ?? 0) . '</td>';
       $html .= '<td style="border:1px solid #e5e7eb">' . number_format((float)($p['unit_price'] ?? 0), 2) . '</td>';
@@ -567,17 +601,25 @@ $page_title = 'Inventory Report – Stock Management';
               </select>
             </div>
 
-            <div class="field">
-              <label class="label">Location</label>
-              <select class="control" name="location">
-                <option value="">All locations</option>
-                <?php foreach ($locations as $loc): ?>
-                  <option value="<?php echo h($loc); ?>" <?php echo $location === $loc ? 'selected' : ''; ?>>
-                    <?php echo h($loc); ?>
-                  </option>
-                <?php endforeach; ?>
-              </select>
-            </div>
+<div class="field">
+  <label class="label">Store</label>
+  <select class="control" name="store_id">
+    <option value="">All stores</option>
+    <?php
+      foreach ($stores as $s):
+        $sid   = (string)$s['id'];
+        $sname = (string)$s['name'];
+        if ($sid === '' || $sname === '') continue;
+        $sel = ($sid === $storeFilter) ? 'selected' : '';
+    ?>
+      <option value="<?= htmlspecialchars($sid) ?>" <?= $sel ?>>
+        <?= htmlspecialchars($sname) ?>
+      </option>
+    <?php endforeach; ?>
+  </select>
+</div>
+
+
 
             <div class="field">
               <label class="label">Date Field</label>
@@ -609,85 +651,106 @@ $page_title = 'Inventory Report – Stock Management';
     </div>
 
     <?php if ($do_preview): ?>
-      <div class="card">
-        <div class="inner">
-          <div class="toolbar" style="justify-content:space-between;align-items:center;margin-bottom:10px">
-            <div>
-              <span class="pill">Matches: <?php echo count($filtered); ?></span>
-              <?php
-              $totalValue = 0;
-              $totalQty = 0;
-              foreach ($filtered as $p) {
-                $totalQty += (int)($p['quantity'] ?? 0);
-                $totalValue += ((float)($p['unit_price'] ?? 0)) * (int)($p['quantity'] ?? 0);
-              }
-              ?>
-              <span class="pill">Total Qty: <?php echo number_format($totalQty); ?></span>
-              <span class="pill">Total Value: RM <?php echo number_format($totalValue, 2); ?></span>
-            </div>
-            <div class="toolbar">
-              <!-- Keep the same query string and add export param -->
-              <a class="btn btn-export" href="?<?php
-                                                $q = $_GET;
-                                                $q['export'] = 'excel';
-                                                echo h(http_build_query($q));
-                                                ?>"><i class="fas fa-file-excel"></i> Export Excel</a>
-              <button onclick="window.print()" class="btn btn-export">
-                <i class="fas fa-file-pdf"></i> Export to PDF
-              </button>
-            </div>
-          </div>
-          <!-- Print-only header -->
-          <div class="print-header">
-            <div class="brand">
-              <!-- Optional logo: use an absolute URL or data URI if you want it to embed -->
-              <!-- <img src="https://your-cdn/logo.png" alt="Logo"> -->
-              <div>
-                <div class="title">Inventory Report</div>
-                <div class="meta">
-                  <span><strong>Category:</strong> <?php echo h($category ?: 'All'); ?></span>
-                  <span><strong>Location:</strong> <?php echo h($location ?: 'All'); ?></span>
-                  <span><strong>Date Field:</strong> <?php echo h($date_field); ?></span>
-                  <span><strong>Range:</strong> <?php echo h($from_date ?: '—'); ?> to <?php echo h($to_date ?: '—'); ?></span>
-                  <span><strong>Generated:</strong> <?php echo date('Y-m-d H:i'); ?></span>
-                </div>
-              </div>
-            </div>
-          </div>
+  <?php
+  // Ensure we have id->name map available here (defensive)
+  if (!isset($storeMap) || !is_array($storeMap)) {
+      $storeMap = [];
+      if (isset($stores) && is_array($stores)) {
+          foreach ($stores as $s) {
+              $sid   = (string)($s['id'] ?? '');
+              $sname = (string)($s['name'] ?? '');
+              if ($sid !== '' && $sname !== '') $storeMap[$sid] = $sname;
+          }
+      }
+  }
 
-          <?php if (empty($filtered)): ?>
-            <p style="color:#475569;margin:6px 0 0">No products match the selected criteria.</p>
-          <?php else: ?>
-            <div class="table-container">
-              <table class="report">
-                <thead>
-                  <tr>
-                    <th>Product</th>
-                    <th>SKU</th>
-                    <th>Category</th>
-                    <th>Location</th>
-                    <th>Qty</th>
-                    <th>Unit Price</th>
-                    <th>Total Value</th>
-                    <th>Expiry</th>
-                    <th>Created</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <?php foreach ($filtered as $p): ?>
-                    <tr>
-                      <td><?php echo h($p['name'] ?? ''); ?></td>
-                      <td><?php echo h($p['sku'] ?? ''); ?></td>
-                      <td><?php echo h($p['category_name'] ?? ''); ?></td>
-                      <td><?php echo h($p['location'] ?? ''); ?></td>
-                      <td><?php echo number_format((int)($p['quantity'] ?? 0)); ?></td>
-                      <td>RM <?php echo number_format((float)($p['unit_price'] ?? 0), 2); ?></td>
-                      <td>RM <?php echo number_format(((float)($p['unit_price'] ?? 0) * (int)($p['quantity'] ?? 0)), 2); ?></td>
-                      <td><?php echo $p['expiry_date'] ? h(date('M j, Y', strtotime($p['expiry_date']))) : '—'; ?></td>
-                      <td><?php echo $p['created_at'] ? h(date('M j, Y', strtotime($p['created_at']))) : '—'; ?></td>
-                    </tr>
-                  <?php endforeach; ?>
-                </tbody>
+  // Pretty label for the currently selected store in the print header
+  $selectedStoreName = 'All';
+  if (!empty($storeFilter)) {
+      $selectedStoreName = $storeMap[$storeFilter] ?? $storeFilter; // fallback to id if name missing
+  }
+  ?>
+  <div class="card">
+    <div class="inner">
+      <div class="toolbar" style="justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div>
+          <span class="pill">Matches: <?php echo count($filtered); ?></span>
+          <?php
+          $totalValue = 0;
+          $totalQty = 0;
+          foreach ($filtered as $p) {
+            $totalQty  += (int)($p['quantity'] ?? 0);
+            $totalValue += ((float)($p['unit_price'] ?? 0)) * (int)($p['quantity'] ?? 0);
+          }
+          ?>
+          <span class="pill">Total Qty: <?php echo number_format($totalQty); ?></span>
+          <span class="pill">Total Value: RM <?php echo number_format($totalValue, 2); ?></span>
+        </div>
+        <div class="toolbar">
+          <a class="btn btn-export" href="?<?php
+            $q = $_GET; $q['export'] = 'excel'; echo h(http_build_query($q));
+          ?>"><i class="fas fa-file-excel"></i> Export Excel</a>
+          <button onclick="window.print()" class="btn btn-export">
+            <i class="fas fa-file-pdf"></i> Export to PDF
+          </button>
+        </div>
+      </div>
+
+      <!-- Print-only header -->
+      <div class="print-header">
+        <div class="brand">
+          <!-- <img src="...logo..." alt="Logo"> -->
+          <div>
+            <div class="title">Inventory Report</div>
+            <div class="meta">
+              <span><strong>Category:</strong> <?php echo h($category ?: 'All'); ?></span>
+              <span><strong>Store:</strong> <?php echo h($selectedStoreName); ?></span>
+              <span><strong>Date Field:</strong> <?php echo h($date_field); ?></span>
+              <span><strong>Range:</strong> <?php echo h($from_date ?: '—'); ?> to <?php echo h($to_date ?: '—'); ?></span>
+              <span><strong>Generated:</strong> <?php echo date('Y-m-d H:i'); ?></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <?php if (empty($filtered)): ?>
+        <p style="color:#475569;margin:6px 0 0">No products match the selected criteria.</p>
+      <?php else: ?>
+        <div class="table-container">
+          <table class="report">
+            <thead>
+              <tr>
+                <th>Product</th>
+                <th>SKU</th>
+                <th>Category</th>
+                <th>Store</th> <!-- changed from Location -->
+                <th>Qty</th>
+                <th>Unit Price</th>
+                <th>Total Value</th>
+                <th>Expiry</th>
+                <th>Created</th>
+              </tr>
+            </thead>
+            <tbody>
+              <?php foreach ($filtered as $p): ?>
+                <?php
+                  // Resolve store name for the row
+                  $sid = (string)($p['store_id'] ?? '');
+                  $rowStoreName = $sid !== '' ? ($storeMap[$sid] ?? '—') : '—';
+                ?>
+                <tr>
+                  <td><?php echo h($p['name'] ?? ''); ?></td>
+                  <td><?php echo h($p['sku'] ?? ''); ?></td>
+                  <td><?php echo h($p['category_name'] ?? ''); ?></td>
+                  <td><?php echo h($rowStoreName); ?></td> <!-- use store name -->
+                  <td><?php echo number_format((int)($p['quantity'] ?? 0)); ?></td>
+                  <td>RM <?php echo number_format((float)($p['unit_price'] ?? 0), 2); ?></td>
+                  <td>RM <?php echo number_format(((float)($p['unit_price'] ?? 0) * (int)($p['quantity'] ?? 0)), 2); ?></td>
+                  <td><?php echo !empty($p['expiry_date']) ? h(date('M j, Y', strtotime($p['expiry_date']))) : '—'; ?></td>
+                  <td><?php echo !empty($p['created_at']) ? h(date('M j, Y', strtotime($p['created_at']))) : '—'; ?></td>
+                </tr>
+              <?php endforeach; ?>
+            </tbody>
                 <tfoot>
                   <tr class="totals-row">
                     <th colspan="4" style="text-align:right;">Totals</th>
