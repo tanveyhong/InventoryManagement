@@ -106,6 +106,31 @@ try {
             ]);
             break;
             
+        case 'check_new_activities':
+            // Check if there are new activities since a given timestamp
+            $since = $_GET['since'] ?? null;
+            
+            if (!$since) {
+                echo json_encode(['success' => false, 'error' => 'Missing timestamp']);
+                exit;
+            }
+            
+            // Get current user's activities created after the timestamp
+            $conditions = [
+                ['deleted_at', '==', null],
+                ['user_id', '==', $userId],
+                ['created_at', '>', $since]
+            ];
+            
+            $newActivities = $db->readAll('user_activities', $conditions, ['created_at', 'DESC'], 1);
+            
+            echo json_encode([
+                'success' => true,
+                'has_new' => !empty($newActivities),
+                'count' => count($newActivities)
+            ]);
+            break;
+            
         case 'get_all_users':
             // Admin only - get list of users for activity filtering
             $currentUser = $db->read('users', $userId);
@@ -319,6 +344,71 @@ try {
             }
             
             echo json_encode(['success' => true, 'data' => $stats]);
+            break;
+            
+        case 'upload_avatar':
+            // Handle avatar upload
+            if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+                http_response_code(405);
+                echo json_encode(['success' => false, 'error' => 'Method not allowed']);
+                exit;
+            }
+            
+            if (!isset($_FILES['avatar']) || $_FILES['avatar']['error'] !== UPLOAD_ERR_OK) {
+                echo json_encode(['success' => false, 'error' => 'No file uploaded or upload error']);
+                exit;
+            }
+            
+            $file = $_FILES['avatar'];
+            
+            // Validate file type
+            $allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+            if (!in_array($file['type'], $allowedTypes)) {
+                echo json_encode(['success' => false, 'error' => 'Invalid file type. Only JPG, PNG, GIF, and WebP are allowed']);
+                exit;
+            }
+            
+            // Validate file size (2MB max)
+            if ($file['size'] > 2 * 1024 * 1024) {
+                echo json_encode(['success' => false, 'error' => 'File size must be less than 2MB']);
+                exit;
+            }
+            
+            // Create uploads directory if it doesn't exist
+            $uploadDir = __DIR__ . '/../../../storage/uploads/avatars/';
+            if (!file_exists($uploadDir)) {
+                mkdir($uploadDir, 0755, true);
+            }
+            
+            // Generate unique filename
+            $extension = pathinfo($file['name'], PATHINFO_EXTENSION);
+            $filename = $userId . '_' . time() . '.' . $extension;
+            $uploadPath = $uploadDir . $filename;
+            
+            // Move uploaded file
+            if (move_uploaded_file($file['tmp_name'], $uploadPath)) {
+                // Update user record with avatar path
+                $avatarUrl = '../storage/uploads/avatars/' . $filename;
+                
+                $updated = $db->update('users', $userId, [
+                    'profile_picture' => $avatarUrl,
+                    'updated_at' => date('c')
+                ]);
+                
+                if ($updated) {
+                    echo json_encode([
+                        'success' => true,
+                        'url' => $avatarUrl,
+                        'message' => 'Avatar uploaded successfully'
+                    ]);
+                } else {
+                    // Clean up uploaded file if database update fails
+                    unlink($uploadPath);
+                    echo json_encode(['success' => false, 'error' => 'Failed to update profile']);
+                }
+            } else {
+                echo json_encode(['success' => false, 'error' => 'Failed to save file']);
+            }
             break;
             
         default:

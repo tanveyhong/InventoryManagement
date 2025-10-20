@@ -507,6 +507,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             font-size: 48px;
             font-weight: bold;
             flex-shrink: 0;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .avatar-upload-btn {
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: white;
+            border: 3px solid #667eea;
+            color: #667eea;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+        
+        .avatar-upload-btn:hover {
+            background: #667eea;
+            color: white;
+            transform: scale(1.1);
         }
         
         .profile-info {
@@ -542,6 +569,64 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         .meta-item i {
             color: #667eea;
+        }
+        
+        /* Statistics Dashboard */
+        .stats-dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .stat-card {
+            background: white;
+            border-radius: 16px;
+            padding: 24px;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            transition: all 0.3s ease;
+        }
+        
+        .stat-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+        }
+        
+        .stat-icon {
+            width: 60px;
+            height: 60px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 24px;
+        }
+        
+        .stat-info {
+            flex: 1;
+        }
+        
+        .stat-label {
+            font-size: 13px;
+            color: #6b7280;
+            font-weight: 500;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .stat-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: #1f2937;
+        }
+        
+        .stat-value.small {
+            font-size: 16px;
         }
         
         .tabs {
@@ -626,6 +711,82 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             border-color: #667eea;
             box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
         }
+        
+        /* Password Input with Toggle */
+        .password-input-wrapper {
+            position: relative;
+        }
+        
+        .password-input-wrapper .form-input {
+            padding-right: 45px;
+        }
+        
+        .password-toggle {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            color: #6b7280;
+            cursor: pointer;
+            padding: 8px;
+            transition: color 0.3s ease;
+        }
+        
+        .password-toggle:hover {
+            color: #667eea;
+        }
+        
+        /* Password Strength Meter */
+        .password-strength {
+            margin-top: 12px;
+        }
+        
+        .strength-bar {
+            height: 6px;
+            background: #e2e8f0;
+            border-radius: 3px;
+            overflow: hidden;
+            margin-bottom: 8px;
+        }
+        
+        .strength-fill {
+            height: 100%;
+            width: 0%;
+            transition: all 0.3s ease;
+            border-radius: 3px;
+        }
+        
+        .strength-fill.weak {
+            width: 25%;
+            background: #ef4444;
+        }
+        
+        .strength-fill.fair {
+            width: 50%;
+            background: #f59e0b;
+        }
+        
+        .strength-fill.good {
+            width: 75%;
+            background: #10b981;
+        }
+        
+        .strength-fill.strong {
+            width: 100%;
+            background: #059669;
+        }
+        
+        .strength-text {
+            font-size: 13px;
+            font-weight: 600;
+        }
+        
+        .strength-text.weak { color: #ef4444; }
+        .strength-text.fair { color: #f59e0b; }
+        .strength-text.good { color: #10b981; }
+        .strength-text.strong { color: #059669; }
         
         .btn {
             padding: 12px 24px;
@@ -1096,8 +1257,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <?php endif; ?>
         
         <div class="profile-header">
-            <div class="profile-avatar">
-                <?= strtoupper(substr($user['first_name'] ?? 'U', 0, 1)) . strtoupper(substr($user['last_name'] ?? 'U', 0, 1)) ?>
+            <div class="profile-avatar" id="profileAvatar">
+                <?php if (!empty($user['profile_picture'])): ?>
+                    <img src="<?= htmlspecialchars($user['profile_picture']) ?>" alt="Profile" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">
+                <?php else: ?>
+                    <?= strtoupper(substr($user['first_name'] ?? 'U', 0, 1)) . strtoupper(substr($user['last_name'] ?? 'U', 0, 1)) ?>
+                <?php endif; ?>
+                <input type="file" id="avatarUpload" accept="image/*" style="display: none;">
+                <button class="avatar-upload-btn" onclick="document.getElementById('avatarUpload').click()" title="Change profile picture">
+                    <i class="fas fa-camera"></i>
+                </button>
             </div>
             <div class="profile-info">
                 <h1 class="profile-name"><?= htmlspecialchars(($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? '')) ?></h1>
@@ -1144,6 +1313,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                     ?>
                 </small>
+            </div>
+        </div>
+        
+        <!-- Profile Statistics Dashboard -->
+        <div class="stats-dashboard">
+            <div class="stat-card">
+                <div class="stat-icon" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                    <i class="fas fa-history"></i>
+                </div>
+                <div class="stat-info">
+                    <div class="stat-label">Total Activities</div>
+                    <div class="stat-value" id="stat-activities">
+                        <i class="fas fa-spinner fa-spin"></i>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-icon" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+                    <i class="fas fa-store"></i>
+                </div>
+                <div class="stat-info">
+                    <div class="stat-label">Stores Access</div>
+                    <div class="stat-value" id="stat-stores">
+                        <i class="fas fa-spinner fa-spin"></i>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-icon" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);">
+                    <i class="fas fa-sign-in-alt"></i>
+                </div>
+                <div class="stat-info">
+                    <div class="stat-label">Last Login</div>
+                    <div class="stat-value" id="stat-last-login">
+                        <i class="fas fa-spinner fa-spin"></i>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-icon" style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);">
+                    <i class="fas fa-calendar-check"></i>
+                </div>
+                <div class="stat-info">
+                    <div class="stat-label">Account Age</div>
+                    <div class="stat-value" id="stat-account-age">
+                        <i class="fas fa-spinner fa-spin"></i>
+                    </div>
+                </div>
             </div>
         </div>
         
@@ -1256,25 +1476,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             <!-- Security Tab -->
             <div class="tab-content" id="tab-security">
-                <form method="POST" action="">
+                <form method="POST" action="" id="passwordChangeForm">
                     <input type="hidden" name="action" value="change_password">
                     
                     <div class="form-group">
                         <label class="form-label">Current Password</label>
-                        <input type="password" name="current_password" class="form-input" required>
+                        <div class="password-input-wrapper">
+                            <input type="password" name="current_password" id="currentPassword" class="form-input" required>
+                            <button type="button" class="password-toggle" onclick="togglePassword('currentPassword')">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
                     </div>
                     
                     <div class="form-group">
                         <label class="form-label">New Password</label>
-                        <input type="password" name="new_password" class="form-input" required minlength="8">
+                        <div class="password-input-wrapper">
+                            <input type="password" name="new_password" id="newPassword" class="form-input" required minlength="8">
+                            <button type="button" class="password-toggle" onclick="togglePassword('newPassword')">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                        <div class="password-strength" id="passwordStrength">
+                            <div class="strength-bar">
+                                <div class="strength-fill" id="strengthFill"></div>
+                            </div>
+                            <div class="strength-text" id="strengthText">Enter a password</div>
+                        </div>
+                        <small style="color: #6b7280; display: block; margin-top: 8px;">
+                            Password must contain: 
+                            <span id="req-length" style="color: #ef4444;">✗ 8+ characters</span>
+                            <span id="req-uppercase" style="color: #ef4444;">✗ Uppercase</span>
+                            <span id="req-lowercase" style="color: #ef4444;">✗ Lowercase</span>
+                            <span id="req-number" style="color: #ef4444;">✗ Number</span>
+                        </small>
                     </div>
                     
                     <div class="form-group">
                         <label class="form-label">Confirm New Password</label>
-                        <input type="password" name="confirm_password" class="form-input" required minlength="8">
+                        <div class="password-input-wrapper">
+                            <input type="password" name="confirm_password" id="confirmPassword" class="form-input" required minlength="8">
+                            <button type="button" class="password-toggle" onclick="togglePassword('confirmPassword')">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                        <small id="passwordMatch" style="display: none;"></small>
                     </div>
                     
-                    <button type="submit" class="btn btn-primary">
+                    <button type="submit" class="btn btn-primary" id="submitPasswordBtn">
                         <i class="fas fa-key"></i> Change Password
                     </button>
                 </form>
@@ -1485,6 +1734,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             try {
                 loadingActivities = true;
                 
+                // Check if we need to load (only if not appending and not forced)
+                if (!append && !skipCache) {
+                    const lastLoadTime = localStorage.getItem('activities_last_load');
+                    const cachedData = localStorage.getItem('activities_cache');
+                    
+                    if (lastLoadTime && cachedData) {
+                        try {
+                            // Check if there are new records
+                            const checkResponse = await fetch(
+                                `profile/api.php?action=check_new_activities&since=${lastLoadTime}`,
+                                { signal: abortController?.signal }
+                            );
+                            const checkData = await checkResponse.json();
+                            
+                            if (checkData.success && !checkData.has_new) {
+                                console.log('No new activities, using cache');
+                                // Use cached data
+                                allActivitiesCache = JSON.parse(cachedData);
+                                
+                                // Hide loading, show content
+                                document.getElementById('activity-loading').style.display = 'none';
+                                document.getElementById('activity-content').style.display = 'block';
+                                
+                                // Render cached activities
+                                renderActivities();
+                                
+                                loadingActivities = false;
+                                return;
+                            } else {
+                                console.log('New activities detected, loading...');
+                            }
+                        } catch (cacheError) {
+                            console.log('Cache check failed, loading fresh data:', cacheError);
+                        }
+                    }
+                }
+                
                 if (!append) {
                     activityOffset = 0;
                     allActivitiesCache = [];
@@ -1527,6 +1813,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         allActivitiesCache = allActivitiesCache.concat(data.data);
                     } else {
                         allActivitiesCache = data.data;
+                        
+                        // Store in localStorage for future loads
+                        try {
+                            localStorage.setItem('activities_cache', JSON.stringify(allActivitiesCache));
+                            localStorage.setItem('activities_last_load', new Date().toISOString());
+                            console.log('Activities cached successfully');
+                        } catch (storageError) {
+                            console.warn('Failed to cache activities:', storageError);
+                        }
                     }
                     
                     const container = document.getElementById('activity-content');
@@ -1783,15 +2078,62 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         async function loadStores() {
             try {
+                // Check cache first
+                const lastLoadTime = localStorage.getItem('stores_last_load');
+                const cachedData = localStorage.getItem('stores_cache');
+                
+                if (lastLoadTime && cachedData) {
+                    const cacheAge = Date.now() - new Date(lastLoadTime).getTime();
+                    // Use cache if less than 5 minutes old
+                    if (cacheAge < 5 * 60 * 1000) {
+                        console.log('Using cached stores data');
+                        const data = JSON.parse(cachedData);
+                        
+                        document.getElementById('stores-loading').style.display = 'none';
+                        document.getElementById('stores-content').style.display = 'block';
+                        
+                        renderStores(data);
+                        return;
+                    }
+                }
+                
+                console.log('Loading fresh stores data');
                 const response = await fetch('profile/api.php?action=get_stores');
                 const data = await response.json();
+                
+                // Cache the data
+                if (data.success) {
+                    try {
+                        localStorage.setItem('stores_cache', JSON.stringify(data));
+                        localStorage.setItem('stores_last_load', new Date().toISOString());
+                        console.log('Stores cached successfully');
+                    } catch (storageError) {
+                        console.warn('Failed to cache stores:', storageError);
+                    }
+                }
                 
                 document.getElementById('stores-loading').style.display = 'none';
                 document.getElementById('stores-content').style.display = 'block';
                 
-                if (data.success && data.data.length > 0) {
-                    const container = document.getElementById('stores-content');
-                    
+                renderStores(data);
+                
+            } catch (error) {
+                console.error('Error loading stores:', error);
+                document.getElementById('stores-loading').style.display = 'none';
+                document.getElementById('stores-content').innerHTML = `
+                    <div class="alert alert-error">
+                        <i class="fas fa-exclamation-circle"></i>
+                        Failed to load stores. Please try again.
+                    </div>
+                `;
+                document.getElementById('stores-content').style.display = 'block';
+            }
+        }
+        
+        function renderStores(data) {
+            const container = document.getElementById('stores-content');
+            
+            if (data.success && data.data.length > 0) {
                     // Add management toolbar
                     let toolbarHTML = `
                         <div style="background: #f8f9fa; padding: 15px; border-radius: 10px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
@@ -1802,7 +2144,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <div style="display: flex; gap: 10px;">
                                 ${isAdmin || isManager ? `
                                 <a href="../stores/list.php" class="btn" style="background: #3b82f6; color: white; padding: 8px 16px; font-size: 14px; text-decoration: none;">
-                                    <i class="fas fa-list"></i> All Stores
+                    <i class="fas fa-list"></i> All Stores
                                 </a>
                                 <a href="../stores/add.php" class="btn" style="background: #10b981; color: white; padding: 8px 16px; font-size: 14px; text-decoration: none;">
                                     <i class="fas fa-plus"></i> Add Store
@@ -1829,29 +2171,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         `;
                         container.appendChild(card);
                     });
-                } else {
-                    document.getElementById('stores-content').innerHTML = `
-                        <div class="empty-state">
-                            <i class="fas fa-store"></i>
-                            <h3>No Store Access</h3>
-                            <p>You don't have access to any stores yet</p>
-                            ${isAdmin || isManager ? `
-                            <a href="../stores/add.php" class="btn btn-primary" style="margin-top: 20px; text-decoration: none;">
-                                <i class="fas fa-plus"></i> Add New Store
-                            </a>` : ''}
-                        </div>
-                    `;
-                }
-            } catch (error) {
-                console.error('Error loading stores:', error);
-                document.getElementById('stores-loading').style.display = 'none';
-                document.getElementById('stores-content').innerHTML = `
-                    <div class="alert alert-error">
-                        <i class="fas fa-exclamation-circle"></i>
-                        Failed to load stores. Please try again.
+            } else {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <i class="fas fa-store"></i>
+                        <h3>No Store Access</h3>
+                        <p>You don't have access to any stores yet</p>
+                        ${isAdmin || isManager ? `
+                        <a href="../stores/add.php" class="btn btn-primary" style="margin-top: 20px; text-decoration: none;">
+                            <i class="fas fa-plus"></i> Add New Store
+                        </a>` : ''}
                     </div>
                 `;
-                document.getElementById('stores-content').style.display = 'block';
             }
         }
         
@@ -2165,9 +2496,297 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
     
+    // Load profile statistics
+    async function loadProfileStatistics() {
+        try {
+            const userId = '<?php echo $userId; ?>';
+            const createdAt = '<?php echo $user['created_at'] ?? ''; ?>';
+            
+            // Load activities count
+            if (document.getElementById('stat-activities')) {
+                const activitiesResponse = await fetch(`profile/api.php?action=get_activities&limit=1000`);
+                const activitiesData = await activitiesResponse.json();
+                const totalActivities = activitiesData.data ? activitiesData.data.length : 0;
+                document.getElementById('stat-activities').textContent = totalActivities.toLocaleString();
+            }
+            
+            // Load stores count
+            if (document.getElementById('stat-stores')) {
+                const storesResponse = await fetch(`profile/api.php?action=get_stores`);
+                const storesData = await storesResponse.json();
+                const totalStores = storesData.data ? storesData.data.length : 0;
+                document.getElementById('stat-stores').textContent = totalStores.toLocaleString();
+            }
+            
+            // Calculate account age
+            if (document.getElementById('stat-account-age') && createdAt) {
+                const created = new Date(createdAt);
+                const now = new Date();
+                const diffTime = Math.abs(now - created);
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                
+                let ageText = '';
+                if (diffDays < 30) {
+                    ageText = diffDays + ' days';
+                } else if (diffDays < 365) {
+                    const months = Math.floor(diffDays / 30);
+                    ageText = months + ' month' + (months > 1 ? 's' : '');
+                } else {
+                    const years = Math.floor(diffDays / 365);
+                    ageText = years + ' year' + (years > 1 ? 's' : '');
+                }
+                document.getElementById('stat-account-age').innerHTML = 
+                    `<span style="font-size: 24px;">${ageText}</span>`;
+            }
+            
+            // Get last login from activities
+            if (document.getElementById('stat-last-login')) {
+                const activitiesResponse = await fetch(`profile/api.php?action=get_activities&limit=50`);
+                const activitiesData = await activitiesResponse.json();
+                
+                if (activitiesData.data && activitiesData.data.length > 0) {
+                    // Find the most recent login activity
+                    const loginActivity = activitiesData.data.find(a => a.action_type === 'login');
+                    if (loginActivity && loginActivity.created_at) {
+                        const lastLogin = new Date(loginActivity.created_at);
+                        const now = new Date();
+                        const diffMs = now - lastLogin;
+                        const diffMins = Math.floor(diffMs / 60000);
+                        const diffHours = Math.floor(diffMs / 3600000);
+                        const diffDays = Math.floor(diffMs / 86400000);
+                        
+                        let timeText = '';
+                        if (diffMins < 1) {
+                            timeText = 'Just now';
+                        } else if (diffMins < 60) {
+                            timeText = diffMins + 'm ago';
+                        } else if (diffHours < 24) {
+                            timeText = diffHours + 'h ago';
+                        } else {
+                            timeText = diffDays + 'd ago';
+                        }
+                        
+                        document.getElementById('stat-last-login').innerHTML = 
+                            `<span style="font-size: 20px;">${timeText}</span>`;
+                    } else {
+                        document.getElementById('stat-last-login').innerHTML = 
+                            `<span style="font-size: 18px;">No data</span>`;
+                    }
+                } else {
+                    document.getElementById('stat-last-login').innerHTML = 
+                        `<span style="font-size: 18px;">No data</span>`;
+                }
+            }
+            
+        } catch (error) {
+            console.error('Error loading statistics:', error);
+            // Set error states
+            ['stat-activities', 'stat-stores', 'stat-last-login', 'stat-account-age'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.innerHTML = '<span style="font-size: 18px; color: #ef4444;">Error</span>';
+            });
+        }
+    }
+    
+    // Handle avatar upload
+    async function handleAvatarUpload(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        
+        // Validate file type
+        if (!file.type.startsWith('image/')) {
+            alert('Please select an image file (JPG, PNG, GIF)');
+            return;
+        }
+        
+        // Validate file size (max 2MB)
+        if (file.size > 2 * 1024 * 1024) {
+            alert('Image size must be less than 2MB');
+            return;
+        }
+        
+        // Show loading state
+        const avatar = document.getElementById('profileAvatar');
+        const originalContent = avatar.innerHTML;
+        avatar.innerHTML = '<i class="fas fa-spinner fa-spin" style="font-size: 48px;"></i>';
+        
+        try {
+            // Create FormData
+            const formData = new FormData();
+            formData.append('avatar', file);
+            formData.append('action', 'upload_avatar');
+            
+            // Upload to server
+            const response = await fetch('profile/api.php', {
+                method: 'POST',
+                body: formData
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                // Update avatar display
+                avatar.innerHTML = `<img src="${data.url}?t=${Date.now()}" alt="Profile" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">
+                    <input type="file" id="avatarUpload" accept="image/*" style="display: none;">
+                    <button class="avatar-upload-btn" onclick="document.getElementById('avatarUpload').click()" title="Change profile picture">
+                        <i class="fas fa-camera"></i>
+                    </button>`;
+                
+                // Re-attach event listener
+                document.getElementById('avatarUpload').addEventListener('change', handleAvatarUpload);
+                
+                // Show success message
+                showNotification('Profile picture updated successfully!', 'success');
+            } else {
+                throw new Error(data.error || 'Upload failed');
+            }
+        } catch (error) {
+            console.error('Avatar upload error:', error);
+            avatar.innerHTML = originalContent;
+            alert('Failed to upload profile picture: ' + error.message);
+        }
+    }
+    
+    // Show notification
+    function showNotification(message, type = 'info') {
+        const alertDiv = document.createElement('div');
+        alertDiv.className = `alert alert-${type}`;
+        alertDiv.style.cssText = 'position: fixed; top: 90px; right: 20px; z-index: 10000; animation: slideIn 0.3s ease;';
+        alertDiv.innerHTML = `
+            <i class="fas fa-${type === 'success' ? 'check-circle' : 'info-circle'}"></i>
+            ${message}
+        `;
+        document.body.appendChild(alertDiv);
+        
+        setTimeout(() => {
+            alertDiv.style.animation = 'slideOut 0.3s ease';
+            setTimeout(() => alertDiv.remove(), 300);
+        }, 3000);
+    }
+    
+    // Toggle password visibility
+    function togglePassword(inputId) {
+        const input = document.getElementById(inputId);
+        const button = input.parentElement.querySelector('.password-toggle i');
+        
+        if (input.type === 'password') {
+            input.type = 'text';
+            button.classList.remove('fa-eye');
+            button.classList.add('fa-eye-slash');
+        } else {
+            input.type = 'password';
+            button.classList.remove('fa-eye-slash');
+            button.classList.add('fa-eye');
+        }
+    }
+    
+    // Check password strength
+    function checkPasswordStrength(password) {
+        let strength = 0;
+        const requirements = {
+            length: password.length >= 8,
+            uppercase: /[A-Z]/.test(password),
+            lowercase: /[a-z]/.test(password),
+            number: /[0-9]/.test(password),
+            special: /[^A-Za-z0-9]/.test(password)
+        };
+        
+        // Update requirement indicators
+        document.getElementById('req-length').innerHTML = requirements.length ? 
+            '<span style="color: #10b981;">✓ 8+ characters</span>' : 
+            '<span style="color: #ef4444;">✗ 8+ characters</span>';
+        document.getElementById('req-uppercase').innerHTML = requirements.uppercase ? 
+            '<span style="color: #10b981;">✓ Uppercase</span>' : 
+            '<span style="color: #ef4444;">✗ Uppercase</span>';
+        document.getElementById('req-lowercase').innerHTML = requirements.lowercase ? 
+            '<span style="color: #10b981;">✓ Lowercase</span>' : 
+            '<span style="color: #ef4444;">✗ Lowercase</span>';
+        document.getElementById('req-number').innerHTML = requirements.number ? 
+            '<span style="color: #10b981;">✓ Number</span>' : 
+            '<span style="color: #ef4444;">✗ Number</span>';
+        
+        // Calculate strength
+        Object.values(requirements).forEach(met => { if (met) strength++; });
+        
+        const strengthFill = document.getElementById('strengthFill');
+        const strengthText = document.getElementById('strengthText');
+        
+        // Remove all classes
+        strengthFill.classList.remove('weak', 'fair', 'good', 'strong');
+        strengthText.classList.remove('weak', 'fair', 'good', 'strong');
+        
+        if (password.length === 0) {
+            strengthText.textContent = 'Enter a password';
+            return;
+        }
+        
+        if (strength <= 2) {
+            strengthFill.classList.add('weak');
+            strengthText.classList.add('weak');
+            strengthText.textContent = 'Weak password';
+        } else if (strength === 3) {
+            strengthFill.classList.add('fair');
+            strengthText.classList.add('fair');
+            strengthText.textContent = 'Fair password';
+        } else if (strength === 4) {
+            strengthFill.classList.add('good');
+            strengthText.classList.add('good');
+            strengthText.textContent = 'Good password';
+        } else {
+            strengthFill.classList.add('strong');
+            strengthText.classList.add('strong');
+            strengthText.textContent = 'Strong password';
+        }
+    }
+    
+    // Check if passwords match
+    function checkPasswordMatch() {
+        const newPassword = document.getElementById('newPassword').value;
+        const confirmPassword = document.getElementById('confirmPassword').value;
+        const matchIndicator = document.getElementById('passwordMatch');
+        
+        if (confirmPassword.length === 0) {
+            matchIndicator.style.display = 'none';
+            return;
+        }
+        
+        matchIndicator.style.display = 'block';
+        if (newPassword === confirmPassword) {
+            matchIndicator.style.color = '#10b981';
+            matchIndicator.innerHTML = '<i class="fas fa-check-circle"></i> Passwords match';
+        } else {
+            matchIndicator.style.color = '#ef4444';
+            matchIndicator.innerHTML = '<i class="fas fa-times-circle"></i> Passwords do not match';
+        }
+    }
+    
     // Start auto-refresh when page loads
     document.addEventListener('DOMContentLoaded', () => {
         console.log('=== Profile Page Loading ===');
+        
+        // Load statistics immediately
+        loadProfileStatistics();
+        
+        // Setup avatar upload
+        const avatarUpload = document.getElementById('avatarUpload');
+        if (avatarUpload) {
+            avatarUpload.addEventListener('change', handleAvatarUpload);
+        }
+        
+        // Setup password strength checker
+        const newPasswordInput = document.getElementById('newPassword');
+        if (newPasswordInput) {
+            newPasswordInput.addEventListener('input', (e) => {
+                checkPasswordStrength(e.target.value);
+                checkPasswordMatch();
+            });
+        }
+        
+        // Setup password match checker
+        const confirmPasswordInput = document.getElementById('confirmPassword');
+        if (confirmPasswordInput) {
+            confirmPasswordInput.addEventListener('input', checkPasswordMatch);
+        }
         
         // Pre-load all tab data immediately (no lazy loading)
         console.log('Pre-loading all tab data...');
