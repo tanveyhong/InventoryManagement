@@ -139,8 +139,8 @@ if (strpos($currentPath, 'modules/users/profile/') !== false) {
                         <a href="<?php echo $baseUrl . 'modules/alerts/expiry_alert.php'; ?>">
                             <i class="fas fa-calendar-times"></i> Expiry Products
                         </a>
-                        <a href="<?php echo $baseUrl . 'modules/alerts/low_stock.php'; ?>">
-                            <i class="fas fa-exclamation-circle"></i> Low Stock Alerts
+                        <a href="<?php echo $baseUrl . 'modules/alerts/alert_history.php'; ?>">
+                            <i class="fas fa-exclamation-circle"></i> Alert History
                         </a>
                     </div>
                 </div>
@@ -887,8 +887,7 @@ body.compact-view .stat-number {
 body.compact-view .page-header {
     padding: 1.5rem;
 }
-    z-index: 1001;
-}
+
 
 .dropdown:hover .dropdown-menu {
     opacity: 1;
