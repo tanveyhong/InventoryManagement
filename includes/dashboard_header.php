@@ -4,6 +4,19 @@
  * Provides consistent navigation and header styling across all dashboard modules
  */
 
+// Ensure required functions are available
+if (!function_exists('currentUserHasPermission')) {
+    // Determine the relative path to root based on current location
+    $currentPath = $_SERVER['PHP_SELF'];
+    if (strpos($currentPath, 'modules/users/profile/') !== false) {
+        require_once __DIR__ . '/../functions.php';
+    } elseif (strpos($currentPath, 'modules/') !== false) {
+        require_once __DIR__ . '/../functions.php';
+    } else {
+        require_once __DIR__ . '/functions.php';
+    }
+}
+
 // Calculate the correct path prefix based on the current file's depth
 $currentPath = $_SERVER['PHP_SELF'];
 $depth = substr_count($currentPath, '/') - 1; // Subtract 1 for the root level
@@ -46,6 +59,8 @@ if (strpos($currentPath, 'modules/users/profile/') !== false) {
                     <i class="fas fa-home"></i>
                     <span>Dashboard</span>
                 </a>
+                
+                <?php if (currentUserHasPermission('manage_inventory')): ?>
                 <div class="nav-dropdown">
                     <a href="#" class="nav-item">
                         <i class="fas fa-boxes"></i>
@@ -62,11 +77,16 @@ if (strpos($currentPath, 'modules/users/profile/') !== false) {
                         <a href="<?php echo $baseUrl . 'modules/stock/stockAuditHis.php'; ?>">
                             <i class="fas fa-edit"></i> Stock Audit History
                         </a>
+                        <?php if (currentUserHasPermission('manage_pos')): ?>
                         <a href="<?php echo $baseUrl . 'modules/pos/stock_pos_integration.php'; ?>">
                             <i class="fas fa-cash-register"></i> POS Integration
                         </a>
+                        <?php endif; ?>
                     </div>
                 </div>
+                <?php endif; ?>
+                
+                <?php if (currentUserHasPermission('manage_stores')): ?>
                 <div class="nav-dropdown">
                     <a href="#" class="nav-item">
                         <i class="fas fa-store"></i>
@@ -88,6 +108,9 @@ if (strpos($currentPath, 'modules/users/profile/') !== false) {
                         </a>
                     </div>
                 </div>
+                <?php endif; ?>
+                
+                <?php if (currentUserHasPermission('view_analytics')): ?>
                 <div class="nav-dropdown">
                     <a href="#" class="nav-item">
                         <i class="fas fa-chart-line"></i>
@@ -103,6 +126,9 @@ if (strpos($currentPath, 'modules/users/profile/') !== false) {
                         </a>
                     </div>
                 </div>
+                <?php endif; ?>
+                
+                <?php if (currentUserHasPermission('manage_alerts')): ?>
                 <div class="nav-dropdown">
                     <a href="#" class="nav-item">
                         <i class="fas fa-exclamation-triangle"></i>
@@ -111,16 +137,14 @@ if (strpos($currentPath, 'modules/users/profile/') !== false) {
                     </a>
                     <div class="dropdown-content">
                         <a href="<?php echo $baseUrl . 'modules/alerts/expiry_alert.php'; ?>">
-                            Expiry Products
+                            <i class="fas fa-calendar-times"></i> Expiry Products
                         </a>
-                        <a href="<?php echo $baseUrl . 'modules/reports/inventory_report.php'; ?>">
-                            2
-                        </a>
-                        <a href="<?php echo $baseUrl . 'modules/reports/alerts.php'; ?>">
-                            3
+                        <a href="<?php echo $baseUrl . 'modules/alerts/low_stock.php'; ?>">
+                            <i class="fas fa-exclamation-circle"></i> Low Stock Alerts
                         </a>
                     </div>
                 </div>
+                <?php endif; ?>
             </div>
 
             <!-- Right Section: User Actions -->

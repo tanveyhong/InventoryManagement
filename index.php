@@ -1462,8 +1462,5 @@ header('Vary: Cookie');
     </script>
 
     <script src="assets/js/main.js"></script>
-    
-    <!-- Permission Indicator Component -->
-    <?php include 'includes/permission_indicator.php'; ?>
 </body>
 </html>
