@@ -2074,7 +2074,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     <p style="margin: 0; opacity: 0.95; font-size: 14px;">Your permissions and access level are displayed below</p>
                                 </div>
                                 ${perms.role === 'Admin' ? `
-                                <a href="../roles.php" style="background: white; color: #f5576c; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-weight: 600; display: inline-flex; align-items: center; gap: 8px;">
+                                <a href="../users/roles.php" style="background: white; color: #f5576c; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-weight: 600; display: inline-flex; align-items: center; gap: 8px;">
                                     <i class="fas fa-users-cog"></i> Manage All Users
                                 </a>` : ''}
                             </div>

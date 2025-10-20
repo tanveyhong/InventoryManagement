@@ -8,6 +8,14 @@ require_once '../../getDB.php';
 if (session_status() === PHP_SESSION_NONE) {
   session_start();
 }
+
+// Check login and permission
+if (!isLoggedIn()) {
+    header('Location: ../users/login.php');
+    exit;
+}
+requirePermission('manage_inventory', '../../index.php');
+
 $db = getDB();
 $docId = $_GET['id'] ?? '';
 

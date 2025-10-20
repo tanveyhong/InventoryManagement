@@ -11,6 +11,15 @@ session_start();
 require_once __DIR__ . '/../../config.php';
 require_once __DIR__ . '/../../functions.php';
 
+// Check login
+if (!isLoggedIn()) {
+    header('Location: ../users/login.php');
+    exit;
+}
+
+// Require permission to view inventory details
+requirePermission('manage_inventory', '../../index.php');
+
 // Accept id (doc id) or sku
 $id = isset($_GET['id']) ? trim((string)$_GET['id']) : '';
 if ($id === '') {

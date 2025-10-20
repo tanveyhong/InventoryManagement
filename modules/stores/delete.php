@@ -11,6 +11,9 @@ if (!isLoggedIn()) {
     exit;
 }
 
+// Check permission to manage stores
+requirePermission('manage_stores', '../../index.php');
+
 $db = getDB();
 $store_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
 

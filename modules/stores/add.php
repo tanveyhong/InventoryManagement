@@ -10,27 +10,29 @@ session_start();
 // Check if user is logged in
 if (!isLoggedIn()) {
     header('Location: ../users/login.php');
-    if (isset($_POST['demo_add'])) {
-        // Demo data for quick testing
-        $name = 'Demo Store ' . rand(1000,9999);
-        $code = 'DEMO' . rand(100,999);
-        $address = '123 Demo Street';
-        $city = 'Demo City';
-        $state = 'Demo State';
-        $zip_code = '12345';
-        $phone = '555-1234';
-        $email = 'demo' . rand(100,999) . '@example.com';
-        $manager_name = 'Demo Manager';
-        $description = 'This is a demo store added for testing.';
-        $errors = [];
-    } else {
     exit;
-    }
 }
+
+// Check permission to manage stores
+requirePermission('manage_stores', '../../index.php');
 
 $db = getDB();
 $errors = [];
 $success = false;
+
+if (isset($_POST['demo_add'])) {
+    // Demo data for quick testing
+    $name = 'Demo Store ' . rand(1000,9999);
+    $code = 'DEMO' . rand(100,999);
+    $address = '123 Demo Street';
+    $city = 'Demo City';
+    $state = 'Demo State';
+    $zip_code = '12345';
+    $phone = '555-1234';
+    $email = 'demo' . rand(100,999) . '@example.com';
+    $manager_name = 'Demo Manager';
+    $description = 'This is a demo store added for testing.';
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $name = sanitizeInput($_POST['name'] ?? '');

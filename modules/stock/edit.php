@@ -6,6 +6,13 @@ session_start();
 require_once __DIR__ . '/../../config.php';
 require_once __DIR__ . '/../../functions.php';
 
+// Check authentication and permission
+if (!isLoggedIn()) {
+    header('Location: ../users/login.php');
+    exit;
+}
+requirePermission('manage_inventory', '../../index.php');
+
 // --- helpers (lightweight, safe) ---
 function norm_sku(string $raw): string
 {

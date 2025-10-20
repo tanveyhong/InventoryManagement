@@ -15,6 +15,9 @@ if (!isLoggedIn()) {
     exit;
 }
 
+// Require permission to view store inventory
+requirePermission('manage_stores', '../../index.php');
+
 $sql_db = getSQLDB();
 $store_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
 
