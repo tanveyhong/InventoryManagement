@@ -9,11 +9,6 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
-// Permission check - require manage_inventory to view and manage stock
-if (function_exists('requirePermission')) {
-    requirePermission('manage_inventory', '../../index.php');
-}
-
 // Load products from Firebase and map to template fields
 $all_products = [];
 $stores = [];

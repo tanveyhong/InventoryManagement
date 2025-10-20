@@ -723,6 +723,87 @@ function log_stock_audit(array $opts): void
     }
 }
 
+// ---- ALERT HELPERS ----
+
+function alerts_db() { return getDB(); } // same wrapper you use elsewhere
+
+/** Find an open (or pending) alert for a product+type */
+function fs_alert_find_open(string $productId, string $type): ?array {
+    $db = alerts_db();
+    if (!$db || !method_exists($db, 'query')) return null;
+    $rows = $db->query('alert_logs', [
+        ['field' => 'product_id', 'op' => '==', 'value' => $productId],
+        ['field' => 'type',       'op' => '==', 'value' => $type],
+        ['field' => 'status',     'op' => 'in', 'value' => ['open','pending']],
+    ], 'triggered_at', 'desc', 1); // newest first, limit 1
+    return is_array($rows) && !empty($rows) ? $rows[0] : null;
+}
+
+/** Upsert a low-stock alert (no duplicates) */
+function log_low_stock_alert(array $p): void {
+    $db = alerts_db(); if (!$db) return;
+    $pid  = (string)($p['doc_id'] ?? '');
+    if ($pid === '') return;
+
+    $row = fs_alert_find_open($pid, 'low_stock');
+    $payload = [
+        'type'               => 'low_stock',
+        'status'             => $row ? ($row['status'] ?? 'open') : 'open',
+        'product_id'         => $pid,
+        'sku'                => $p['sku'] ?? null,
+        'product_name'       => $p['name'] ?? null,
+        'quantity_at_alert'  => (int)($p['quantity'] ?? 0),
+        'min_level_at_alert' => (int)($p['reorder_level'] ?? 0),
+        'triggered_at'       => $row ? ($row['triggered_at'] ?? date('c')) : date('c'),
+        'last_seen_at'       => date('c'),
+    ];
+    if ($row) $db->update('alert_logs', (string)$row['doc_id'], $payload);
+    else      $db->create('alert_logs', $payload);
+}
+
+/** Upsert an expiry alert (expired vs soon) */
+function log_expiry_alert(array $p, string $subtype): void {
+    $db = alerts_db(); if (!$db) return;
+    $pid = (string)($p['doc_id'] ?? '');
+    if ($pid === '') return;
+
+    $type = $subtype === 'expired' ? 'expired' : 'expiry_soon';
+    $row  = fs_alert_find_open($pid, $type);
+    $payload = [
+        'type'                 => $type,
+        'status'               => $row ? ($row['status'] ?? 'open') : 'open',
+        'product_id'           => $pid,
+        'sku'                  => $p['sku'] ?? null,
+        'product_name'         => $p['name'] ?? null,
+        'quantity_at_alert'    => (int)($p['quantity'] ?? 0),
+        'expiry_date_at_alert' => $p['expiry_date'] ?? null,
+        'triggered_at'         => $row ? ($row['triggered_at'] ?? date('c')) : date('c'),
+        'last_seen_at'         => date('c'),
+    ];
+    if ($row) $db->update('alert_logs', (string)$row['doc_id'], $payload);
+    else      $db->create('alert_logs', $payload);
+}
+
+/** Resolve helper */
+function resolve_alerts_for_product(string $productId, array $types, string $resolution, ?string $uid, ?string $uname): void {
+    $db = alerts_db(); if (!$db) return;
+    if (!method_exists($db, 'query')) return;
+    $rows = $db->query('alert_logs', [
+        ['field' => 'product_id', 'op' => '==', 'value' => $productId],
+        ['field' => 'type',       'op' => 'in', 'value' => $types],
+        ['field' => 'status',     'op' => 'in', 'value' => ['open','pending']],
+    ], 'triggered_at', 'desc', 50);
+    foreach ($rows as $r) {
+        $db->update('alert_logs', (string)$r['doc_id'], [
+            'status'        => 'resolved',
+            'resolution'    => $resolution,
+            'resolved_at'   => date('c'),
+            'resolved_by'   => $uid,
+            'resolved_name' => $uname,
+        ]);
+    }
+}
+
 // ============================================================================
 // PERMISSION FUNCTIONS
 // ============================================================================

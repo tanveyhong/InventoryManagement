@@ -11,9 +11,6 @@ if (!isLoggedIn()) {
     exit;
 }
 
-// Check permission to manage inventory
-requirePermission('manage_inventory', '../../index.php');
-
 $db = getDB();
 $errors = [];
 $success = false;
