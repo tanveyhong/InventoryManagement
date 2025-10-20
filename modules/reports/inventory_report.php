@@ -34,6 +34,11 @@ if ($db) {
 
     foreach ($productDocs as $r) {
       // Normalize to the same keys used by stock list
+    if (!empty($r['deleted_at'])) continue;
+    if (isset($r['status']) && $r['status'] === 'disabled') continue;
+
+    // 🟡 Skip out-of-stock items
+    if (isset($r['quantity']) && (int)$r['quantity'] === 0) continue;
       $p = [
         'doc_id'         => $r['id'] ?? ($r['doc_id'] ?? null), // prefer doc id if your wrapper sets it
         'id'             => $r['id'] ?? null,
@@ -538,7 +543,7 @@ $page_title = 'Inventory Report – Stock Management';
   ?>
   <div class="wrap">
     <div class="page-header">
-      <h2>Inventory Report</h2>
+      <h2>Inventory Report Generation</h2>
       <div class="toolbar">
         <a href="../stock/list.php" class="btn btn-back"><i class="fas fa-boxes-stacked"></i>&nbsp; Back to Stock</a>
       </div>
@@ -577,8 +582,8 @@ $page_title = 'Inventory Report – Stock Management';
             <div class="field">
               <label class="label">Date Field</label>
               <select class="control" name="date_field">
-                <option value="created_at" <?php echo $date_field === 'created_at' ? 'selected' : ''; ?>>Created At</option>
-                <option value="expiry_date" <?php echo $date_field === 'expiry_date' ? 'selected' : ''; ?>>Expiry Date</option>
+                <option value="Created At" <?php echo $date_field === 'created_at' ? 'selected' : ''; ?>>Created At</option>
+                <option value="Expiry Date" <?php echo $date_field === 'expiry_date' ? 'selected' : ''; ?>>Expiry Date</option>
               </select>
             </div>
           </div>

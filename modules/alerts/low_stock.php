@@ -1,332 +1,258 @@
 <?php
-// Low Stock Alerts Page
-require_once '../../config.php';
-require_once '../../db.php';
-require_once '../../functions.php';
-
+/**
+ * modules/alerts/low_stock.php
+ * Usage: include via <div id="lowStockHost"></div> then fetch('?id=DOC_ID') and inject.
+ * Shows a modal only if the product is in LOW STOCK (qty <= reorder_level and qty > 0).
+ */
+declare(strict_types=1);
 session_start();
 
-if (!isLoggedIn()) {
-    header('Location: ../users/login.php');
-    exit;
-}
+require_once __DIR__ . '/../../config.php';
+require_once __DIR__ . '/../../functions.php';
 
-$db = getDB();
-$page = isset($_GET['page']) ? max(1, intval($_GET['page'])) : 1;
-$per_page = 20;
+header('Content-Type: text/html; charset=UTF-8');
 
-// Get low stock products using materialized view
-$sql = "SELECT * FROM mv_low_stock_products ORDER BY category_name, name";
-$low_stock_products = $db->fetchAll($sql);
+// Read key
+$key = '';
+if (!empty($_GET['id']))  $key = trim((string)$_GET['id']);
+if (!empty($_GET['sku'])) $key = trim((string)$_GET['sku']) ?: $key;
 
-// Pagination
-$total_records = count($low_stock_products);
-$pagination = paginate($page, $per_page, $total_records);
-$products_page = array_slice($low_stock_products, $pagination['offset'], $pagination['per_page']);
+if ($key === '') { echo '<!-- low_stock.php: missing id/sku -->'; exit; }
 
-$page_title = 'Low Stock Alerts - Inventory System';
+$p = fs_get_product($key);
+if (!$p) { echo '<!-- low_stock.php: product not found -->'; exit; }
+
+// Compute status
+$qty = (int)($p['quantity'] ?? 0);
+$min = (int)($p['reorder_level'] ?? 0);
+
+$isLow = ($qty > 0 && $min > 0 && $qty <= $min);
+if (!$isLow) { echo '<!-- low_stock.php: not low stock -->'; exit; }
+
+// Basic values
+$docId   = $p['doc_id'] ?? ($p['id'] ?? (string)$key);
+$name    = $p['name'] ?? '(no name)';
+$sku     = $p['sku'] ?? '—';
+$created = $p['created_at'] ?? null;
+$minLbl  = $min > 0 ? number_format($min) : '—';
+$qtyLbl  = number_format($qty);
+
+// LocalStorage dismiss key (don’t nag repeatedly same day)
+$dismissKey = 'lowstock_dismiss_' . preg_replace('/[^a-zA-Z0-9_\-]/', '_', (string)$docId) . '_' . date('Ymd');
 ?>
+<style>
+  /* Overlay + modal container */
+  .lsk-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15,23,42,.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+  }
 
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo $page_title; ?></title>
-    <link rel="stylesheet" href="../../assets/css/style.css">
-</head>
-<body>
-    <div class="container">
-        <header>
-            <h1>Low Stock Alerts</h1>
-            <nav>
-                <ul>
-                    <li><a href="../../index.php">Dashboard</a></li>
-                    <li><a href="../stock/list.php">Stock</a></li>
-                    <li><a href="../stores/list.php">Stores</a></li>
-                    <li><a href="../reports/dashboard.php">Reports</a></li>
-                    <li><a href="low_stock.php" class="active">Alerts</a></li>
-                    <li><a href="../users/logout.php">Logout</a></li>
-                </ul>
-            </nav>
-        </header>
+  /* Modal box */
+  .lsk-modal {
+    width: 100%;
+    max-width: 460px;              /* narrower than before */
+    background: #fff;
+    border-radius: 14px;
+    box-shadow: 0 30px 80px rgba(15,23,42,.35);
+    border: 1px solid #e5e7eb;
+    font-family: system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;
+    overflow: hidden;
+  }
 
-        <main>
-            <div class="page-header">
-                <h2>Low Stock Products (<?php echo number_format($total_records); ?>)</h2>
-                <div class="page-actions">
-                    <button onclick="checkStockLevels()" class="btn btn-primary">Refresh Alerts</button>
-                    <a href="expiry_alert.php" class="btn btn-secondary">Expiry Alerts</a>
-                </div>
-            </div>
+  /* Header with centered title */
+  .lsk-head {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px 18px;
+    border-bottom: 1px solid #f1f5f9;
+    background: linear-gradient(180deg,#fff 0,#f8fafc 100%);
+  }
 
-            <!-- Alert Summary -->
-            <div class="alert-summary" id="alertSummary">
-                <div class="summary-card urgent">
-                    <h3>Critical (≤5 units)</h3>
-                    <p class="stat-number" id="criticalCount">-</p>
-                </div>
-                <div class="summary-card warning">
-                    <h3>Low (≤10 units)</h3>
-                    <p class="stat-number" id="lowCount">-</p>
-                </div>
-                <div class="summary-card info">
-                    <h3>Total Products</h3>
-                    <p class="stat-number"><?php echo number_format($total_records); ?></p>
-                </div>
-            </div>
+  .lsk-head .icon {
+    position: absolute;
+    left: 18px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #f59e0b;
+    font-size: 20px;
+  }
 
-            <?php if (empty($products_page)): ?>
-                <div class="no-data">
-                    <h3>🎉 Great News!</h3>
-                    <p>No products are currently below their minimum stock levels.</p>
-                    <a href="../stock/list.php" class="btn btn-primary">View All Products</a>
-                </div>
-            <?php else: ?>
-                <div class="table-container">
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th>Product</th>
-                                <th>Current Stock</th>
-                                <th>Minimum Level</th>
-                                <th>Status</th>
-                                <th>Category</th>
-                                <th>Store</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($products_page as $product): ?>
-                                <?php 
-                                $urgency = 'warning';
-                                if ($product['quantity'] <= 5) $urgency = 'critical';
-                                elseif ($product['quantity'] <= 2) $urgency = 'urgent';
-                                ?>
-                                <tr class="alert-row <?php echo $urgency; ?>">
-                                    <td>
-                                        <strong><?php echo htmlspecialchars($product['name']); ?></strong>
-                                        <?php if (!empty($product['sku'])): ?>
-                                            <br><small>SKU: <?php echo htmlspecialchars($product['sku']); ?></small>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td>
-                                        <span class="stock-level <?php echo $urgency; ?>">
-                                            <?php echo number_format($product['quantity']); ?>
-                                        </span>
-                                    </td>
-                                    <td><?php echo number_format($product['min_stock_level']); ?></td>
-                                    <td>
-                                        <span class="status <?php echo $urgency; ?>">
-                                            <?php 
-                                            if ($product['quantity'] <= 2) echo 'URGENT';
-                                            elseif ($product['quantity'] <= 5) echo 'CRITICAL';
-                                            else echo 'LOW';
-                                            ?>
-                                        </span>
-                                    </td>
-                                    <td><?php echo htmlspecialchars($product['category_name'] ?? 'Uncategorized'); ?></td>
-                                    <td><?php echo htmlspecialchars($product['store_name'] ?? 'No Store'); ?></td>
-                                    <td>
-                                        <div class="action-buttons">
-                                            <a href="../stock/adjust.php?product=<?php echo $product['id']; ?>" 
-                                               class="btn btn-sm btn-primary" title="Add Stock">Add Stock</a>
-                                            <a href="../forecasting/forecast.php?product=<?php echo $product['id']; ?>" 
-                                               class="btn btn-sm btn-info" title="View Forecast">Forecast</a>
-                                        </div>
-                                    </td>
-                                </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
+  .lsk-head .title {
+    text-align: center;
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: #b91c1c;
+    line-height: 1.2;
+  }
 
-                <!-- Pagination -->
-                <?php if ($pagination['total_pages'] > 1): ?>
-                    <div class="pagination">
-                        <?php if ($pagination['has_previous']): ?>
-                            <a href="?page=<?php echo $pagination['page'] - 1; ?>" class="btn btn-sm btn-outline">Previous</a>
-                        <?php endif; ?>
+  .lsk-close {
+    position: absolute;
+    right: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: transparent;
+    border: none;
+    font-size: 20px;
+    cursor: pointer;
+    color: #475569;
+  }
+  .lsk-close:hover { color: #0f172a; }
 
-                        <span class="pagination-info">
-                            Page <?php echo $pagination['page']; ?> of <?php echo $pagination['total_pages']; ?>
-                            (<?php echo number_format($total_records); ?> total products)
-                        </span>
+  /* Body */
+  .lsk-body { padding: 18px; }
+  .lsk-body p.lead { margin: 0 0 12px; color: #334155; }
 
-                        <?php if ($pagination['has_next']): ?>
-                            <a href="?page=<?php echo $pagination['page'] + 1; ?>" class="btn btn-sm btn-outline">Next</a>
-                        <?php endif; ?>
-                    </div>
-                <?php endif; ?>
-            <?php endif; ?>
+  /* Info table */
+  .lsk-table {
+    width: 100%;
+    border-collapse: collapse;
+    border: 1px solid #e2e8f0;
+  }
+  .lsk-table th, .lsk-table td {
+    padding: 10px 12px;
+    border-top: 1px solid #e2e8f0;
+  }
+  .lsk-table th {
+    width: 42%;
+    background: #f8fafc;
+    color: #0f172a;
+    text-align: left;
+    font-weight: 700;
+  }
+  .lsk-table tr:first-child th, .lsk-table tr:first-child td { border-top: none; }
 
-            <!-- Real-time notifications area -->
-            <div id="realTimeAlerts"></div>
-        </main>
+  /* Alert box */
+  .lsk-alert {
+    margin-top: 14px;
+    background: #fff7ed;
+    border: 1px dashed #f59e0b;
+    padding: 12px 14px;
+    border-radius: 10px;
+    color: #7c2d12;
+    font-weight: 600;
+    text-align: center;
+  }
+
+  /* Action buttons */
+  .lsk-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    padding: 14px 18px;
+    background: #f8fafc;
+    border-top: 1px solid #e5e7eb;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-weight: 700;
+    text-decoration: none;
+    border: 1px solid transparent;
+    cursor: pointer;
+  }
+  .btn-green { background:#22c55e;color:#fff; }
+  .btn-green:hover { background:#16a34a; }
+  .btn-blue { background:#1d4ed8;color:#fff; }
+  .btn-blue:hover { background:#1e40af; }
+  .btn-ghost { background:#e5e7eb;color:#334155; }
+  .btn-ghost:hover { background:#d1d5db; }
+  .btn i { font-size:14px; }
+
+  @media (max-width: 420px) {
+    .lsk-modal { max-width: 92vw; }
+    .lsk-head .title { font-size: 1.35rem; }
+  }
+</style>
+
+<div class="lsk-overlay" role="dialog" aria-modal="true" aria-label="Low Stock Alert" data-dismiss-key="<?= htmlspecialchars($dismissKey) ?>">
+  <div class="lsk-modal">
+    <div class="lsk-head">
+      <i class="icon fas fa-triangle-exclamation" aria-hidden="true"></i>
+      <div class="title">Low Stock Alert</div>
+      <button class="lsk-close" type="button" aria-label="Close" onclick="LSK_close(this)">×</button>
     </div>
 
-    <script src="../../assets/js/main.js"></script>
-    <script>
-        // Calculate alert summary
-        function calculateSummary() {
-            const rows = document.querySelectorAll('.alert-row');
-            let criticalCount = 0;
-            let lowCount = 0;
-            
-            rows.forEach(row => {
-                const stockLevel = parseInt(row.querySelector('.stock-level').textContent.replace(/,/g, ''));
-                if (stockLevel <= 5) criticalCount++;
-                if (stockLevel <= 10) lowCount++;
-            });
-            
-            document.getElementById('criticalCount').textContent = criticalCount;
-            document.getElementById('lowCount').textContent = lowCount;
-        }
-        
-        // Check stock levels via AJAX
-        function checkStockLevels() {
-            const button = document.querySelector('button[onclick="checkStockLevels()"]');
-            const originalText = button.textContent;
-            button.textContent = 'Checking...';
-            button.disabled = true;
-            
-            fetch('api.php?action=check_stock_levels')
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        InventoryApp.showNotification(data.message, 'success', 3000);
-                        setTimeout(() => window.location.reload(), 2000);
-                    } else {
-                        InventoryApp.showNotification('Failed to check stock levels', 'error');
-                    }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    InventoryApp.showNotification('An error occurred', 'error');
-                })
-                .finally(() => {
-                    button.textContent = originalText;
-                    button.disabled = false;
-                });
-        }
-        
-        // Initialize real-time alerts
-        function initRealTimeAlerts() {
-            if (typeof(EventSource) !== "undefined") {
-                const eventSource = new EventSource('api.php?action=subscribe');
-                
-                eventSource.onmessage = function(event) {
-                    const data = JSON.parse(event.data);
-                    
-                    if (data.type === 'alert' && data.channel === 'alerts:low_stock') {
-                        const alertHtml = `
-                            <div class="notification notification-warning">
-                                <strong>Low Stock Alert!</strong><br>
-                                ${data.data.product_name} is now at ${data.data.current_stock} units
-                                <button onclick="this.parentElement.remove()">&times;</button>
-                            </div>
-                        `;
-                        
-                        document.getElementById('realTimeAlerts').insertAdjacentHTML('beforeend', alertHtml);
-                        
-                        // Auto-remove after 10 seconds
-                        setTimeout(() => {
-                            const notifications = document.querySelectorAll('#realTimeAlerts .notification');
-                            if (notifications.length > 0) {
-                                notifications[0].remove();
-                            }
-                        }, 10000);
-                    }
-                };
-                
-                eventSource.onerror = function(event) {
-                    console.log('EventSource error:', event);
-                    eventSource.close();
-                };
-            }
-        }
-        
-        // Initialize on page load
-        document.addEventListener('DOMContentLoaded', function() {
-            calculateSummary();
-            initRealTimeAlerts();
-        });
-    </script>
-    
-    <style>
-        .alert-summary {
-            display: flex;
-            gap: 1rem;
-            margin-bottom: 2rem;
-        }
-        
-        .summary-card {
-            flex: 1;
-            padding: 1.5rem;
-            border-radius: 8px;
-            text-align: center;
-        }
-        
-        .summary-card.urgent {
-            background-color: #fee;
-            border-left: 4px solid #dc3545;
-        }
-        
-        .summary-card.warning {
-            background-color: #fff8e1;
-            border-left: 4px solid #ffc107;
-        }
-        
-        .summary-card.info {
-            background-color: #e3f2fd;
-            border-left: 4px solid #2196f3;
-        }
-        
-        .alert-row.critical {
-            background-color: rgba(220, 53, 69, 0.1);
-        }
-        
-        .alert-row.urgent {
-            background-color: rgba(255, 87, 34, 0.1);
-        }
-        
-        .alert-row.warning {
-            background-color: rgba(255, 193, 7, 0.1);
-        }
-        
-        .stock-level.critical {
-            color: #dc3545;
-            font-weight: bold;
-        }
-        
-        .stock-level.urgent {
-            color: #ff5722;
-            font-weight: bold;
-        }
-        
-        .stock-level.warning {
-            color: #ff9800;
-            font-weight: bold;
-        }
-        
-        .status.critical,
-        .status.urgent {
-            background-color: #dc3545;
-            color: white;
-        }
-        
-        .status.warning {
-            background-color: #ffc107;
-            color: #212529;
-        }
-        
-        #realTimeAlerts {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            z-index: 1000;
-            max-width: 400px;
-        }
-    </style>
-</body>
-</html>
+    <div class="lsk-body">
+      <p class="lead">The following item has fallen below the minimum stock level:</p>
+      <table class="lsk-table">
+        <tr><th>Product ID</th><td><?= htmlspecialchars((string)$docId) ?></td></tr>
+        <tr><th>Product Name</th><td><?= htmlspecialchars($name) ?></td></tr>
+        <tr><th>SKU</th><td><?= htmlspecialchars($sku) ?></td></tr>
+        <tr><th>Current Quantity</th><td><?= $qtyLbl ?></td></tr>
+        <tr><th>Minimum Stock Level</th><td><?= $minLbl ?></td></tr>
+        <?php if (!empty($created)): ?>
+          <tr><th>Created</th><td><?= htmlspecialchars(date('M j, Y H:i', strtotime($created))) ?></td></tr>
+        <?php endif; ?>
+      </table>
+
+      <div class="lsk-alert">
+        <div>Recommended Action:</div>
+        <div>Reorder or add stock immediately to avoid stockouts.</div>
+      </div>
+    </div>
+
+    <div class="lsk-actions">
+      <a class="btn btn-green" href="../stock/edit.php?id=<?= rawurlencode((string)$docId) ?>">
+        <i class="fas fa-truck"></i> Reorder Now
+      </a>
+      <a class="btn btn-blue" href="../stock/adjust.php?id=<?= rawurlencode((string)$docId) ?>">
+        <i class="fas fa-circle-plus"></i> Add Stock
+      </a>
+      <button class="btn btn-ghost" type="button" onclick="LSK_dismiss(this)">Dismiss</button>
+    </div>
+  </div>
+</div>
+
+
+<script>
+(function(){
+  // If dismissed earlier today, auto-close
+  try{
+    var overlay = document.currentScript.previousElementSibling;
+    if(overlay && overlay.classList && overlay.classList.contains('lsk-overlay')){
+      var key = overlay.getAttribute('data-dismiss-key');
+      if(key && localStorage.getItem(key)==='1'){
+        overlay.remove();
+      }
+    }
+  }catch(e){}
+})();
+
+function LSK_close(btn){
+  var root = btn.closest('.lsk-overlay'); if(root) root.remove();
+}
+
+function LSK_dismiss(btn){
+  var root = btn.closest('.lsk-overlay');
+  if(root){
+    var key = root.getAttribute('data-dismiss-key');
+    try{ if(key) localStorage.setItem(key,'1'); }catch(e){}
+    root.remove();
+  }
+}
+
+// Close on backdrop click or ESC
+document.addEventListener('click', function(e){
+  var ov = document.querySelector('.lsk-overlay');
+  if(!ov) return;
+  if(e.target === ov) ov.remove();
+});
+document.addEventListener('keydown', function(e){
+  if(e.key === 'Escape'){
+    var ov = document.querySelector('.lsk-overlay');
+    if(ov) ov.remove();
+  }
+});
+</script>

@@ -620,4 +620,62 @@ function fs_get_product_by_doc(string $docId): ?array {
     return null;
 }
 
+function fs_sku_exists(string $sku): ?array {
+    $skuNorm = strtoupper(trim($sku));
+    if ($skuNorm === '') return null;
+
+    $all = fs_fetch_all_products(); // normalized rows
+    foreach ($all as $p) {
+        $rowSku = isset($p['sku']) ? strtoupper((string)$p['sku']) : '';
+        if ($rowSku !== '' && $rowSku === $skuNorm) {
+            return $p;
+        }
+    }
+    return null;
+}
+
+// Log a stock change/audit into Firestore (collection: stock_audits)
+function log_stock_audit(array $opts): void {
+  try {
+    $db = getDB();
+
+    // who did it
+    $user_id = $opts['user_id'] ?? ($_SESSION['user_id'] ?? null);
+    $username = $opts['username'] ?? ($_SESSION['username'] ?? null);
+    if (!$username && $user_id) {
+      // fallback to users collection
+      $u = getUserInfo($user_id);
+      if (is_array($u)) $username = $u['username'] ?? ($u['email'] ?? null);
+    }
+
+    $doc = [
+      'action'          => $opts['action'] ?? 'update',
+      'product_id'      => (string)($opts['product_id'] ?? ''),
+      'sku'             => $opts['sku'] ?? null,
+      'product_name'    => $opts['product_name'] ?? null,
+      'store_id'        => $opts['store_id'] ?? null,
+
+      'quantity_before' => isset($opts['before']['quantity']) ? (int)$opts['before']['quantity'] : null,
+      'quantity_after'  => isset($opts['after']['quantity'])  ? (int)$opts['after']['quantity']  : null,
+      'description_before' => $opts['before']['description'] ?? null,
+      'description_after'  => $opts['after']['description']  ?? null,
+      'reorder_before'  => isset($opts['before']['reorder_level']) ? (int)$opts['before']['reorder_level'] : null,
+      'reorder_after'   => isset($opts['after']['reorder_level'])  ? (int)$opts['after']['reorder_level']  : null,
+
+      'changed_by'      => $user_id,
+      'changed_name'    => $username,
+      'created_at'      => date('c'),
+    ];
+
+    if ($doc['quantity_before'] !== null && $doc['quantity_after'] !== null) {
+      $doc['quantity_delta'] = (int)$doc['quantity_after'] - (int)$doc['quantity_before'];
+    }
+
+    $db->create('stock_audits', $doc);
+  } catch (Throwable $t) {
+    error_log('log_stock_audit failed: ' . $t->getMessage());
+  }
+}
+
+
 ?>

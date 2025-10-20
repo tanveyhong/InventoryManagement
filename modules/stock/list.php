@@ -219,10 +219,13 @@ $page_title = 'Stock Management - Inventory System';
 </head>
 
 <body>
-    <?php include '../../includes/dashboard_header.php'; ?>
 
-    <div class="main-content">
-        <div class="container">
+    <div class="container">
+        <?php
+        include '../../includes/dashboard_header2.php';
+        ?>
+
+        <main>
             <div class="page-header">
                 <h2>Stock Management</h2>
                 <div class="page-actions">
@@ -343,7 +346,32 @@ $page_title = 'Stock Management - Inventory System';
                         </thead>
                         <tbody>
                             <?php foreach ($products as $product): ?>
-                                <tr class="product-row status-<?php echo $product['status']; ?>">
+                                <?php
+                                // Determine correct Firestore document id *before* using it anywhere
+                                $linkId = $product['doc_id'] ?? '';
+
+                                if ($linkId === '' && isset($product['id'])) {
+                                    $pid = (string)$product['id'];
+                                    // If it's not a simple small integer, treat it as the Firestore id
+                                    if (!ctype_digit($pid) || strlen($pid) > 6) {
+                                        $linkId = $pid;
+                                    }
+                                }
+
+                                // Final fallback: still empty? use the numeric id (legacy)
+                                if ($linkId === '' && isset($product['id'])) {
+                                    $linkId = (string)$product['id'];
+                                }
+                                ?>
+
+                                <tr
+                                    class="product-row status-<?php echo $product['status']; ?>"
+                                    data-doc-id="<?php echo htmlspecialchars($linkId); ?>"
+                                    data-name="<?php echo htmlspecialchars($product['name']); ?>"
+                                    data-sku="<?php echo htmlspecialchars($product['sku']); ?>"
+                                    data-qty="<?php echo (int)$product['quantity']; ?>"
+                                    data-min="<?php echo (int)$product['min_stock_level']; ?>">
+
                                     <td>
                                         <div class="product-info">
                                             <strong><?php echo htmlspecialchars($product['name']); ?></strong>
@@ -434,6 +462,7 @@ $page_title = 'Stock Management - Inventory System';
                                             </a>
 
                                             <a href="edit.php?id=<?php echo $product['id']; ?>" class="btn btn-sm btn-primary" title="Edit Product">Edit</a>
+                                            <a href="adjust.php?id=<?php echo $product['id']; ?>" class="btn btn-sm btn-warning" title="Adjust Stock">Adjust</a>
                                             <a href="delete.php?id=<?php echo $product['id']; ?>" class="btn btn-sm btn-danger"
                                                 onclick="return confirm('Are you sure you want to delete this product?')" title="Delete Product">Delete</a>
                                         </div>
@@ -443,6 +472,8 @@ $page_title = 'Stock Management - Inventory System';
                         </tbody>
                     </table>
                 </div>
+                <div id="lowStockHost"></div>
+
 
                 <!-- Pagination -->
                 <?php if ($pagination['total_pages'] > 1): ?>
@@ -464,7 +495,7 @@ $page_title = 'Stock Management - Inventory System';
                     </div>
                 <?php endif; ?>
             <?php endif; ?>
-        </div>
+        </main>
     </div>
 
     <script src="../../assets/js/main.js"></script>
@@ -492,23 +523,139 @@ $page_title = 'Stock Management - Inventory System';
                 });
             }
         });
+
+        (function() {
+            // Show exactly once per day per product
+            function seenTodayKey(docId, qty) {
+                if (!docId) return null;
+                const d = new Date();
+                const ymd = d.getFullYear().toString() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+                // Include quantity so alert resets when stock changes
+                return `lowstock:${docId}:${qty}:${ymd}`;
+            }
+
+            function alreadySeenToday(docId, qty) {
+                const key = seenTodayKey(docId, qty);
+                if (!key) return false;
+                try {
+                    return localStorage.getItem(key) === '1';
+                } catch (e) {
+                    return false;
+                }
+            }
+
+            function markSeenToday(docId, qty) {
+                const key = seenTodayKey(docId, qty);
+                if (!key) return;
+                try {
+                    // Remove any older keys for this product (to avoid clutter)
+                    Object.keys(localStorage).forEach(k => {
+                        if (k.startsWith(`lowstock:${docId}:`) && k !== key) localStorage.removeItem(k);
+                    });
+                    localStorage.setItem(key, '1');
+                } catch (e) {}
+            }
+
+            function buildModal({
+                docId,
+                name,
+                sku,
+                qty,
+                min
+            }) {
+                const host = document.getElementById('lowStockHost') || document.body;
+                const wrap = document.createElement('div');
+                wrap.className = 'lsk-overlay';
+                wrap.innerHTML = `
+      <div class="lsk-modal" role="dialog" aria-modal="true">
+        <div class="lsk-head">
+          <div class="icon">⚠️</div>
+          <div class="lsk-title">Low Stock Alert</div>
+        </div>
+        <div class="lsk-body">
+          <div>The following item is below its minimum stock level:</div>
+          <table class="lsk-table">
+            <tr><th style="width:40%">Product</th><td>${name || '-'}</td></tr>
+            <tr><th>SKU</th><td>${sku || '-'}</td></tr>
+            <tr><th>Current Quantity</th><td><strong>${qty}</strong></td></tr>
+            <tr><th>Minimum Stock Level</th><td><strong>${min}</strong></td></tr>
+          </table>
+          <div class="lsk-reco"><strong>Recommended:</strong> Reorder or add stock to avoid stockouts.</div>
+        </div>
+        <div class="lsk-actions">
+          <button class="btn-lsk btn-outline" data-act="dismiss">Dismiss</button>
+          <a class="btn-lsk btn-primary" href="adjust.php?id=${encodeURIComponent(docId)}">Add Stock</a>
+          <a class="btn-lsk btn-danger" href="edit.php?id=${encodeURIComponent(docId)}">Reorder / Edit</a>
+        </div>
+      </div>
+    `;
+
+                function close() {
+                    wrap.remove();
+                    if (docId) markSeenToday(docId, qty);
+                }
+                wrap.addEventListener('click', (e) => {
+                    if (e.target === wrap) close();
+                });
+                wrap.querySelector('[data-act="dismiss"]').addEventListener('click', close);
+
+                host.appendChild(wrap);
+            }
+
+            // Find the first row that is genuinely low stock (qty > 0 && qty <= min)
+            document.addEventListener('DOMContentLoaded', function() {
+                const rows = document.querySelectorAll('tr.product-row[data-doc-id]');
+                for (const row of rows) {
+                    const qty = parseInt(row.getAttribute('data-qty') || '0', 10);
+                    const min = parseInt(row.getAttribute('data-min') || '0', 10);
+                    const docId = row.getAttribute('data-doc-id') || '';
+                    const name = row.getAttribute('data-name') || '';
+                    const sku = row.getAttribute('data-sku') || '';
+
+                    // ✅ If NOT low stock anymore, clear any old keys
+                    if (!(docId && min > 0 && qty > 0 && qty <= min)) {
+                        try {
+                            Object.keys(localStorage).forEach(k => {
+                                if (k.startsWith(`lowstock:${docId}:`)) localStorage.removeItem(k);
+                            });
+                        } catch (e) {}
+                        continue; // skip to next row
+                    }
+
+                    // ✅ Show modal for the first low-stock product not yet acknowledged today
+                    if (docId && min > 0 && qty > 0 && qty <= min) {
+                        if (!alreadySeenToday(docId, qty)) {
+                            buildModal({
+                                docId,
+                                name,
+                                sku,
+                                qty,
+                                min
+                            });
+                        }
+                        break; // show one per page load
+                    }
+                }
+            });
+
+        })();
     </script>
 
     <style>
-        /* Main content spacing after navigation */
-        .main-content {
-            margin-top: 80px; /* Space for fixed navigation */
-            padding: 20px 0;
+        .data-table thead tr {
+            background-color: #1e293b;
+            /* dark slate gray tone */
+            color: #ffffff;
+            /* white text for contrast */
         }
 
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 0 20px;
-        }
+        .data-table thead th {
+            padding: 12px 14px;
+            font-weight: 600;
 
-        .page-header {
-            margin-bottom: 25px;
+            letter-spacing: 0.5px;
+            border-bottom: 2px solid #2f3237ff;
+            /* subtle darker border */
         }
 
         .stock-summary {
@@ -696,6 +843,105 @@ $page_title = 'Stock Management - Inventory System';
         /* Optional: if button too close vertically */
         .page-actions {
             margin-top: 6px;
+        }
+
+        .lsk-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, .45);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        }
+
+        .lsk-modal {
+            width: 520px;
+            max-width: 95vw;
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, .25);
+            overflow: hidden;
+            font: 14px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        }
+
+        .lsk-head {
+            padding: 16px 18px;
+            border-bottom: 1px solid #e5e7eb;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .lsk-head .icon {
+            color: #f59e0b;
+            font-size: 18px;
+        }
+
+        .lsk-title {
+            font-weight: 700;
+            font-size: 16px;
+            color: #b91c1c;
+        }
+
+        .lsk-body {
+            padding: 14px 18px;
+        }
+
+        .lsk-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 6px 0 8px;
+        }
+
+        .lsk-table th,
+        .lsk-table td {
+            padding: 8px 10px;
+            border-bottom: 1px solid #f1f5f9;
+            text-align: left;
+        }
+
+        .lsk-reco {
+            background: #fff7ed;
+            border: 1px solid #fed7aa;
+            color: #7c2d12;
+            padding: 10px 12px;
+            border-radius: 8px;
+            margin-top: 8px;
+            font-size: 13px;
+        }
+
+        .lsk-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            padding: 12px 18px;
+            background: #f8fafc;
+            border-top: 1px solid #e5e7eb;
+        }
+
+        .btn-lsk {
+            border: 0;
+            border-radius: 10px;
+            padding: 10px 14px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .btn-primary {
+            background: #2563eb;
+            color: #fff;
+        }
+
+        .btn-outline {
+            background: #fff;
+            color: #0f172a;
+            border: 1px solid #cbd5e1;
+        }
+
+        .btn-danger {
+            background: #ef4444;
+            color: #fff;
         }
     </style>
 </body>

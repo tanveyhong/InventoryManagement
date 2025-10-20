@@ -35,8 +35,8 @@
                         <a href="<?php echo (strpos($_SERVER['PHP_SELF'], 'modules') !== false) ? '../../modules/stock/add.php' : 'modules/stock/add.php'; ?>">
                             <i class="fas fa-plus"></i> Add Stock
                         </a>
-                        <a href="<?php echo (strpos($_SERVER['PHP_SELF'], 'modules') !== false) ? '../../modules/stock/adjust.php' : 'modules/stock/adjust.php'; ?>">
-                            <i class="fas fa-edit"></i> Adjustments
+                        <a href="<?php echo (strpos($_SERVER['PHP_SELF'], 'modules') !== false) ? '../../modules/stock/stockAuditHis.php' : 'modules/stock/stockAuditHis.php'; ?>">
+                            <i class="fas fa-edit"></i> Stock Audit History
                         </a>
                         <a href="<?php echo (strpos($_SERVER['PHP_SELF'], 'modules') !== false) ? '../../modules/pos/stock_pos_integration.php' : 'modules/pos/stock_pos_integration.php'; ?>">
                             <i class="fas fa-cash-register"></i> POS Integration

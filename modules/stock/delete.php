@@ -36,6 +36,28 @@ if (method_exists($db, 'updateMerge')) {
   // updateMerge(collection, docId, fieldsToMerge)
   try {
     $db->updateMerge('products', $docId, $softFlags);
+    // --- audit: delete_product (no qty fields) ---
+try {
+  $changedBy   = $_SESSION['user_id'] ?? $_SESSION['uid'] ?? ($_SESSION['user']['id'] ?? null);
+  $changedName = $_SESSION['username'] ?? $_SESSION['email'] ?? ($_SESSION['user']['name'] ?? $_SESSION['user']['email'] ?? null);
+
+  log_stock_audit([
+    'action'         => 'delete_product',
+    'product_id'     => (string)$docId,
+    'sku'            => $stock['sku'] ?? null,
+    'product_name'   => $stock['name'] ?? null,
+    'store_id'       => $stock['store_id'] ?? null,
+
+    // no 'before'/'after' so qty renders as "–"
+    'user_id'        => $changedBy,
+    'username'       => $changedName,
+    'changed_by'     => $changedBy,
+    'changed_name'   => $changedName,
+  ]);
+} catch (Throwable $t) {
+  error_log('delete audit failed: ' . $t->getMessage());
+}
+
     header('Location: list.php?deleted=1'); exit;
   } catch (\Throwable $e) {
     error_log('Soft delete (merge) failed: '.$e->getMessage());
@@ -66,18 +88,39 @@ try {
   }
   $payload['updated_at'] = date('c');
 
-  // Write back the full merged document
-  if (method_exists($db, 'update')) {
-    $db->update('products', $docId, $payload); // replaces doc, but we included ALL fields
-  } elseif (method_exists($db, 'write')) {
-    $db->write('products', $docId, $payload);
-  } else {
-    throw new \RuntimeException('No suitable write method (update/write) found.');
-  }
+if (method_exists($db, 'update')) {
+  $db->update('products', $docId, $payload);
+} elseif (method_exists($db, 'write')) {
+  $db->write('products', $docId, $payload);
+} else {
+  throw new \RuntimeException('No suitable write method (update/write) found.');
+}
+
+// --- audit: delete_product (no qty fields) ---
+try {
+  $changedBy   = $_SESSION['user_id'] ?? $_SESSION['uid'] ?? ($_SESSION['user']['id'] ?? null);
+  $changedName = $_SESSION['username'] ?? $_SESSION['email'] ?? ($_SESSION['user']['name'] ?? $_SESSION['user']['email'] ?? null);
+
+  log_stock_audit([
+    'action'         => 'delete_product',
+    'product_id'     => (string)$docId,
+    'sku'            => $current['sku'] ?? null,
+    'product_name'   => $current['name'] ?? null,
+    'store_id'       => $current['store_id'] ?? null,
+
+    // no qty fields
+    'user_id'        => $changedBy,
+    'username'       => $changedName,
+    'changed_by'     => $changedBy,
+    'changed_name'   => $changedName,
+  ]);
+} catch (Throwable $t) {
+  error_log('delete audit failed: ' . $t->getMessage());
+}
 
   header('Location: list.php?deleted=1'); exit;
-
 } catch (\Throwable $e) {
-  error_log('Soft delete (rewrite) failed: '.$e->getMessage());
+  error_log('Soft delete (full update) failed: '.$e->getMessage());
   http_response_code(500); echo 'Failed to soft delete product.'; exit;
 }
+

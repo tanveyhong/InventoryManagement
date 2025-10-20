@@ -81,6 +81,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
   }
 
+  // existing
+  $desc_before = isset($stock['description'])
+    ? trim(preg_replace('/\s+/', ' ', (string)$stock['description']))
+    : null;
+
+  // ✅ add this line:
+  if ($desc_before === '') $desc_before = null;
+
+  $desc_after = trim(preg_replace('/\s+/', ' ', (string)$description));
+  if ($desc_after === '') $desc_after = null;
+
+  $description = $desc_after; // save & audit use normalized value
+
 
   if (empty($errors)) {
 
@@ -106,16 +119,83 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $data['created_at'] = $originalCreatedAt;
     }
 
+    $before = [
+      'quantity'       => (int)($stock['quantity'] ?? 0),
+      'description'    => $desc_before,  // normalized before
+      'reorder_level'  => isset($stock['reorder_level']) ? (int)$stock['reorder_level'] : null,
+    ];
+
+    $after = [
+      'quantity'       => (int)$quantity,
+      'description'    => $desc_after,   // normalized after
+      'reorder_level'  => (int)$reorderLevel,
+    ];
+
+    $common = [
+      'product_id'   => (string)$docId,
+      'sku'          => $data['sku'] ?? ($stock['sku'] ?? null),
+      'product_name' => $name,
+      'store_id'     => $storeId ?: ($stock['store_id'] ?? null),
+      'user_id'      => $_SESSION['user_id'] ?? $_SESSION['uid'] ?? null,
+      'username'     => $_SESSION['username'] ?? $_SESSION['email'] ?? null,
+    ];
+
+    // 1) Quantity changed?
+    if ($before['quantity'] !== $after['quantity']) {
+      log_stock_audit([
+        'action' => 'adjust_quantity',
+        'before' => ['quantity' => $before['quantity']],
+        'after'  => ['quantity' => $after['quantity']],
+      ] + $common);
+    }
+
+    // Description changed? (compare normalized values only)
+    if ($desc_before !== $desc_after) {
+      log_stock_audit([
+        'action' => 'update_description',
+        'before' => [
+          'description' => $desc_before,
+          // removed: 'quantity' => $before['quantity'],
+        ],
+        'after'  => [
+          'description' => $desc_after,
+          // removed: 'quantity' => $after['quantity'],
+        ],
+      ] + $common);
+    }
+
+    // 3) Min level changed?
+    if (($before['reorder_level'] ?? null) !== ($after['reorder_level'] ?? null)) {
+      log_stock_audit([
+        'action' => 'update_min_level',
+        'before' => [
+          'reorder_level' => $before['reorder_level'],
+          'quantity'      => $before['quantity'],
+        ],
+        'after'  => [
+          'reorder_level' => $after['reorder_level'],
+          'quantity'      => $after['quantity'],
+        ],
+      ] + $common);
+    }
+
+
+
+
     $db = db_obj();
     if (!$db || !method_exists($db, 'update')) {
       $errors[] = 'Database update not available.';
     } else {
       try {
         $db->update('products', $docId, $data);
-        // refresh local copy for re-render
+
+        // ✅ move the WHOLE audit block to here (just below the update)
+        //    (the three if-blocks: adjust_quantity / update_description / update_min_level)
+
+        // refresh local copy for re-render (optional if you redirect)
         $stock = fs_get_product_by_doc($docId);
-        $notice = 'Product updated successfully.';
-        // redirect to view page (comment this if you prefer staying on edit)
+
+        // Redirect
         header('Location: view.php?id=' . rawurlencode($docId) . '&updated=1');
         exit;
       } catch (Throwable $e) {
@@ -161,37 +241,154 @@ function h($s)
       margin: 0
     }
 
-/* Hover effect */
-.btn.btn-outline:hover {
-  background-color: #e2e8f0;  /* slightly darker grey */
-  border-color: #cbd5e1;
-  color: #111827;
-  transform: translateY(-1px);
-}
-  .alert{margin:10px 0;padding:10px 12px;border-radius:10px}
-  .alert-error{background:#fee2e2;color:#7f1d1d;border:1px solid #fecaca}
-  .alert-ok{background:#ecfdf5;color:#065f46;border:1px solid #d1fae5}
+    .shell {
+      max-width: 1000px;
+      margin: 24px auto;
+      padding: 0 18px
+    }
 
-  /* Main content spacing */
-  .main-content {
-      margin-top: 80px;
-      padding: 20px 0;
-  }
+    .page-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px
+    }
 
-  .container {
-      max-width: 1400px;
-      margin: 0 auto;
-      padding: 0 20px;
-  }
-</style>
+    .page-header h1 {
+      margin: 0;
+      font-size: 1.6rem;
+      font-weight: 800;
+      color: #0f172a
+    }
+
+    .card {
+      background: #fff;
+      border: 1px solid #e5eaf1;
+      border-radius: 14px;
+      box-shadow: 0 8px 30px rgba(2, 6, 23, .05)
+    }
+
+    .card .inner {
+      padding: 18px
+    }
+
+    .grid {
+      display: grid;
+      gap: 14px
+    }
+
+    .grid-2 {
+      grid-template-columns: 1fr 1fr
+    }
+
+    @media (max-width:860px) {
+      .grid-2 {
+        grid-template-columns: 1fr
+      }
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px
+    }
+
+    .label {
+      font-weight: 700;
+      color: #0f172a;
+      font-size: .92rem
+    }
+
+    .hint {
+      color: #64748b;
+      font-size: .85rem
+    }
+
+    .control {
+      border: 1px solid #dfe6f2;
+      border-radius: 10px;
+      padding: .75rem .9rem;
+      background: #fff;
+      color: #0f172a
+    }
+
+    .control:focus {
+      outline: none;
+      border-color: #2563eb;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, .15)
+    }
+
+    textarea.control {
+      min-height: 110px;
+      resize: vertical
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+      margin-top: 16px
+    }
+
+    .btn {
+      border: none;
+      border-radius: 10px;
+      padding: .7rem 1.1rem;
+      font-weight: 700;
+      cursor: pointer
+    }
+
+    .btn-primary {
+      background: #2563eb;
+      color: #fff
+    }
+
+    .btn.btn-outline {
+      background-color: #f1f5f9e4;
+      /* light grey */
+      color: #1e293b;
+      /* dark text */
+      border: 1px solid #d1d5db;
+      font-weight: 600;
+      padding: 0.6rem 1rem;
+      border-radius: 8px;
+      transition: all 0.25s ease;
+    }
+
+    /* Hover effect */
+    .btn.btn-outline:hover {
+      background-color: #e2e8f0;
+      /* slightly darker grey */
+      border-color: #cbd5e1;
+      color: #111827;
+      transform: translateY(-1px);
+    }
+
+    .alert {
+      margin: 10px 0;
+      padding: 10px 12px;
+      border-radius: 10px
+    }
+
+    .alert-error {
+      background: #fee2e2;
+      color: #7f1d1d;
+      border: 1px solid #fecaca
+    }
+
+    .alert-ok {
+      background: #ecfdf5;
+      color: #065f46;
+      border: 1px solid #d1fae5
+    }
+  </style>
 </head>
 
 <body>
-    <?php include '../../includes/dashboard_header.php'; ?>
-    
-<div class="main-content">
-<div class="container">
-<div class="shell">
+  <?php
+  include '../../includes/dashboard_header2.php';
+  ?>
+  <div class="shell">
 
     <div class="page-header">
       <h1>Edit Product</h1>
@@ -297,9 +494,6 @@ function h($s)
       </form>
     </div>
   </div>
-</div>
-</div>
-</div>
 
   <script>
     // Avoid scroll changing numeric inputs
