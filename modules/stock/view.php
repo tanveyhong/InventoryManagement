@@ -25,6 +25,37 @@ if (!$stock) {
   exit('Stock not found');
 }
 
+// ---- Resolve store name (SQL first, Firestore fallback) --------------------
+// ---- Resolve store name (SQL only, same source as add.php) ----
+$storeName = '—';
+$storeId   = isset($stock['store_id']) ? trim((string)$stock['store_id']) : '';
+
+if ($storeId !== '') {
+  try {
+    $db = getDB(); // same as add.php uses
+
+    // Try a direct fetch() first (if supported)
+    $row = null;
+    if ($db && method_exists($db, 'fetch')) {
+      $row = $db->fetch("SELECT name FROM stores WHERE id = ?", [$storeId]);
+    }
+
+    // Fallback: some wrappers only have fetchAll(), like add.php uses
+    if ((!$row || empty($row['name'])) && $db && method_exists($db, 'fetchAll')) {
+      $rows = $db->fetchAll("SELECT name FROM stores WHERE id = ?", [$storeId]);
+      $row  = $rows[0] ?? null;
+    }
+
+    if ($row && !empty($row['name'])) {
+      $storeName = (string)$row['name'];
+    }
+  } catch (Throwable $t) {
+    error_log('Store name lookup failed: ' . $t->getMessage());
+  }
+}
+
+
+
 // Derived/status
 $qty        = (int)$stock['quantity'];
 $reorder    = (int)$stock['reorder_level'];
@@ -414,22 +445,22 @@ $updated_display = _fmt_date($updated);
     }
 
     .status-expired {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  background: #ef4444;        /* red */
-  color: #fff;
-  font-weight: 600;
-  font-size: 0.85rem;
-  padding: 0.5rem 1rem;
-  border-radius: 50px;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15);
-}
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: #ef4444;
+      /* red */
+      color: #fff;
+      font-weight: 600;
+      font-size: 0.85rem;
+      padding: 0.5rem 1rem;
+      border-radius: 50px;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15);
+    }
 
-.status-expired i {
-  color: #fff;
-}
-
+    .status-expired i {
+      color: #fff;
+    }
   </style>
 </head>
 
@@ -476,19 +507,19 @@ $updated_display = _fmt_date($updated);
               </div>
 
               <?php
-$expiryDate = isset($stock['expiry_date']) ? strtotime($stock['expiry_date']) : null;
-$today = strtotime('today');
+              $expiryDate = isset($stock['expiry_date']) ? strtotime($stock['expiry_date']) : null;
+              $today = strtotime('today');
 
-if ($expiryDate) {
-    if ($expiryDate < $today) {
-        // Product already expired
-        echo '<div class="status-expired"><i class="fas fa-ban"></i> Expired</div>';
-    } elseif ($status === 'In stock' && $expiryDate <= strtotime('+30 days')) {
-        // Product is still valid but expiring soon
-        echo '<div class="status-expiring"><i class="fas fa-hourglass-half"></i> Expiring Soon</div>';
-    }
-}
-?>
+              if ($expiryDate) {
+                if ($expiryDate < $today) {
+                  // Product already expired
+                  echo '<div class="status-expired"><i class="fas fa-ban"></i> Expired</div>';
+                } elseif ($status === 'In stock' && $expiryDate <= strtotime('+30 days')) {
+                  // Product is still valid but expiring soon
+                  echo '<div class="status-expiring"><i class="fas fa-hourglass-half"></i> Expiring Soon</div>';
+                }
+              }
+              ?>
 
             </div>
 
@@ -571,16 +602,8 @@ if ($expiryDate) {
               <span class="detail-value">RM <?php echo number_format($totalValue, 2); ?></span>
             </div>
             <div class="detail-item">
-              <span class="detail-label">Store ID</span>
-              <span class="detail-value"><?php echo htmlspecialchars($stock['store_id'] ?: '—'); ?></span>
-            </div>
-            <div class="detail-item">
-              <span class="detail-label">Location</span>
-              <span class="detail-value"><?php echo htmlspecialchars($location); ?></span>
-            </div>
-            <div class="detail-item">
-              <span class="detail-label">Supplier</span>
-              <span class="detail-value"><?php echo htmlspecialchars($supplier); ?></span>
+              <span class="detail-label">Store</span>
+              <span class="detail-value"><?= htmlspecialchars($storeName) ?></span>
             </div>
             <div class="detail-item">
               <span class="detail-label">Expiry Date</span>

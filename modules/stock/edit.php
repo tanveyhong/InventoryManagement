@@ -49,6 +49,20 @@ $docId = $stock['doc_id']; // ensure we have doc id for updates
 $errors = [];
 $notice = '';
 
+// Ensure we have the same DB wrapper as add.php
+if (!isset($db) || !$db) {
+  $db = getDB();
+}
+
+$stores = [];
+try {
+  // identical to add.php
+  $stores = $db->fetchAll("SELECT id, name FROM stores WHERE is_active = 1 ORDER BY name");
+} catch (Throwable $t) {
+  error_log('Load stores failed in edit.php: ' . $t->getMessage());
+  $stores = []; // keep safe
+}
+
 // ----- handle POST (save) -----
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $name          = trim((string)($_POST['name'] ?? $stock['name']));
@@ -95,6 +109,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $description = $desc_after; // save & audit use normalized value
 
 
+
+
   if (empty($errors)) {
 
     $originalCreatedAt = $stock['created_at'] ?? null;
@@ -106,7 +122,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       'reorder_level' => $reorderLevel,
       'price'         => $price,
       'expiry_date'   => $expiryDate !== '' ? $expiryDate : null,
-      'store_id'      => $storeId,
+      'store_id' => ($storeId !== '' ? $storeId : null),
       'location'      => $location,
       'unit'          => $unit,
       'barcode'       => $barcode,
@@ -135,7 +151,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       'product_id'   => (string)$docId,
       'sku'          => $data['sku'] ?? ($stock['sku'] ?? null),
       'product_name' => $name,
-      'store_id'     => $storeId ?: ($stock['store_id'] ?? null),
+      'store_id'     => ($storeId !== '' ? $storeId : ($stock['store_id'] ?? null)),
       'user_id'      => $_SESSION['user_id'] ?? $_SESSION['uid'] ?? null,
       'username'     => $_SESSION['username'] ?? $_SESSION['email'] ?? null,
     ];
@@ -435,9 +451,27 @@ function h($s)
               ?>
             </select>
           </div>
-          <div class="field">
-            <label class="label">Store (optional)</label>
-            <input class="control" type="text" name="store_id" value="<?php echo h($stock['store_id'] ?? ''); ?>">
+          <div class="form-group">
+            <label for="store_id" class="label">Store:</label>
+            <select id="store_id" name="store_id">
+              <option value="">Select Store</option>
+              <?php
+              // POST value (after validation error) or the product’s current store_id
+              $selectedStoreId = isset($_POST['store_id'])
+                ? (string)$_POST['store_id']
+                : (string)($stock['store_id'] ?? '');
+
+              foreach ($stores as $store):
+                $sid   = (string)$store['id'];   // SQL id is the Firestore doc id in your setup
+                $sname = (string)$store['name'];
+                if ($sid === '' || $sname === '') continue;
+                $sel = ($sid === $selectedStoreId) ? 'selected' : '';
+              ?>
+                <option value="<?= htmlspecialchars($sid) ?>" <?= $sel ?>>
+                  <?= htmlspecialchars($sname) ?>
+                </option>
+              <?php endforeach; ?>
+            </select>
           </div>
         </div>
 
@@ -469,22 +503,6 @@ function h($s)
                                                                           }
                                                                           ?>">
           </div>
-        </div>
-
-        <div class="grid grid-2">
-          <div class="field">
-            <label class="label">Unit (optional)</label>
-            <input class="control" type="text" name="unit" value="<?php echo h($stock['unit'] ?? ''); ?>">
-          </div>
-          <div class="field">
-            <label class="label">Location (optional)</label>
-            <input class="control" type="text" name="location" value="<?php echo h($stock['location'] ?? ''); ?>">
-          </div>
-        </div>
-
-        <div class="field">
-          <label class="label">Barcode (optional)</label>
-          <input class="control" type="text" name="barcode" value="<?php echo h($stock['barcode'] ?? ''); ?>">
         </div>
 
         <div class="toolbar">
