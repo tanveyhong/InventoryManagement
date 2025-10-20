@@ -13,6 +13,12 @@ function isLoggedIn()
 
 function getUserInfo($user_id)
 {
+    // Use cached version if available
+    if (file_exists(__DIR__ . '/includes/database_cache.php')) {
+        return getUserInfoCached($user_id);
+    }
+    
+    // Fallback to direct database call
     $db = getDB();
     return $db->read('users', $user_id);
 }
@@ -715,4 +721,171 @@ function log_stock_audit(array $opts): void
     } catch (Throwable $t) {
         error_log('log_stock_audit failed: ' . $t->getMessage());
     }
+}
+
+// ============================================================================
+// PERMISSION FUNCTIONS
+// ============================================================================
+
+/**
+ * Check if a user has a specific permission
+ * @param string $userId User ID
+ * @param string $permission Permission to check (e.g., 'manage_inventory', 'view_reports')
+ * @return bool True if user has permission
+ */
+function hasPermission($userId, $permission) {
+    if (empty($userId) || empty($permission)) {
+        return false;
+    }
+    
+    try {
+        $db = getDB();
+        $user = $db->read('users', $userId);
+        
+        if (!$user || empty($user['role'])) {
+            return false;
+        }
+        
+        $role = strtolower($user['role']);
+        
+        // Admin has all permissions
+        if ($role === 'admin') {
+            return true;
+        }
+        
+        // Check permission overrides first (decode if JSON string)
+        $overrides = $user['permission_overrides'] ?? null;
+        if (!empty($overrides)) {
+            // Handle JSON string
+            if (is_string($overrides)) {
+                $overrides = json_decode($overrides, true);
+            }
+            // Check if this permission is in overrides
+            if (is_array($overrides) && isset($overrides[$permission])) {
+                return (bool)$overrides[$permission];
+            }
+        }
+        
+        // Define role-based permissions
+        $rolePermissions = [
+            'admin' => ['view_reports', 'manage_inventory', 'manage_users', 'manage_stores', 'configure_system', 'manage_pos', 'view_audit'],
+            'manager' => ['view_reports', 'manage_inventory', 'manage_stores', 'manage_pos', 'view_audit'],
+            'user' => ['view_reports', 'view_inventory']
+        ];
+        
+        // Check if role has the permission
+        if (isset($rolePermissions[$role]) && in_array($permission, $rolePermissions[$role])) {
+            return true;
+        }
+        
+        // Check role_id based permissions
+        if (!empty($user['role_id'])) {
+            $roleData = $db->read('roles', $user['role_id']);
+            if ($roleData && !empty($roleData['permissions'])) {
+                $permissions = is_string($roleData['permissions']) 
+                    ? json_decode($roleData['permissions'], true) 
+                    : $roleData['permissions'];
+                
+                if (is_array($permissions) && in_array($permission, $permissions)) {
+                    return true;
+                }
+            }
+        }
+        
+        return false;
+    } catch (Exception $e) {
+        error_log('hasPermission error: ' . $e->getMessage());
+        return false;
+    }
+}
+
+/**
+ * Check if current logged-in user has a permission
+ * @param string $permission Permission to check
+ * @return bool True if current user has permission
+ */
+function currentUserHasPermission($permission) {
+    if (!isLoggedIn()) {
+        return false;
+    }
+    return hasPermission($_SESSION['user_id'], $permission);
+}
+
+/**
+ * Require permission or exit with error
+ * @param string $permission Required permission
+ * @param string $redirectUrl URL to redirect to if permission denied (default: shows 403)
+ */
+function requirePermission($permission, $redirectUrl = null) {
+    if (!currentUserHasPermission($permission)) {
+        if ($redirectUrl) {
+            $_SESSION['error'] = 'You do not have permission to access this resource.';
+            // Add error parameter to URL for permission indicator detection
+            $separator = (strpos($redirectUrl, '?') !== false) ? '&' : '?';
+            header('Location: ' . $redirectUrl . $separator . 'error=permission_denied');
+            exit;
+        } else {
+            // If no redirect URL, redirect to index with error parameter
+            $_SESSION['error'] = 'Access Denied: You do not have permission to access this resource. Required: ' . $permission;
+            header('Location: ../../index.php?error=permission_denied');
+            exit;
+        }
+    }
+}
+
+/**
+ * Check if user has ANY of the given permissions
+ * @param string $userId User ID
+ * @param array $permissions Array of permissions
+ * @return bool True if user has at least one permission
+ */
+function hasAnyPermission($userId, $permissions) {
+    foreach ($permissions as $permission) {
+        if (hasPermission($userId, $permission)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Check if user has ALL of the given permissions
+ * @param string $userId User ID
+ * @param array $permissions Array of permissions
+ * @return bool True if user has all permissions
+ */
+function hasAllPermissions($userId, $permissions) {
+    foreach ($permissions as $permission) {
+        if (!hasPermission($userId, $permission)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/**
+ * Get all permissions for a user
+ * @param string $userId User ID
+ * @return array Array of permission names the user has
+ */
+function getUserPermissions($userId) {
+    $allPermissions = [
+        'view_reports', 
+        'manage_inventory', 
+        'manage_users', 
+        'manage_stores', 
+        'configure_system', 
+        'manage_pos',
+        'view_audit',
+        'view_inventory'
+    ];
+    
+    $userPermissions = [];
+    foreach ($allPermissions as $permission) {
+        if (hasPermission($userId, $permission)) {
+            $userPermissions[] = $permission;
+        }
+    }
+    
+    return $userPermissions;
 }

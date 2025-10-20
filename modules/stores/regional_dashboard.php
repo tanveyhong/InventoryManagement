@@ -15,6 +15,9 @@ if (!isLoggedIn()) {
     exit;
 }
 
+// Require permission for regional analytics
+requireManagerOrAdmin('../../index.php');
+
 $sql_db = getSQLDB();
 
 // Get enhanced filter parameters

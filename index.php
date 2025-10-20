@@ -1,12 +1,10 @@
 <?php
-// Enhanced Dashboard with Performance Optimization
-ob_start('ob_gzhandler'); // Enable compression
+// Ultra-Fast Dashboard with Aggressive Caching
+// Use fast initialization for optimal performance
+require_once 'includes/fast_init.php';
 
-require_once 'config.php';
-require_once 'db.php';
-require_once 'functions.php';
-
-session_start();
+// Optional: Enable performance monitoring (comment out in production)
+// require_once 'includes/performance_monitor.php';
 
 // Check if user is logged in
 if (!isset($_SESSION['user_id'])) {
@@ -14,29 +12,11 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
-// Helper function for caching
-function getCachedStats($key, $callback, $ttl = 180) {
-    $cache_dir = 'storage/cache/';
-    if (!is_dir($cache_dir)) {
-        @mkdir($cache_dir, 0755, true);
-    }
-    
-    $cache_file = $cache_dir . md5($key) . '.json';
-    
-    if (file_exists($cache_file) && (time() - filemtime($cache_file)) < $ttl) {
-        $data = json_decode(file_get_contents($cache_file), true);
-        if ($data !== null) {
-            return $data;
-        }
-    }
-    
-    $data = $callback();
-    file_put_contents($cache_file, json_encode($data));
-    return $data;
-}
+// Preload user data in background
+preloadUserData();
 
-// Get dashboard statistics with caching (3 min cache)
-$stats = getCachedStats('dashboard_stats_' . $_SESSION['user_id'], function() {
+// Get dashboard statistics with aggressive caching
+$stats = DatabaseCache::getQuery('dashboard_stats_' . $_SESSION['user_id'], function() {
     return [
         'total_products' => getTotalProducts(),
         'low_stock' => getLowStockCount(),
@@ -44,15 +24,17 @@ $stats = getCachedStats('dashboard_stats_' . $_SESSION['user_id'], function() {
         'todays_sales' => getTodaysSales(),
         'notifications' => getNotifications()
     ];
-}, 180);
+}, 180); // 3 minute cache
 
-// Get recent activity (you can expand this based on your needs)
-$db = getDB();
-$recent_activity = [];
+// Get recent activity with caching
+$recent_activity = DatabaseCache::getQuery('recent_activity_' . $_SESSION['user_id'], function() {
+    // Return empty for now, can be expanded
+    return [];
+}, 300); // 5 minute cache
 
 $page_title = 'Dashboard - Inventory Management System';
 
-// Add caching headers
+// Add caching headers for browser
 header('Cache-Control: private, max-age=180');
 header('Vary: Cookie');
 ?>
@@ -670,6 +652,7 @@ header('Vary: Cookie');
 
             <!-- Quick Actions -->
             <div class="quick-actions-grid">
+                <?php if (currentUserHasPermission('manage_inventory')): ?>
                 <a href="modules/stock/add.php" class="action-card">
                     <div class="action-icon">
                         <i class="fas fa-plus-circle"></i>
@@ -677,7 +660,9 @@ header('Vary: Cookie');
                     <div class="action-title">Add Product</div>
                     <div class="action-desc">Add new items to inventory</div>
                 </a>
+                <?php endif; ?>
 
+                <?php if (currentUserHasPermission('manage_stores')): ?>
                 <a href="modules/stores/enhanced_map.php" class="action-card">
                     <div class="action-icon">
                         <i class="fas fa-map-marked-alt"></i>
@@ -685,7 +670,9 @@ header('Vary: Cookie');
                     <div class="action-title">Store Map</div>
                     <div class="action-desc">View store locations</div>
                 </a>
+                <?php endif; ?>
 
+                <?php if (currentUserHasPermission('view_analytics')): ?>
                 <a href="modules/reports/dashboard.php" class="action-card">
                     <div class="action-icon">
                         <i class="fas fa-chart-bar"></i>
@@ -693,7 +680,9 @@ header('Vary: Cookie');
                     <div class="action-title">Reports</div>
                     <div class="action-desc">Generate analytics reports</div>
                 </a>
+                <?php endif; ?>
 
+                <?php if (currentUserHasPermission('configure_system')): ?>
                 <a href="sync_dashboard.php" class="action-card">
                     <div class="action-icon">
                         <i class="fas fa-sync-alt"></i>
@@ -701,13 +690,25 @@ header('Vary: Cookie');
                     <div class="action-title">Sync Manager</div>
                     <div class="action-desc">Database synchronization</div>
                 </a>
+                <?php endif; ?>
 
+                <?php if (currentUserHasPermission('manage_alerts')): ?>
                 <a href="modules/alerts/low_stock.php" class="action-card">
                     <div class="action-icon">
                         <i class="fas fa-bell"></i>
                     </div>
                     <div class="action-title">Alerts</div>
                     <div class="action-desc">View system alerts</div>
+                </a>
+                <?php endif; ?>
+                
+                <!-- Always show profile -->
+                <a href="modules/users/profile.php" class="action-card">
+                    <div class="action-icon">
+                        <i class="fas fa-user-circle"></i>
+                    </div>
+                    <div class="action-title">My Profile</div>
+                    <div class="action-desc">View your account settings</div>
                 </a>
             </div>
         </div>
@@ -1461,5 +1462,8 @@ header('Vary: Cookie');
     </script>
 
     <script src="assets/js/main.js"></script>
+    
+    <!-- Permission Indicator Component -->
+    <?php include 'includes/permission_indicator.php'; ?>
 </body>
 </html>

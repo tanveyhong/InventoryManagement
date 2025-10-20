@@ -18,6 +18,11 @@ if (!isLoggedIn()) {
     exit;
 }
 
+// Require permission to view stores
+if (function_exists('requirePermission')) {
+    requirePermission('manage_stores', '../../index.php');
+}
+
 // Cache configuration
 $cacheDir = '../../storage/cache/';
 if (!is_dir($cacheDir)) {

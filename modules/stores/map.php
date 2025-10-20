@@ -16,6 +16,9 @@ if (!isLoggedIn()) {
     exit;
 }
 
+// Require permission to view stores
+requirePermission('manage_stores', '../../index.php');
+
 // Cache configuration
 $cacheDir = '../../storage/cache/';
 if (!is_dir($cacheDir)) {

@@ -1,0 +1,17 @@
+{
+    "user": {
+        "id": "HYwJhqUhAReklqP1qIYF",
+        "updated_at": "2025-10-20T06:47:03-04:00",
+        "permission_overrides": "{\"manage_stores\":\"1\"}",
+        "username": "albert",
+        "created_at": "2025-10-20T06:44:42-04:00",
+        "password_hash": "$2y$10$AG44MAm2gXNNd9qQoZgTiOtL5eCVgu0CCl5bcwCQgVB7yFd1sH046",
+        "first_name": "Albedo",
+        "role": "user",
+        "is_active": true,
+        "email": "testuseracc@gmail.com",
+        "last_name": "Bino"
+    },
+    "cached_at": "2025-10-20 07:04:12",
+    "user_id": "HYwJhqUhAReklqP1qIYF"
+}

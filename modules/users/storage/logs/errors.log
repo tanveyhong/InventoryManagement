@@ -211,3 +211,10 @@
 [2025-10-19 13:24:50] Error: Undefined variable $user_id in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 1996
 [2025-10-19 13:26:11] Error: Undefined variable $user_id in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 2002
 [2025-10-19 13:28:31] Error: Undefined variable $user_id in C:\Users\senpa\InventorySystem\modules\users\profile.php on line 2002
+[2025-10-20 07:04:50] Failed login attempt Context: {"username":"testuseracc@gmail.com","found_user":true,"user_id":"HYwJhqUhAReklqP1qIYF","probe":{"password_hash":"no-match","password":"missing","pass":"missing"}}
+[2025-10-20 07:05:01] Failed login attempt Context: {"username":"testuseracc@gmail.com","found_user":true,"user_id":"HYwJhqUhAReklqP1qIYF","probe":{"password_hash":"no-match","password":"missing","pass":"missing"}}
+[2025-10-20 07:05:19] Failed login attempt Context: {"username":"testuseracc@gmail.com","found_user":true,"user_id":"HYwJhqUhAReklqP1qIYF","probe":{"password_hash":"no-match","password":"missing","pass":"missing"}}
+[2025-10-20 07:09:37] Failed login attempt Context: {"username":"NoodleDuckShenangain","found_user":false,"user_id":null,"probe":[]}
+[2025-10-20 07:09:47] Failed login attempt Context: {"username":"NoodleDuckShenangain","found_user":false,"user_id":null,"probe":[]}
+[2025-10-20 07:09:55] Failed login attempt Context: {"username":"NoodleDuckShenangain","found_user":false,"user_id":null,"probe":[]}
+[2025-10-20 07:10:07] Failed login attempt Context: {"username":"NoodleDuckShenangain","found_user":false,"user_id":null,"probe":[]}

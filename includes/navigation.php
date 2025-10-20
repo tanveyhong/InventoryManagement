@@ -1,5 +1,33 @@
 <?php
-// Enhanced Navigation for Inventory Management System
+// Enhanced Navigation with Permission-Based Visibility
+// Performance optimized with session caching
+
+// Initialize cache if not exists
+if (!isset($_SESSION['_cache'])) {
+    $_SESSION['_cache'] = [];
+}
+
+$currentUserId = $_SESSION['user_id'] ?? null;
+$userPermissions = [];
+
+if ($currentUserId) {
+    // Check if permissions are cached
+    $cacheKey = "nav_permissions_{$currentUserId}";
+    
+    if (!isset($_SESSION['_cache'][$cacheKey])) {
+        // Build permission cache
+        $userPermissions = getUserPermissions($currentUserId);
+        $_SESSION['_cache'][$cacheKey] = $userPermissions;
+    } else {
+        $userPermissions = $_SESSION['_cache'][$cacheKey];
+    }
+}
+
+// Helper to check if user has permission (using cached data)
+function canAccess($permission) {
+    global $userPermissions;
+    return in_array($permission, $userPermissions);
+}
 ?>
 <nav class="main-navigation">
     <div class="nav-container">
@@ -11,42 +39,115 @@
         </div>
         <ul class="nav-menu">
             <li><a href="../../index.php" class="nav-link"><i class="fas fa-tachometer-alt"></i> Dashboard</a></li>
+            
+            <?php if (canAccess('manage_inventory')): ?>
             <li class="dropdown">
                 <a href="#" class="nav-link dropdown-toggle">
                     <i class="fas fa-boxes"></i> Stock <i class="fas fa-chevron-down"></i>
                 </a>
                 <ul class="dropdown-menu">
-                    <li><a href="../../modules/stock/list.php">View Stock</a></li>
-                    <li><a href="../../modules/stock/add.php">Add Stock</a></li>
-                    <li><a href="../../modules/stock/adjust.php">Stock Adjustments</a></li>
+                    <li>
+                        <a href="../../modules/stock/list.php">
+                            <i class="fas fa-list"></i> View Stock
+                        </a>
+                    </li>
+                    <li>
+                        <a href="../../modules/stock/add.php">
+                            <i class="fas fa-plus-circle"></i> Add Stock
+                        </a>
+                    </li>
+                    <li>
+                        <a href="../../modules/stock/adjust.php">
+                            <i class="fas fa-edit"></i> Stock Adjustments
+                        </a>
+                    </li>
                 </ul>
             </li>
+            <?php endif; ?>
+            
+            <?php if (canAccess('manage_stores')): ?>
             <li class="dropdown">
                 <a href="#" class="nav-link dropdown-toggle">
                     <i class="fas fa-store"></i> Stores <i class="fas fa-chevron-down"></i>
                 </a>
                 <ul class="dropdown-menu">
-                    <li><a href="../../modules/stores/list.php">Store List</a></li>
-                    <li><a href="../../modules/stores/add.php">Add Store</a></li>
-                    <li><a href="../../modules/stores/enhanced_map.php">Store Map</a></li>
-                    <li><a href="../../modules/stores/regional_dashboard.php">Regional Dashboard</a></li>
+                    <li>
+                        <a href="../../modules/stores/list.php">
+                            <i class="fas fa-list"></i> Store List
+                        </a>
+                    </li>
+                    <li>
+                        <a href="../../modules/stores/add.php">
+                            <i class="fas fa-plus-circle"></i> Add Store
+                        </a>
+                    </li>
+                    <li>
+                        <a href="../../modules/stores/enhanced_map.php">
+                            <i class="fas fa-map-marked-alt"></i> Store Map
+                        </a>
+                    </li>
+                    <li>
+                        <a href="../../modules/stores/regional_dashboard.php">
+                            <i class="fas fa-chart-area"></i> Regional Dashboard
+                        </a>
+                    </li>
                 </ul>
             </li>
+            <?php endif; ?>
+            
+            <?php if (canAccess('manage_pos')): ?>
             <li>
                 <a href="../../modules/pos/quick_service.php" class="nav-link">
                     <i class="fas fa-cash-register"></i> Point of Sale
                 </a>
             </li>
+            <?php endif; ?>
+            
+            <?php if (canAccess('view_analytics')): ?>
             <li class="dropdown">
                 <a href="#" class="nav-link dropdown-toggle">
                     <i class="fas fa-chart-line"></i> Reports <i class="fas fa-chevron-down"></i>
                 </a>
                 <ul class="dropdown-menu">
-                    <li><a href="../../modules/reports/sales.php">Sales Reports</a></li>
-                    <li><a href="../../modules/reports/inventory.php">Inventory Reports</a></li>
-                    <li><a href="../../modules/reports/alerts.php">Alerts</a></li>
+                    <li>
+                        <a href="../../modules/reports/sales.php">
+                            <i class="fas fa-dollar-sign"></i> Sales Reports
+                        </a>
+                    </li>
+                    <li>
+                        <a href="../../modules/reports/inventory.php">
+                            <i class="fas fa-boxes"></i> Inventory Reports
+                        </a>
+                    </li>
+                    <li>
+                        <a href="../../modules/reports/alerts.php">
+                            <i class="fas fa-bell"></i> Alerts
+                        </a>
+                    </li>
                 </ul>
             </li>
+            <?php endif; ?>
+            
+            <?php if (canAccess('manage_users')): ?>
+            <li class="dropdown">
+                <a href="#" class="nav-link dropdown-toggle">
+                    <i class="fas fa-users-cog"></i> Administration <i class="fas fa-chevron-down"></i>
+                </a>
+                <ul class="dropdown-menu">
+                    <li>
+                        <a href="../../modules/users/roles.php">
+                            <i class="fas fa-user-shield"></i> Manage Permissions
+                        </a>
+                    </li>
+                    <li>
+                        <a href="../../modules/users/activity.php">
+                            <i class="fas fa-history"></i> User Activity
+                        </a>
+                    </li>
+                </ul>
+            </li>
+            <?php endif; ?>
+            
             <li><a href="../../modules/users/profile.php" class="nav-link"><i class="fas fa-user"></i> Profile</a></li>
             <li><a href="../../modules/users/logout.php" class="nav-link logout"><i class="fas fa-sign-out-alt"></i> Logout</a></li>
         </ul>
@@ -127,7 +228,7 @@
     visibility: hidden;
     transform: translateY(-10px);
     transition: all 0.3s ease;
-    min-width: 200px;
+    min-width: 220px;
     z-index: 1001;
 }
 
@@ -142,7 +243,9 @@
 }
 
 .dropdown-menu a {
-    display: block;
+    display: flex;
+    align-items: center;
+    gap: 10px;
     padding: 12px 20px;
     color: #333;
     text-decoration: none;
@@ -151,6 +254,11 @@
 
 .dropdown-menu a:hover {
     background: #f8f9fa;
+}
+
+.dropdown-menu a i {
+    width: 20px;
+    color: #667eea;
 }
 
 .nav-toggle {
