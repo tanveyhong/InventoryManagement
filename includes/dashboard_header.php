@@ -59,8 +59,8 @@ if (strpos($currentPath, 'modules/users/profile/') !== false) {
                         <a href="<?php echo $baseUrl . 'modules/stock/add.php'; ?>">
                             <i class="fas fa-plus"></i> Add Stock
                         </a>
-                        <a href="<?php echo $baseUrl . 'modules/stock/adjust.php'; ?>">
-                            <i class="fas fa-edit"></i> Adjustments
+                        <a href="<?php echo $baseUrl . 'modules/stock/stockAuditHis.php'; ?>">
+                            <i class="fas fa-edit"></i> Stock Audit History
                         </a>
                         <a href="<?php echo $baseUrl . 'modules/pos/stock_pos_integration.php'; ?>">
                             <i class="fas fa-cash-register"></i> POS Integration

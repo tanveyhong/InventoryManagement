@@ -1408,9 +1408,6 @@ header('Vary: Cookie');
                 }, 3000);
             }
         }
-                }, 3000);
-            }
-        }
         
         // Initialize dashboard when page loads
         document.addEventListener('DOMContentLoaded', function() {
