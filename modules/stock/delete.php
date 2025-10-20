@@ -7,13 +7,6 @@ require_once __DIR__ . '/../../config.php';
 require_once __DIR__ . '/../../functions.php';
 require_once __DIR__ . '/../../getDB.php';
 
-// Check authentication and permission
-if (!isLoggedIn()) {
-    header('Location: ../users/login.php');
-    exit;
-}
-requirePermission('manage_inventory', '../../index.php');
-
 function db_obj() { return function_exists('getDB') ? @getDB() : null; }
 function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 

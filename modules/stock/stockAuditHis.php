@@ -4,14 +4,36 @@ require_once __DIR__ . '/../../config.php';
 require_once __DIR__ . '/../../functions.php';
 session_start();
 
-// Check login first
-if (!isLoggedIn()) {
-    header('Location: ../users/login.php');
+// --- Admin-only guard ---
+if (empty($_SESSION['role']) || $_SESSION['role'] !== 'admin') {
+    http_response_code(403);
+    echo '
+    <div style="
+        font-family: Segoe UI, Arial, sans-serif;
+        background-color: #f8fafc;
+        color: #b91c1c;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        text-align: center;
+    ">
+        <h1 style="font-size: 48px; margin-bottom: 10px;">403 Forbidden</h1>
+        <p style="font-size: 20px; color: #7f1d1d; font-weight: 600;">
+            Access Denied: Admins Only
+        </p>
+        <a href="../../index.php" 
+           style="margin-top: 20px; display:inline-block; 
+                  background:#2563eb; color:#fff; 
+                  padding:10px 20px; border-radius:8px; 
+                  text-decoration:none; font-size:14px;">
+            Back to Dashboard
+        </a>
+    </div>';
     exit;
 }
 
-// --- Admin-only guard ---
-requireAdmin('../../index.php');
 
 $page_title = 'Stock Audit History - Inventory System';
 
