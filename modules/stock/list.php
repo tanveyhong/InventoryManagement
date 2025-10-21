@@ -9,7 +9,8 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
-function fs_put_low_stock_alert($db, array $prod): void {
+function fs_put_low_stock_alert($db, array $prod): void
+{
     // Normalize product id & name
     $pid = isset($prod['id']) ? trim((string)$prod['id']) : '';
     if ($pid === '') return;
@@ -17,7 +18,7 @@ function fs_put_low_stock_alert($db, array $prod): void {
 
     // Coalesce threshold
     $threshold = isset($prod['min_stock_level']) ? (int)$prod['min_stock_level']
-               : (isset($prod['reorder_level']) ? (int)$prod['reorder_level'] : 0);
+        : (isset($prod['reorder_level']) ? (int)$prod['reorder_level'] : 0);
     if ($threshold <= 0) return;
 
     // Current quantity
@@ -75,11 +76,89 @@ function fs_put_low_stock_alert($db, array $prod): void {
     elseif (method_exists($db, 'upsert'))         $db->upsert('alerts', $docId, $payload);
     elseif (method_exists($db, 'setDoc'))         $db->setDoc('alerts', $docId, $payload);
     elseif (method_exists($db, 'create')) {
-        try { $db->create('alerts', $docId, $payload); }
-        catch (Throwable $e) {
+        try {
+            $db->create('alerts', $docId, $payload);
+        } catch (Throwable $e) {
             if (method_exists($db, 'update'))     $db->update('alerts', $docId, $payload);
         }
     } elseif (method_exists($db, 'write'))        $db->write('alerts', $docId, $payload);
+}
+
+// -------------------------------------------------------------
+// EXPIRY ALERT HANDLER
+// -------------------------------------------------------------
+function product_id_of(array $p): string
+{
+    return (string)($p['doc_id'] ?? $p['id'] ?? $p['product_id'] ?? '');
+}
+
+function fs_put_expiry_alert($db, array $prod): void
+{
+    $pid = isset($prod['id']) ? trim((string)$prod['id']) : '';
+    if ($pid === '') return;
+
+    $name = trim((string)($prod['name'] ?? ''));
+    $expiryRaw = $prod['expiry_date'] ?? null;
+    if (empty($expiryRaw)) return;
+
+    $expTs = strtotime($expiryRaw);
+    if ($expTs === false) return;
+
+    $now = time();
+    $in30 = strtotime('+30 days');
+
+    // Determine expiry condition
+    $isExpired = ($expTs < $now);
+    $isExpiring = (!$isExpired && $expTs <= $in30);
+    if (!$isExpired && !$isExpiring) return; // normal, no alert
+
+    $alertType = $isExpired ? 'EXPIRED' : 'EXPIRING_SOON';
+    $docId = 'EXP_' . $pid;
+    $nowIso = date('c');
+    $qtyNow = isset($prod['quantity'])
+        ? (int)$prod['quantity']
+        : ((isset($prod['stock_qty']) ? (int)$prod['stock_qty'] : 0));
+
+
+    // Check existing record
+    $existing = null;
+    if (method_exists($db, 'readDoc')) $existing = $db->readDoc('alerts', $docId);
+    elseif (method_exists($db, 'read')) $existing = $db->read('alerts', $docId);
+
+    $prevStatus = strtoupper($existing['status'] ?? '');
+    $prevKind = strtoupper($existing['expiry_kind'] ?? '');
+    $reopen = (!$existing || $prevStatus === 'RESOLVED' || $prevKind !== $alertType);
+
+    $payload = [
+        'product_id'        => $pid,
+        'product_name'      => $name,
+        'alert_type'        => 'EXPIRY',
+        'expiry_kind'       => $alertType,        // EXPIRED | EXPIRING_SOON
+        'expiry_date'       => $expiryRaw,
+        'status'            => 'PENDING',
+        'quantity_affected' => $qtyNow,           // <-- IMPORTANT
+        'created_at'        => $reopen ? $nowIso : ($existing['created_at'] ?? $nowIso),
+        'updated_at'        => $nowIso,
+    ];
+
+    // Save / upsert
+    if (method_exists($db, 'writeDoc')) {
+        $db->writeDoc('alerts', $docId, $payload);
+    } elseif (method_exists($db, 'upsert')) {
+        $db->upsert('alerts', $docId, $payload);
+    } elseif (method_exists($db, 'setDoc')) {
+        $db->setDoc('alerts', $docId, $payload);
+    } elseif (method_exists($db, 'create')) {
+        try {
+            $db->create('alerts', $docId, $payload);
+        } catch (Throwable $e) {
+            if (method_exists($db, 'update')) $db->update('alerts', $docId, $payload);
+        }
+    } elseif (method_exists($db, 'update')) {
+        $db->update('alerts', $docId, $payload);
+    } elseif (method_exists($db, 'write')) {
+        $db->write('alerts', $docId, $payload);
+    }
 }
 
 
@@ -162,18 +241,20 @@ try {
     $categories = [];
 }
 
-// --- Pre-pass: ensure LOW_STOCK alerts for ALL products regardless of UI filters/pagination
+// --- Pre-pass: ensure alerts for ALL products ---
 try {
     foreach ($all_products as $pp) {
-        // skip soft-deleted/disabled like your filters do
         if (!empty($pp['deleted_at'])) continue;
         if (isset($pp['status_db']) && strtolower((string)$pp['status_db']) === 'disabled') continue;
 
+        // low stock alert
         fs_put_low_stock_alert($db, $pp);
+
+        // expiry alert (new)
+        fs_put_expiry_alert($db, $pp);
     }
 } catch (Throwable $e) {
-    // Optional: error_log for debugging
-    // error_log('LOW_STOCK prepass failed: ' . $e->getMessage());
+    error_log('prepass failed: ' . $e->getMessage());
 }
 
 
@@ -288,10 +369,10 @@ $summary_stats = [
 foreach ($filtered_products as $p) {
     if ($p['quantity'] == 0) $summary_stats['out_of_stock']++;
     // If this product is low stock, ensure an alert exists (PENDING).
-// If this product is low stock, ensure an alert doc exists (PENDING).
-if ((int)$p['quantity'] <= (int)$p['min_stock_level']) {
-    fs_put_low_stock_alert($db, $p);  // uses Firebase handle $db
-}
+    // If this product is low stock, ensure an alert doc exists (PENDING).
+    if ((int)$p['quantity'] <= (int)$p['min_stock_level']) {
+        fs_put_low_stock_alert($db, $p);  // uses Firebase handle $db
+    }
 
 
     if ($p['quantity'] <= $p['min_stock_level']) $summary_stats['low_stock']++;
@@ -809,10 +890,6 @@ $page_title = 'Stock Management - Inventory System';
         .product-row.status-low_stock {
             background-color: rgba(255, 193, 7, 0.1);
         }
-
-
-
-
 
         .status-badge {
             padding: 0.25rem 0.5rem;
