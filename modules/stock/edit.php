@@ -31,6 +31,55 @@ function _find_product_by_sku_live(string $sku): ?array
   return null;
 }
 
+function fs_resolve_low_stock_if_recovered(
+  $db,
+  string $productId,
+  ?int $qtyOverride = null,
+  ?int $minOverride = null,
+  ?string $resolvedBy = null
+): void {
+  if ($productId === '') return;
+
+  // Prefer overrides (fresh from POST) to avoid read-after-write lag
+  $qty = $qtyOverride;
+  $min = $minOverride;
+
+  // If needed, fetch once
+  if ($qty === null || $min === null) {
+    $p = null;
+    if (method_exists($db, 'readDoc'))      $p = $db->readDoc('products', $productId);
+    elseif (method_exists($db, 'read'))     $p = $db->read('products', $productId);
+    if (!$p) return;
+
+    if ($qty === null) $qty = (int)($p['quantity'] ?? 0);
+    if ($min === null) {
+      $min = isset($p['min_stock_level']) ? (int)$p['min_stock_level']
+        : (isset($p['reorder_level'])   ? (int)$p['reorder_level']   : 0);
+    }
+  }
+
+  // Only RESOLVED when strictly above min (qty == min is still low)
+  $recovered = ($min > 0) ? ($qty > $min) : ($qty > 0);
+  if (!$recovered) return;
+
+  $docId  = 'LOW_' . $productId;  // MUST match list.php creator
+  $nowIso = date('c');
+  $payload = [
+    'status'      => 'RESOLVED',
+    'resolved_at' => $nowIso,
+    'updated_at'  => $nowIso,
+  ];
+  if ($resolvedBy) {
+    $payload['resolved_by']     = $resolvedBy;
+    $payload['resolution_note'] = 'User edited quantity';
+  }
+
+  if (method_exists($db, 'update'))        $db->update('alerts', $docId, $payload);
+  elseif (method_exists($db, 'writeDoc'))  $db->writeDoc('alerts', $docId, $payload);
+  elseif (method_exists($db, 'setDoc'))    $db->setDoc('alerts', $docId, array_merge(['alert_type' => 'LOW_STOCK'], $payload));
+  elseif (method_exists($db, 'write'))     $db->write('alerts', $docId, $payload);
+}
+
 // ----- load target product -----
 $docId = isset($_GET['id']) ? trim((string)$_GET['id']) : '';
 $skuQ  = isset($_GET['sku']) ? norm_sku((string)$_GET['sku']) : '';
@@ -205,13 +254,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       try {
         $db->update('products', $docId, $data);
 
-        // ✅ move the WHOLE audit block to here (just below the update)
-        //    (the three if-blocks: adjust_quantity / update_description / update_min_level)
+        // (your three audit log blocks here)
 
-        // refresh local copy for re-render (optional if you redirect)
-        $stock = fs_get_product_by_doc($docId);
+        // === ADD THIS: resolve LOW_STOCK alert if recovered ===
+        $who = $_SESSION['username']
+          ?? $_SESSION['email']
+          ?? $_SESSION['user_id']
+          ?? $_SESSION['uid']
+          ?? ($_SESSION['user']['name'] ?? $_SESSION['user']['email'] ?? 'admin');
 
-        // Redirect
+        // Use the just-saved values:
+        fs_resolve_low_stock_if_recovered(
+          $db,
+          (string)$docId,
+          (int)$quantity,        // new qty from the form (already validated above)
+          (int)$reorderLevel,    // new min level from the form
+          (string)$who
+        );
+
+        // optional refresh (not required for redirect)
+        // $stock = fs_get_product_by_doc($docId);
+
         header('Location: view.php?id=' . rawurlencode($docId) . '&updated=1');
         exit;
       } catch (Throwable $e) {

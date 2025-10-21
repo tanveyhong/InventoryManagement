@@ -19,6 +19,28 @@ $success = false;
 $stores = $db->fetchAll("SELECT id, name FROM stores WHERE is_active = 1 ORDER BY name");
 $categories = $db->fetchAll("SELECT id, name FROM categories ORDER BY name");
 
+function alert_resolve_low_stock_if_recovered(PDO $db, string $pid, ?string $who='admin'): void {
+    // read current qty & level
+    $s = $db->prepare("SELECT quantity, reorder_level FROM products WHERE id=? LIMIT 1");
+    $s->execute([$pid]);
+    $row = $s->fetch(PDO::FETCH_ASSOC);
+    if (!$row) return;
+
+    $qty = (int)$row['quantity'];
+    $lvl = (int)$row['reorder_level'];
+
+    // Only resolve if we actually recovered above the threshold
+    if ($qty > $lvl) {
+        $u = $db->prepare(
+          "UPDATE alerts 
+           SET status='RESOLVED', resolved_at=NOW(), resolved_by=?, resolution_note='User added stock'
+           WHERE product_id=? AND alert_type='LOW_STOCK' AND status='PENDING'"
+        );
+        $u->execute([$who ?? 'admin', $pid]);
+    }
+}
+
+
 $CATEGORY_OPTIONS = [
     'General',
     'Foods',
