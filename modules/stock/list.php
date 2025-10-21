@@ -9,6 +9,80 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
+function fs_put_low_stock_alert($db, array $prod): void {
+    // Normalize product id & name
+    $pid = isset($prod['id']) ? trim((string)$prod['id']) : '';
+    if ($pid === '') return;
+    $pname = trim((string)($prod['name'] ?? ''));
+
+    // Coalesce threshold
+    $threshold = isset($prod['min_stock_level']) ? (int)$prod['min_stock_level']
+               : (isset($prod['reorder_level']) ? (int)$prod['reorder_level'] : 0);
+    if ($threshold <= 0) return;
+
+    // Current quantity
+    $qty = (int)($prod['quantity'] ?? 0);
+    if ($qty > $threshold) return; // not low now
+
+    // Deterministic doc id
+    $docId = 'LOW_' . $pid;
+    $nowIso = date('c');
+
+    // Read existing alert
+    $existing = null;
+    if (method_exists($db, 'readDoc')) {
+        $existing = $db->readDoc('alerts', $docId);
+    } elseif (method_exists($db, 'read')) {
+        $existing = $db->read('alerts', $docId);
+    }
+
+    $prevStatus = strtoupper($existing['status'] ?? '');
+    $reopen = (!$existing || $prevStatus === 'RESOLVED');  // reopen if new or previously resolved
+
+    // If an OPEN (non-resolved) alert already exists, just refresh metadata and return
+    if ($existing && !$reopen) {
+        $payload = [
+            'product_id'   => $pid,
+            'product_name' => $pname,
+            'alert_type'   => 'LOW_STOCK',
+            'status'       => 'PENDING',                 // stays pending
+            'created_at'   => $existing['created_at'] ?? $nowIso, // keep original
+            'updated_at'   => $nowIso,                   // refresh updated_at
+        ];
+        if (method_exists($db, 'writeDoc'))       $db->writeDoc('alerts', $docId, $payload);
+        elseif (method_exists($db, 'upsert'))     $db->upsert('alerts', $docId, $payload);
+        elseif (method_exists($db, 'setDoc'))     $db->setDoc('alerts', $docId, $payload);
+        elseif (method_exists($db, 'update'))     $db->update('alerts', $docId, $payload);
+        elseif (method_exists($db, 'write'))      $db->write('alerts', $docId, $payload);
+        return;
+    }
+
+    // Reopen case (new alert or previously RESOLVED): reset created_at to "now" and clear resolution fields
+    $payload = [
+        'product_id'       => $pid,
+        'product_name'     => $pname,
+        'alert_type'       => 'LOW_STOCK',
+        'status'           => 'PENDING',
+        'created_at'       => $nowIso,   // <-- reset to today
+        'updated_at'       => $nowIso,
+        'resolved_at'      => null,      // clear old resolution info
+        'resolved_by'      => null,
+        'resolution_note'  => null,
+    ];
+
+    // Upsert
+    if (method_exists($db, 'writeDoc'))           $db->writeDoc('alerts', $docId, $payload);
+    elseif (method_exists($db, 'upsert'))         $db->upsert('alerts', $docId, $payload);
+    elseif (method_exists($db, 'setDoc'))         $db->setDoc('alerts', $docId, $payload);
+    elseif (method_exists($db, 'create')) {
+        try { $db->create('alerts', $docId, $payload); }
+        catch (Throwable $e) {
+            if (method_exists($db, 'update'))     $db->update('alerts', $docId, $payload);
+        }
+    } elseif (method_exists($db, 'write'))        $db->write('alerts', $docId, $payload);
+}
+
+
 // Load products from Firebase and map to template fields
 $all_products = [];
 $stores = [];
@@ -88,6 +162,21 @@ try {
     $categories = [];
 }
 
+// --- Pre-pass: ensure LOW_STOCK alerts for ALL products regardless of UI filters/pagination
+try {
+    foreach ($all_products as $pp) {
+        // skip soft-deleted/disabled like your filters do
+        if (!empty($pp['deleted_at'])) continue;
+        if (isset($pp['status_db']) && strtolower((string)$pp['status_db']) === 'disabled') continue;
+
+        fs_put_low_stock_alert($db, $pp);
+    }
+} catch (Throwable $e) {
+    // Optional: error_log for debugging
+    // error_log('LOW_STOCK prepass failed: ' . $e->getMessage());
+}
+
+
 $store_filter = $_GET['store'] ?? '';
 $category_filter = $_GET['category'] ?? '';
 $search_query = $_GET['search'] ?? '';
@@ -152,7 +241,7 @@ $products = array_slice($filtered_products, $offset, $per_page);
 // Compute status for products so templates can render status-based classes safely
 foreach ($products as &$prod) {
     $qty = isset($prod['quantity']) ? intval($prod['quantity']) : 0;
-    $min = isset($prod['min_stock_level']) ? intval($prod['min_stock_level']) : 0;
+    $min = isset($prod['min_stock_level']) ? (int)$prod['min_stock_level'] : 0;
     $status = 'normal';
     if ($qty === 0) {
         $status = 'out_of_stock';
@@ -198,6 +287,13 @@ $summary_stats = [
 ];
 foreach ($filtered_products as $p) {
     if ($p['quantity'] == 0) $summary_stats['out_of_stock']++;
+    // If this product is low stock, ensure an alert exists (PENDING).
+// If this product is low stock, ensure an alert doc exists (PENDING).
+if ((int)$p['quantity'] <= (int)$p['min_stock_level']) {
+    fs_put_low_stock_alert($db, $p);  // uses Firebase handle $db
+}
+
+
     if ($p['quantity'] <= $p['min_stock_level']) $summary_stats['low_stock']++;
     if (!empty($p['expiry_date']) && strtotime($p['expiry_date']) < time()) $summary_stats['expired']++;
     $summary_stats['total_value'] += $p['quantity'] * $p['unit_price'];

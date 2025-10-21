@@ -970,3 +970,34 @@ function getUserPermissions($userId) {
     
     return $userPermissions;
 }
+
+function alerts_ensure_low_stock(PDO $db, array $p): void {
+    $pid   = $p['id'];          // your normalized product id
+    $pname = $p['name'];
+    $qty   = (int)$p['quantity'];
+    $lvl   = (int)$p['reorder_level'];
+
+    if ($qty > $lvl) return; // only create when actually low
+
+    // Only one open alert per product+type
+    $q = $db->prepare("SELECT 1 FROM alerts 
+                       WHERE product_id=? AND alert_type='LOW_STOCK' 
+                         AND status IN ('PENDING','UNRESOLVED') 
+                       LIMIT 1");
+    $q->execute([$pid]);
+    if ($q->fetchColumn()) return;
+
+    $ins = $db->prepare("INSERT INTO alerts
+        (product_id, product_name, alert_type, quantity_at_alert, reorder_level, status, created_at)
+        VALUES (?, ?, 'LOW_STOCK', ?, ?, 'PENDING', NOW())");
+    $ins->execute([$pid, $pname, $qty, $lvl]);
+}
+
+/** Resolve any open LOW_STOCK alerts for a product (called after Add Stock). */
+function alerts_resolve_low_stock(PDO $db, string $productId, string $who='system'): void {
+    $upd = $db->prepare("UPDATE alerts
+                         SET status='RESOLVED', resolved_at=NOW(), resolved_by=?, resolution_note='User added stock'
+                         WHERE product_id=? AND alert_type='LOW_STOCK' 
+                           AND status IN ('PENDING','UNRESOLVED')");
+    $upd->execute([$who, $productId]);
+}
