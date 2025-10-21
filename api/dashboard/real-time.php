@@ -1,8 +1,8 @@
 <?php
 // Dashboard API - Real-time data for dashboard widgets
-require_once '../../../config.php';
-require_once '../../../db.php';
-require_once '../../../functions.php';
+require_once '../../config.php';
+require_once '../../db.php';
+require_once '../../functions.php';
 
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
@@ -19,7 +19,7 @@ if (!isset($_SESSION['user_id'])) {
 try {
     $db = getDB();
     
-    // Get dashboard statistics
+    // Get dashboard statistics with caching
     $stats = [
         'total_products' => getTotalProducts(),
         'low_stock' => getLowStockCount(),
@@ -30,31 +30,52 @@ try {
     
     // Get sales data for chart (last 7 days)
     $sales_data = [];
+    $sales = $db->readAll('sales') ?? [];
+    
     for ($i = 6; $i >= 0; $i--) {
         $date = date('Y-m-d', strtotime("-{$i} days"));
-        $daily_sales = $db->fetch(
-            "SELECT COALESCE(SUM(total), 0) as sales FROM sales WHERE DATE(created_at) = ?",
-            [$date]
-        );
+        $daily_total = 0;
+        
+        foreach ($sales as $sale) {
+            $sale_date = date('Y-m-d', strtotime($sale['created_at'] ?? $sale['date'] ?? ''));
+            if ($sale_date === $date) {
+                $daily_total += floatval($sale['total'] ?? 0);
+            }
+        }
+        
         $sales_data[] = [
             'date' => $date,
             'day' => date('D', strtotime($date)),
-            'sales' => floatval($daily_sales['sales'] ?? 0)
+            'sales' => $daily_total
         ];
     }
     
     // Get recent activity
     $recent_activity = [];
     
-    // Recent stock additions
-    $recent_stock = $db->fetchAll(
-        "SELECT name, created_at, 'stock_added' as type 
-         FROM products 
-         WHERE created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR) 
-         ORDER BY created_at DESC LIMIT 3"
-    );
+    // Recent stock additions (last 24 hours)
+    $products = $db->readAll('products') ?? [];
+    $yesterday = strtotime('-24 hours');
     
-    foreach ($recent_stock as $item) {
+    $recent_products = [];
+    foreach ($products as $id => $product) {
+        $created = strtotime($product['created_at'] ?? '');
+        if ($created >= $yesterday) {
+            $recent_products[] = [
+                'name' => $product['name'] ?? 'Unknown',
+                'created_at' => $product['created_at'] ?? '',
+                'timestamp' => $created
+            ];
+        }
+    }
+    
+    // Sort by timestamp
+    usort($recent_products, function($a, $b) {
+        return $b['timestamp'] - $a['timestamp'];
+    });
+    
+    // Add to activity
+    foreach (array_slice($recent_products, 0, 3) as $item) {
         $recent_activity[] = [
             'type' => 'stock_added',
             'message' => "New product added: " . $item['name'],
@@ -65,14 +86,23 @@ try {
     }
     
     // Low stock alerts
-    $low_stock_items = $db->fetchAll(
-        "SELECT name, quantity, reorder_level 
-         FROM products 
-         WHERE quantity <= reorder_level AND active = 1 
-         LIMIT 3"
-    );
+    $low_stock_items = [];
+    foreach ($products as $id => $product) {
+        $quantity = intval($product['quantity'] ?? 0);
+        $reorder = intval($product['reorder_level'] ?? 0);
+        $active = $product['active'] ?? true;
+        
+        if ($active && $quantity <= $reorder && $reorder > 0) {
+            $low_stock_items[] = [
+                'name' => $product['name'] ?? 'Unknown',
+                'quantity' => $quantity,
+                'reorder_level' => $reorder
+            ];
+        }
+    }
     
-    foreach ($low_stock_items as $item) {
+    // Add low stock alerts to activity
+    foreach (array_slice($low_stock_items, 0, 3) as $item) {
         $recent_activity[] = [
             'type' => 'low_stock',
             'message' => "Low stock: " . $item['name'] . " (" . $item['quantity'] . " remaining)",
@@ -81,11 +111,6 @@ try {
             'color' => 'alert'
         ];
     }
-    
-    // Sort by time (most recent first)
-    usort($recent_activity, function($a, $b) {
-        return strcmp($b['time'], $a['time']);
-    });
     
     // Limit to 5 most recent items
     $recent_activity = array_slice($recent_activity, 0, 5);
@@ -114,6 +139,8 @@ try {
 }
 
 function time_ago($datetime) {
+    if (empty($datetime)) return 'recently';
+    
     $time = time() - strtotime($datetime);
     
     if ($time < 60) return 'just now';
