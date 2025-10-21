@@ -11,6 +11,68 @@ if (session_status() === PHP_SESSION_NONE) {
 $db = getDB();
 $docId = $_GET['id'] ?? '';
 
+function fs_resolve_low_stock_if_recovered(
+    $db,
+    string $productId,
+    ?int $qtyOverride = null,        // <-- pass new qty here to avoid stale reads
+    ?int $minOverride = null,        // <-- pass min level you already know
+    ?string $resolvedBy = null
+): void {
+    if ($productId === '') return;
+
+    // 1) Determine latest qty and min
+    $qty = null;
+    $min = null;
+
+    if ($qtyOverride !== null) {
+        $qty = (int)$qtyOverride;
+    }
+    if ($minOverride !== null) {
+        $min = (int)$minOverride;
+    }
+
+    // If we still need values, read once from DB
+    if ($qty === null || $min === null) {
+        $p = null;
+        if (method_exists($db, 'readDoc')) {
+            $p = $db->readDoc('products', $productId);
+        } elseif (method_exists($db, 'read')) {
+            $p = $db->read('products', $productId);
+        }
+        if (!$p) return;
+
+        if ($qty === null) $qty = (int)($p['quantity'] ?? 0);
+        if ($min === null) {
+            $min = isset($p['min_stock_level']) ? (int)$p['min_stock_level']
+                 : (isset($p['reorder_level']) ? (int)$p['reorder_level'] : 0);
+        }
+    }
+
+    // 2) Only resolve if strictly recovered (qty > min).
+    // NOTE: qty == min remains low (PENDING).
+    $recovered = ($min > 0) ? ($qty > $min) : ($qty > 0);
+    if (!$recovered) return;
+
+    // 3) Resolve the alert doc
+    $docId  = 'LOW_' . $productId;
+    $nowIso = date('c');
+    $payload = [
+        'status'      => 'RESOLVED',
+        'resolved_at' => $nowIso,
+        'updated_at'  => $nowIso,
+    ];
+    if (!empty($resolvedBy)) {
+        $payload['resolved_by'] = $resolvedBy;
+        $payload['resolution_note'] = 'User adjusted quantity';
+    }
+
+    if (method_exists($db, 'update'))        $db->update('alerts', $docId, $payload);
+    elseif (method_exists($db, 'writeDoc'))  $db->writeDoc('alerts', $docId, $payload);
+    elseif (method_exists($db, 'setDoc'))    $db->setDoc('alerts', $docId, array_merge(['alert_type' => 'LOW_STOCK'], $payload));
+    elseif (method_exists($db, 'write'))     $db->write('alerts', $docId, $payload);
+}
+
+
 // Fetch product
 $product = fs_get_product_by_doc($docId);
 if (!$product) die('Product not found');
@@ -88,6 +150,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } catch (Throwable $t) {
       error_log('adjust.php audit failed: ' . $t->getMessage());
     }
+
+    $minNow = isset($product['min_stock_level']) ? (int)$product['min_stock_level']
+            : (isset($product['reorder_level']) ? (int)$product['reorder_level'] : 0);
+
+    $who = $_SESSION['username']
+        ?? $_SESSION['email']
+        ?? $_SESSION['user_id']
+        ?? $_SESSION['uid']
+        ?? ($_SESSION['user']['name'] ?? $_SESSION['user']['email'] ?? 'admin');
+
+    // pass the new qty and current min level so we don't rely on a fresh read
+    fs_resolve_low_stock_if_recovered($db, (string)$docId, (int)$newQty, (int)$minNow, (string)$who);
   }
 
   // 4) Respond
