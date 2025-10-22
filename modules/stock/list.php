@@ -9,14 +9,14 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
-// Require permission to view/manage inventory
 if (!currentUserHasPermission('can_view_inventory') && !currentUserHasPermission('can_use_pos') && !currentUserHasPermission('can_view_reports')) {
     $_SESSION['error'] = 'You do not have permission to access inventory';
     header('Location: ../../index.php');
     exit;
 }
 
-function fs_put_low_stock_alert($db, array $prod): void {
+function fs_put_low_stock_alert($db, array $prod): void
+{
     // Normalize product id & name
     $pid = isset($prod['id']) ? trim((string)$prod['id']) : '';
     if ($pid === '') return;
@@ -24,7 +24,7 @@ function fs_put_low_stock_alert($db, array $prod): void {
 
     // Coalesce threshold
     $threshold = isset($prod['min_stock_level']) ? (int)$prod['min_stock_level']
-               : (isset($prod['reorder_level']) ? (int)$prod['reorder_level'] : 0);
+        : (isset($prod['reorder_level']) ? (int)$prod['reorder_level'] : 0);
     if ($threshold <= 0) return;
 
     // Current quantity
@@ -82,11 +82,89 @@ function fs_put_low_stock_alert($db, array $prod): void {
     elseif (method_exists($db, 'upsert'))         $db->upsert('alerts', $docId, $payload);
     elseif (method_exists($db, 'setDoc'))         $db->setDoc('alerts', $docId, $payload);
     elseif (method_exists($db, 'create')) {
-        try { $db->create('alerts', $docId, $payload); }
-        catch (Throwable $e) {
+        try {
+            $db->create('alerts', $docId, $payload);
+        } catch (Throwable $e) {
             if (method_exists($db, 'update'))     $db->update('alerts', $docId, $payload);
         }
     } elseif (method_exists($db, 'write'))        $db->write('alerts', $docId, $payload);
+}
+
+// -------------------------------------------------------------
+// EXPIRY ALERT HANDLER
+// -------------------------------------------------------------
+function product_id_of(array $p): string
+{
+    return (string)($p['doc_id'] ?? $p['id'] ?? $p['product_id'] ?? '');
+}
+
+function fs_put_expiry_alert($db, array $prod): void
+{
+    $pid = isset($prod['id']) ? trim((string)$prod['id']) : '';
+    if ($pid === '') return;
+
+    $name = trim((string)($prod['name'] ?? ''));
+    $expiryRaw = $prod['expiry_date'] ?? null;
+    if (empty($expiryRaw)) return;
+
+    $expTs = strtotime($expiryRaw);
+    if ($expTs === false) return;
+
+    $now = time();
+    $in30 = strtotime('+30 days');
+
+    // Determine expiry condition
+    $isExpired = ($expTs < $now);
+    $isExpiring = (!$isExpired && $expTs <= $in30);
+    if (!$isExpired && !$isExpiring) return; // normal, no alert
+
+    $alertType = $isExpired ? 'EXPIRED' : 'EXPIRING_SOON';
+    $docId = 'EXP_' . $pid;
+    $nowIso = date('c');
+    $qtyNow = isset($prod['quantity'])
+        ? (int)$prod['quantity']
+        : ((isset($prod['stock_qty']) ? (int)$prod['stock_qty'] : 0));
+
+
+    // Check existing record
+    $existing = null;
+    if (method_exists($db, 'readDoc')) $existing = $db->readDoc('alerts', $docId);
+    elseif (method_exists($db, 'read')) $existing = $db->read('alerts', $docId);
+
+    $prevStatus = strtoupper($existing['status'] ?? '');
+    $prevKind = strtoupper($existing['expiry_kind'] ?? '');
+    $reopen = (!$existing || $prevStatus === 'RESOLVED' || $prevKind !== $alertType);
+
+    $payload = [
+        'product_id'        => $pid,
+        'product_name'      => $name,
+        'alert_type'        => 'EXPIRY',
+        'expiry_kind'       => $alertType,        // EXPIRED | EXPIRING_SOON
+        'expiry_date'       => $expiryRaw,
+        'status'            => 'PENDING',
+        'quantity_affected' => $qtyNow,           // <-- IMPORTANT
+        'created_at'        => $reopen ? $nowIso : ($existing['created_at'] ?? $nowIso),
+        'updated_at'        => $nowIso,
+    ];
+
+    // Save / upsert
+    if (method_exists($db, 'writeDoc')) {
+        $db->writeDoc('alerts', $docId, $payload);
+    } elseif (method_exists($db, 'upsert')) {
+        $db->upsert('alerts', $docId, $payload);
+    } elseif (method_exists($db, 'setDoc')) {
+        $db->setDoc('alerts', $docId, $payload);
+    } elseif (method_exists($db, 'create')) {
+        try {
+            $db->create('alerts', $docId, $payload);
+        } catch (Throwable $e) {
+            if (method_exists($db, 'update')) $db->update('alerts', $docId, $payload);
+        }
+    } elseif (method_exists($db, 'update')) {
+        $db->update('alerts', $docId, $payload);
+    } elseif (method_exists($db, 'write')) {
+        $db->write('alerts', $docId, $payload);
+    }
 }
 
 
@@ -169,24 +247,26 @@ try {
     $categories = [];
 }
 
-// --- Pre-pass: ensure LOW_STOCK alerts for ALL products regardless of UI filters/pagination
+// --- Pre-pass: ensure alerts for ALL products ---
 try {
     foreach ($all_products as $pp) {
-        // skip soft-deleted/disabled like your filters do
         if (!empty($pp['deleted_at'])) continue;
         if (isset($pp['status_db']) && strtolower((string)$pp['status_db']) === 'disabled') continue;
 
+        // low stock alert
         fs_put_low_stock_alert($db, $pp);
+
+        // expiry alert (new)
+        fs_put_expiry_alert($db, $pp);
     }
 } catch (Throwable $e) {
-    // Optional: error_log for debugging
-    // error_log('LOW_STOCK prepass failed: ' . $e->getMessage());
+    error_log('prepass failed: ' . $e->getMessage());
 }
 
 
 $store_filter = $_GET['store'] ?? '';
 $category_filter = $_GET['category'] ?? '';
-$search_query = $_GET['search'] ?? '';
+$search_query = trim($_GET['search'] ?? $_GET['q'] ?? '');
 $status_filter = $_GET['status'] ?? '';
 $sort_by = isset($_GET['sort']) ? $_GET['sort'] : 'name';
 $sort_order = (isset($_GET['order']) && strtolower($_GET['order']) === 'desc') ? 'DESC' : 'ASC';
@@ -201,10 +281,36 @@ $filtered_products = array_filter($all_products, function ($p) use ($store_filte
     if ($store_filter && (!isset($p['store_id']) || $p['store_id'] != $store_filter)) return false;
     if ($category_filter && (!isset($p['category_name']) || $p['category_name'] != $category_filter)) return false;
     if ($search_query) {
-        $q = strtolower($search_query);
-        $fields = [$p['name'] ?? '', $p['sku'] ?? '', $p['description'] ?? ''];
-        if (!array_filter($fields, fn($f) => strpos(strtolower($f), $q) !== false)) return false;
+        $q = strtolower(trim($search_query));
+        $norm = function ($s) {
+            $s = strtolower((string)$s);
+            $noHS = preg_replace('/[-\s]+/', '', $s);   // remove hyphens/spaces
+            $digits = preg_replace('/\D+/', '', $s);    // keep only digits
+            return [$s, $noHS, $digits];
+        };
+        [$q1, $q2, $q3] = $norm($q);
+
+        $fields = [
+            $p['name']        ?? '',
+            $p['sku']         ?? '',
+            $p['description'] ?? '',
+            $p['barcode']     ?? '',   // include barcode
+        ];
+
+        $matched = false;
+        foreach ($fields as $f) {
+            [$f1, $f2, $f3] = $norm($f);
+            if (($q1 && strpos($f1, $q1) !== false) ||
+                ($q2 && $f2 && strpos($f2, $q2) !== false) ||
+                ($q3 && $f3 && strpos($f3, $q3) !== false)
+            ) {
+                $matched = true;
+                break;
+            }
+        }
+        if (!$matched) return false;
     }
+
     if ($status_filter) {
         switch ($status_filter) {
             case 'low_stock':
@@ -295,10 +401,10 @@ $summary_stats = [
 foreach ($filtered_products as $p) {
     if ($p['quantity'] == 0) $summary_stats['out_of_stock']++;
     // If this product is low stock, ensure an alert exists (PENDING).
-// If this product is low stock, ensure an alert doc exists (PENDING).
-if ((int)$p['quantity'] <= (int)$p['min_stock_level']) {
-    fs_put_low_stock_alert($db, $p);  // uses Firebase handle $db
-}
+    // If this product is low stock, ensure an alert doc exists (PENDING).
+    if ((int)$p['quantity'] <= (int)$p['min_stock_level']) {
+        fs_put_low_stock_alert($db, $p);  // uses Firebase handle $db
+    }
 
 
     if ($p['quantity'] <= $p['min_stock_level']) $summary_stats['low_stock']++;
@@ -306,6 +412,8 @@ if ((int)$p['quantity'] <= (int)$p['min_stock_level']) {
     $summary_stats['total_value'] += $p['quantity'] * $p['unit_price'];
 }
 
+$returnUrl     = $_SERVER['REQUEST_URI']; // current filter state (even if none)
+$encodedReturn = rawurlencode($returnUrl);
 $page_title = 'Stock Management - Inventory System';
 ?>
 
@@ -358,7 +466,7 @@ $page_title = 'Stock Management - Inventory System';
 
             <!-- Filters -->
             <div class="filters-panel">
-                <form method="GET" class="filters-form">
+                <form id="filterForm" method="GET" class="filters-form">
                     <div class="filter-group">
                         <label for="search">Search:</label>
                         <input type="text" id="search" name="search" value="<?php echo htmlspecialchars($search_query ?? ''); ?>" placeholder="Product name/SKU/Desc">
@@ -420,7 +528,7 @@ $page_title = 'Stock Management - Inventory System';
                     </div>
 
                     <div class="filter-actions">
-                        <button type="submit" class="btn btn-primary">Apply Filters</button>
+                        <button id="applyFiltersBtn" type="submit" class="btn btn-primary">Apply Filters</button>
                         <a href="list.php" class="btn btn-clear">Clear All</a>
                     </div>
                 </form>
@@ -465,10 +573,13 @@ $page_title = 'Stock Management - Inventory System';
                                 if ($linkId === '' && isset($product['id'])) {
                                     $linkId = (string)$product['id'];
                                 }
+
+                                $return = rawurlencode($_SERVER['REQUEST_URI']);
                                 ?>
 
+
                                 <tr
-                                    class="product-row status-<?php echo $product['status']; ?>"
+                                    class="product-row status-<?php echo htmlspecialchars($product['status']); ?>"
                                     data-doc-id="<?php echo htmlspecialchars($linkId); ?>"
                                     data-name="<?php echo htmlspecialchars($product['name']); ?>"
                                     data-sku="<?php echo htmlspecialchars($product['sku']); ?>"
@@ -560,13 +671,13 @@ $page_title = 'Stock Management - Inventory System';
                                             }
                                             ?>
                                             <a class="btn btn-small btn-primary" title="View Product"
-                                                href="./view.php?id=<?php echo rawurlencode($linkId); ?>">
+                                                href="view.php?id=<?php echo urlencode($linkId); ?>&return=<?php echo $return; ?>">
                                                 <i class="fas fa-eye"></i> View
                                             </a>
-
                                             <?php if (currentUserHasPermission('can_edit_inventory')): ?>
-                                                <a href="edit.php?id=<?php echo $product['id']; ?>" class="btn btn-sm btn-primary" title="Edit Product">Edit</a>
-                                                <a href="adjust.php?id=<?php echo $product['id']; ?>" class="btn btn-sm btn-warning" title="Adjust Stock">Adjust</a>
+
+                                                <a href="edit.php?id=<?php echo urlencode($linkId); ?>&return=<?php echo $return; ?>" class="btn btn-sm btn-primary" title="Edit Product">Edit</a>
+                                                <a href="adjust.php?id=<?php echo urlencode($linkId); ?>&return=<?php echo $return; ?>" class="btn btn-sm btn-warning" title="Adjust Stock">Adjust</a>
                                             <?php endif; ?>
                                             <?php if (currentUserHasPermission('can_delete_inventory')): ?>
                                                 <a href="delete.php?id=<?php echo $product['id']; ?>" class="btn btn-sm btn-danger"
@@ -746,6 +857,13 @@ $page_title = 'Stock Management - Inventory System';
             });
 
         })();
+
+        (function() {
+            const p = new URLSearchParams(location.search);
+            const q = p.get('search') || p.get('q') || '';
+            const input = document.getElementById('search');
+            if (input && q) input.value = q; // no submit; server already filtered
+        })();
     </script>
 
     <style>
@@ -820,10 +938,6 @@ $page_title = 'Stock Management - Inventory System';
         .product-row.status-low_stock {
             background-color: rgba(255, 193, 7, 0.1);
         }
-
-
-
-
 
         .status-badge {
             padding: 0.25rem 0.5rem;

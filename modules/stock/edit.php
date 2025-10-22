@@ -426,6 +426,19 @@ function h($s)
 {
   return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
 }
+
+$docId = $_GET['id'] ?? '';
+$returnParam = isset($_GET['return']) ? rawurlencode($_GET['return']) : '';
+$backToView = "view.php?id=" . rawurlencode($docId) . ($returnParam ? "&return={$returnParam}" : '');
+
+$editProductId = isset($_GET['id']) ? (string)$_GET['id'] : '';
+$returnRaw     = isset($_GET['return']) ? (string)$_GET['return'] : '';
+
+$backToView = 'view.php?id=' . rawurlencode($editProductId);
+if ($returnRaw !== '') {
+  $backToView .= '&return=' . rawurlencode($returnRaw);
+}
+
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -595,7 +608,7 @@ function h($s)
 
     <div class="page-header">
       <h1>Edit Product</h1>
-      <div><a href="view.php?id=<?php echo h($docId); ?>" class="btn btn-outline">← Back to Product</a></div>
+      <div><a href="<?php echo htmlspecialchars($backToView, ENT_QUOTES); ?>" class="btn btn-outline">← Back to Product</a></div>
     </div>
 
     <?php if ($errors): ?>
@@ -693,7 +706,7 @@ function h($s)
         </div>
 
         <div class="toolbar">
-          <a href="view.php?id=<?php echo h($docId); ?>" class="btn btn-outline">Cancel</a>
+          <a href="<?php echo htmlspecialchars($backToView, ENT_QUOTES); ?>" class="btn btn-outline">Cancel</a>
           <button class="btn btn-primary" type="submit">Save Changes</button>
         </div>
       </form>
