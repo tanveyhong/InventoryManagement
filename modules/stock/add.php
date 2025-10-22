@@ -26,7 +26,8 @@ $success = false;
 $stores = $db->fetchAll("SELECT id, name FROM stores WHERE is_active = 1 ORDER BY name");
 $categories = $db->fetchAll("SELECT id, name FROM categories ORDER BY name");
 
-function alert_resolve_low_stock_if_recovered(PDO $db, string $pid, ?string $who='admin'): void {
+function alert_resolve_low_stock_if_recovered(PDO $db, string $pid, ?string $who = 'admin'): void
+{
     // read current qty & level
     $s = $db->prepare("SELECT quantity, reorder_level FROM products WHERE id=? LIMIT 1");
     $s->execute([$pid]);
@@ -39,7 +40,7 @@ function alert_resolve_low_stock_if_recovered(PDO $db, string $pid, ?string $who
     // Only resolve if we actually recovered above the threshold
     if ($qty > $lvl) {
         $u = $db->prepare(
-          "UPDATE alerts 
+            "UPDATE alerts 
            SET status='RESOLVED', resolved_at=NOW(), resolved_by=?, resolution_note='User added stock'
            WHERE product_id=? AND alert_type='LOW_STOCK' AND status='PENDING'"
         );
@@ -229,28 +230,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 error_log('Firestore upsert failed: ' . $t->getMessage());
             }
             try {
-    // pull identity from session (adjust keys if your app uses different ones)
-    $changedBy   = $_SESSION['user_id'] ?? $_SESSION['uid'] ?? ($_SESSION['user']['id'] ?? null);
-    $changedName = $_SESSION['username'] ?? $_SESSION['email'] ?? ($_SESSION['user']['name'] ?? $_SESSION['user']['email'] ?? null);
+                // pull identity from session (adjust keys if your app uses different ones)
+                $changedBy   = $_SESSION['user_id'] ?? $_SESSION['uid'] ?? ($_SESSION['user']['id'] ?? null);
+                $changedName = $_SESSION['username'] ?? $_SESSION['email'] ?? ($_SESSION['user']['name'] ?? $_SESSION['user']['email'] ?? null);
 
-    log_stock_audit([
-        'action'         => 'create',
-        'product_id'     => (string)$product_id,               // SQL id you just inserted
-        'sku'            => $sku !== '' ? $sku : null,
-        'product_name'   => $name,
-        'store_id'       => $store_id > 0 ? $store_id : null,
+                log_stock_audit([
+                    'action'         => 'create',
+                    'product_id'     => (string)$product_id,               // SQL id you just inserted
+                    'sku'            => $sku !== '' ? $sku : null,
+                    'product_name'   => $name,
+                    'store_id'       => $store_id > 0 ? $store_id : null,
 
-        // do NOT include 'before'/'after' so Qty shows "–" in the audit table
+                    // do NOT include 'before'/'after' so Qty shows "–" in the audit table
 
-        // also include who created it
-        'user_id'        => $changedBy,
-        'username'       => $changedName,
-        'changed_by'     => $changedBy,    // for pages that read these exact keys
-        'changed_name'   => $changedName,
-    ]);
-} catch (Throwable $t) {
-    error_log('create audit failed: ' . $t->getMessage());
-}
+                    // also include who created it
+                    'user_id'        => $changedBy,
+                    'username'       => $changedName,
+                    'changed_by'     => $changedBy,    // for pages that read these exact keys
+                    'changed_name'   => $changedName,
+                ]);
+            } catch (Throwable $t) {
+                error_log('create audit failed: ' . $t->getMessage());
+            }
 
             // --- 7) PRG redirect to avoid double-submit -----------------------
             header('Location: list.php?success=' . rawurlencode("Product '{$name}' added successfully!"));

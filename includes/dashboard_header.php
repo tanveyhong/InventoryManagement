@@ -84,6 +84,9 @@ if (strpos($currentPath, 'modules/users/profile/') !== false) {
                             <i class="fas fa-cash-register"></i> POS Integration
                         </a>
                         <?php endif; ?>
+                            <a href="<?php echo $baseUrl . 'modules/stock/mobileBarcodeScan.php'; ?>">
+                                <i class="fas fa-barcode"></i> Product Barcode Scanning
+                            </a>
                     </div>
                 </div>
                 <?php endif; ?>

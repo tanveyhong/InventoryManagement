@@ -100,6 +100,25 @@ function _fmt_date($ts)
 
 $created_display = _fmt_date($created);
 $updated_display = _fmt_date($updated);
+
+$backToList = 'list.php'; // fallback
+if (!empty($_GET['return'])) {
+  $candidate = rawurldecode($_GET['return']);
+  // Safety: allow only local list page
+  // (adjust path if your list is in a folder)
+  if (preg_match('#(^|/)list\.php(\?|$)#', $candidate)) {
+    $backToList = $candidate;
+  }
+}
+
+$viewProductId = isset($_GET['id']) ? (string)$_GET['id'] : '';
+$returnRaw     = isset($_GET['return']) ? (string)$_GET['return'] : '';
+
+// Build the Edit URL once, then escape it once
+$editHref = 'edit.php?id=' . rawurlencode($viewProductId);
+if ($returnRaw !== '') {
+  $editHref .= '&return=' . rawurlencode($returnRaw);
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -480,10 +499,14 @@ $updated_display = _fmt_date($updated);
       </nav>
 
       <div class="action-buttons">
-        <a class="btn-enhanced btn-primary" href="./edit.php?id=<?php echo urlencode($stock['id']); ?>">
+        <?php
+        $id = $_GET['id'] ?? '';
+        $returnParam = isset($_GET['return']) ? '&return=' . rawurlencode($_GET['return']) : '';
+        ?>
+        <a class="btn-enhanced btn-primary" href="<?php echo htmlspecialchars($editHref, ENT_QUOTES); ?>">
           <i class="fas fa-edit"></i> Edit Product
         </a>
-        <a class="btn-enhanced btn-secondary" href="./list.php">
+        <a class="btn-enhanced btn-secondary" href="<?php echo htmlspecialchars($backToList, ENT_QUOTES); ?>">
           <i class="fas fa-arrow-left"></i> Back to List
         </a>
       </div>
@@ -547,22 +570,8 @@ $updated_display = _fmt_date($updated);
         <!-- Product Image -->
         <div class="details-card">
           <h3 style="margin: 0 0 1.5rem 0; font-size: 1.5rem; font-weight: 700; color: #1e293b;">
-            <i class="fas fa-image"></i> Product Image
+            <i class="fas fa-qrcode"></i> Product Barcode
           </h3>
-          <div class="product-image-container">
-            <?php if ($imageUrl): ?>
-              <img src="<?php echo htmlspecialchars($imageUrl); ?>"
-                alt="<?php echo htmlspecialchars($header_title); ?>"
-                class="product-image">
-            <?php else: ?>
-              <div class="no-image">
-                <div style="text-align: center;">
-                  <i class="fas fa-image fa-4x" style="margin-bottom: 1rem;"></i>
-                  <p style="margin: 0; font-weight: 600;">No image available</p>
-                </div>
-              </div>
-            <?php endif; ?>
-          </div>
 
           <?php if ($barcode): ?>
             <div class="barcode-display">
