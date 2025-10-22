@@ -46,7 +46,7 @@ define('CACHE_TTL', 3600); // 1 hour
 // Debug Configuration
 define('DEBUG_MODE', true); // Set to false in production
 define('LOG_ERRORS', true);
-define('ERROR_LOG_PATH', 'storage/logs/errors.log');
+define('ERROR_LOG_PATH', __DIR__ . '/storage/logs/errors.log');
 
 // Set timezone
 date_default_timezone_set(APP_TIMEZONE);
@@ -56,7 +56,7 @@ if (DEBUG_MODE) {
     error_reporting(E_ALL);
     ini_set('display_errors', 1);
 } else {
-    error_reporting(0);
+    error_reporting(E_ALL); // Enable all error reporting for logging
     ini_set('display_errors', 0);
 }
 

@@ -60,7 +60,7 @@ if (strpos($currentPath, 'modules/users/profile/') !== false) {
                     <span>Dashboard</span>
                 </a>
                 
-                <?php if (currentUserHasPermission('manage_inventory')): ?>
+                <?php if (currentUserHasPermission('can_view_inventory') || currentUserHasPermission('can_use_pos') || currentUserHasPermission('can_add_inventory')): ?>
                 <div class="nav-dropdown">
                     <a href="#" class="nav-item">
                         <i class="fas fa-boxes"></i>
@@ -71,13 +71,15 @@ if (strpos($currentPath, 'modules/users/profile/') !== false) {
                         <a href="<?php echo $baseUrl . 'modules/stock/list.php'; ?>">
                             <i class="fas fa-list"></i> Stock Listing
                         </a>
-                        <a href="<?php echo $baseUrl . 'modules/stock/add.php'; ?>">
-                            <i class="fas fa-plus"></i> Add Stock
-                        </a>
+                        <?php if (currentUserHasPermission('can_add_inventory') || currentUserHasPermission('can_edit_inventory')): ?>
+                            <a href="<?php echo $baseUrl . 'modules/stock/add.php'; ?>">
+                                <i class="fas fa-plus"></i> Add Stock
+                            </a>
+                        <?php endif; ?>
                         <a href="<?php echo $baseUrl . 'modules/stock/stockAuditHis.php'; ?>">
                             <i class="fas fa-edit"></i> Stock Audit History
                         </a>
-                        <?php if (currentUserHasPermission('manage_pos')): ?>
+                        <?php if (currentUserHasPermission('can_manage_pos') || currentUserHasPermission('can_use_pos')): ?>
                         <a href="<?php echo $baseUrl . 'modules/pos/stock_pos_integration.php'; ?>">
                             <i class="fas fa-cash-register"></i> POS Integration
                         </a>
@@ -86,7 +88,7 @@ if (strpos($currentPath, 'modules/users/profile/') !== false) {
                 </div>
                 <?php endif; ?>
                 
-                <?php if (currentUserHasPermission('manage_stores')): ?>
+                <?php if (currentUserHasPermission('can_view_stores') || currentUserHasPermission('can_add_stores')): ?>
                 <div class="nav-dropdown">
                     <a href="#" class="nav-item">
                         <i class="fas fa-store"></i>
@@ -97,9 +99,11 @@ if (strpos($currentPath, 'modules/users/profile/') !== false) {
                         <a href="<?php echo $baseUrl . 'modules/stores/list.php'; ?>">
                             <i class="fas fa-list"></i> Store List
                         </a>
-                        <a href="<?php echo $baseUrl . 'modules/stores/add.php'; ?>">
-                            <i class="fas fa-plus"></i> Add Store
-                        </a>
+                        <?php if (currentUserHasPermission('can_add_stores')): ?>
+                            <a href="<?php echo $baseUrl . 'modules/stores/add.php'; ?>">
+                                <i class="fas fa-plus"></i> Add Store
+                            </a>
+                        <?php endif; ?>
                         <a href="<?php echo $baseUrl . 'modules/stores/map.php'; ?>">
                             <i class="fas fa-map"></i> Store Map
                         </a>
@@ -110,7 +114,7 @@ if (strpos($currentPath, 'modules/users/profile/') !== false) {
                 </div>
                 <?php endif; ?>
                 
-                <?php if (currentUserHasPermission('view_analytics')): ?>
+                <?php if (currentUserHasPermission('can_view_reports')): ?>
                 <div class="nav-dropdown">
                     <a href="#" class="nav-item">
                         <i class="fas fa-chart-line"></i>
@@ -128,7 +132,7 @@ if (strpos($currentPath, 'modules/users/profile/') !== false) {
                 </div>
                 <?php endif; ?>
                 
-                <?php if (currentUserHasPermission('manage_alerts')): ?>
+                <?php if (currentUserHasPermission('can_view_inventory') || currentUserHasPermission('can_view_reports')): ?>
                 <div class="nav-dropdown">
                     <a href="#" class="nav-item">
                         <i class="fas fa-exclamation-triangle"></i>
@@ -167,6 +171,11 @@ if (strpos($currentPath, 'modules/users/profile/') !== false) {
                         <a href="<?php echo $baseUrl . 'modules/users/profile.php'; ?>">
                             <i class="fas fa-user-circle"></i> Profile
                         </a>
+                        <?php if (currentUserHasPermission('can_manage_users') || currentUserHasPermission('can_view_users')): ?>
+                        <a href="<?php echo $baseUrl . 'modules/users/management.php'; ?>">
+                            <i class="fas fa-users-cog"></i> User Management
+                        </a>
+                        <?php endif; ?>
                         <a href="<?php echo $baseUrl . 'modules/users/logout.php'; ?>" class="logout-link">
                             <i class="fas fa-sign-out-alt"></i> Logout
                         </a>

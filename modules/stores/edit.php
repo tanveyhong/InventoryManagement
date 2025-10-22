@@ -12,8 +12,12 @@ if (!isLoggedIn()) {
     exit;
 }
 
-// Check permission to manage stores
-requirePermission('manage_stores', '../../index.php');
+// Check permission to edit stores
+if (!currentUserHasPermission('can_edit_stores')) {
+    $_SESSION['error'] = 'You do not have permission to edit stores';
+    header('Location: ../../index.php');
+    exit;
+}
 
 $db = getDB();
 $store_id = isset($_GET['id']) ? intval($_GET['id']) : 0;

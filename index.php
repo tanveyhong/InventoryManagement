@@ -569,7 +569,7 @@ header('Vary: Cookie');
                     <?php endif; ?>
                     
                     <!-- Stores Manager Card -->
-                    <a href="modules/users/profile/stores_manager.php" style="text-decoration: none; color: inherit;">
+                    <a href="modules/stores/list.php" style="text-decoration: none; color: inherit;">
                         <div class="info-card" style="cursor: pointer; transition: transform 0.2s, box-shadow 0.2s;">
                             <div style="display: flex; align-items: center; gap: 15px;">
                                 <div style="width: 50px; height: 50px; background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
@@ -577,7 +577,7 @@ header('Vary: Cookie');
                                 </div>
                                 <div>
                                     <h4 style="margin: 0 0 5px 0;">Stores Manager</h4>
-                                    <p style="margin: 0; font-size: 14px; color: #666;">Manage stores and user access</p>
+                                    <p style="margin: 0; font-size: 14px; color: #666;">Manage stores and locations</p>
                                 </div>
                             </div>
                         </div>
@@ -652,7 +652,7 @@ header('Vary: Cookie');
 
             <!-- Quick Actions -->
             <div class="quick-actions-grid">
-                <?php if (currentUserHasPermission('manage_inventory')): ?>
+                <?php if (currentUserHasPermission('can_view_inventory') || currentUserHasPermission('can_use_pos')): ?>
                 <a href="modules/stock/add.php" class="action-card">
                     <div class="action-icon">
                         <i class="fas fa-plus-circle"></i>
@@ -662,7 +662,7 @@ header('Vary: Cookie');
                 </a>
                 <?php endif; ?>
 
-                <?php if (currentUserHasPermission('manage_stores')): ?>
+                <?php if (currentUserHasPermission('can_view_stores') || currentUserHasPermission('can_add_stores')): ?>
                 <a href="modules/stores/enhanced_map.php" class="action-card">
                     <div class="action-icon">
                         <i class="fas fa-map-marked-alt"></i>
@@ -672,7 +672,7 @@ header('Vary: Cookie');
                 </a>
                 <?php endif; ?>
 
-                <?php if (currentUserHasPermission('view_analytics')): ?>
+                <?php if (currentUserHasPermission('can_view_reports')): ?>
                 <a href="modules/reports/dashboard.php" class="action-card">
                     <div class="action-icon">
                         <i class="fas fa-chart-bar"></i>
@@ -682,7 +682,7 @@ header('Vary: Cookie');
                 </a>
                 <?php endif; ?>
 
-                <?php if (currentUserHasPermission('configure_system')): ?>
+                <?php if (currentUserHasPermission('can_configure_system')): ?>
                 <a href="sync_dashboard.php" class="action-card">
                     <div class="action-icon">
                         <i class="fas fa-sync-alt"></i>
@@ -692,7 +692,7 @@ header('Vary: Cookie');
                 </a>
                 <?php endif; ?>
 
-                <?php if (currentUserHasPermission('manage_alerts')): ?>
+                <?php if (currentUserHasPermission('can_view_inventory') || currentUserHasPermission('can_view_reports')): ?>
                 <a href="modules/alerts/low_stock.php" class="action-card">
                     <div class="action-icon">
                         <i class="fas fa-bell"></i>

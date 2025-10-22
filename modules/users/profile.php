@@ -1379,28 +1379,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <button class="tab-button active" data-tab="profile">
                     <i class="fas fa-user"></i> Profile Info
                 </button>
-                <?php 
-                $userRole = strtolower($user['role'] ?? 'user');
-                $isAdmin = ($userRole === 'admin');
-                $isManager = ($userRole === 'manager');
-                
-                // Show Activity Log and Permissions only to admins and managers
-                if ($isAdmin || $isManager):
-                ?>
-                <button class="tab-button" data-tab="activity">
-                    <i class="fas fa-history"></i> Activity Log
-                </button>
-                <?php endif; ?>
-                
-                <?php if ($isAdmin): ?>
-                <button class="tab-button" data-tab="permissions">
-                    <i class="fas fa-shield-alt"></i> Permissions
-                </button>
-                <?php endif; ?>
-                
-                <button class="tab-button" data-tab="stores">
-                    <i class="fas fa-store"></i> Store Access
-                </button>
                 <button class="tab-button" data-tab="security">
                     <i class="fas fa-lock"></i> Security
                 </button>
@@ -1445,40 +1423,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <i class="fas fa-save"></i> Save Changes
                     </button>
                 </form>
-            </div>
-            
-            <!-- Activity Tab (Lazy Loaded) - Admin/Manager Only -->
-            <?php if ($isAdmin || $isManager): ?>
-            <div class="tab-content" id="tab-activity">
-                <div id="activity-loading">
-                    <div class="loading-skeleton" style="height: 80px;"></div>
-                    <div class="loading-skeleton" style="height: 80px;"></div>
-                    <div class="loading-skeleton" style="height: 80px;"></div>
-                </div>
-                <div id="activity-content" style="display: none;"></div>
-            </div>
-            <?php endif; ?>
-            
-            <!-- Permissions Tab (Lazy Loaded) - Admin Only -->
-            <?php if ($isAdmin): ?>
-            <div class="tab-content" id="tab-permissions">
-                <div id="permissions-loading">
-                    <div class="loading-skeleton" style="height: 100px;"></div>
-                    <div class="loading-skeleton" style="height: 100px;"></div>
-                    <div class="loading-skeleton" style="height: 100px;"></div>
-                </div>
-                <div id="permissions-content" style="display: none;"></div>
-            </div>
-            <?php endif; ?>
-            
-            <!-- Stores Tab (Lazy Loaded) -->
-            <div class="tab-content" id="tab-stores">
-                <div id="stores-loading">
-                    <div class="loading-skeleton" style="height: 80px;"></div>
-                    <div class="loading-skeleton" style="height: 80px;"></div>
-                    <div class="loading-skeleton" style="height: 80px;"></div>
-                </div>
-                <div id="stores-content" style="display: none;"></div>
             </div>
             
             <!-- Security Tab -->
@@ -1602,6 +1546,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 filteredActivities = [];
                 for (let i = 0; i < allActivitiesCache.length; i++) {
                     const activity = allActivitiesCache[i];
+                    
+                    // Date range filter
+                    if (window.activityDateFilter) {
+                        const activityDate = new Date(activity.created_at);
+                        const fromDate = window.activityDateFilter.from ? new Date(window.activityDateFilter.from) : null;
+                        const toDate = window.activityDateFilter.to ? new Date(window.activityDateFilter.to + 'T23:59:59') : null;
+                        
+                        if (fromDate && activityDate < fromDate) continue;
+                        if (toDate && activityDate > toDate) continue;
+                    }
                     
                     // Type filter (fastest check first)
                     if (filterType && !(activity.action_type || '').toLowerCase().includes(filterType)) {
@@ -1731,6 +1685,202 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             console.log(`Rendered ${filteredActivities.length} activities in ${(endTime - startTime).toFixed(2)}ms`);
         }
         
+        // Add Activity Manager Toolbar
+        function addActivityManagerToolbar() {
+            const container = document.getElementById('activity-content');
+            if (!container) return;
+            
+            // Check if toolbar already exists
+            if (container.querySelector('.activity-manager-toolbar')) {
+                console.log('Toolbar already exists');
+                return;
+            }
+            
+            let toolbarHTML = '';
+            if (isAdmin || isManager) {
+                // Load user list for admin
+                let userSelectHTML = '';
+                if (isAdmin) {
+                    userSelectHTML = `
+                        <select id="activity-user-filter" class="form-input" style="width: auto; padding: 8px 12px; min-width: 180px; background: white; color: #1f2937;">
+                            <option value="all">All Users</option>
+                            <option value="<?= $_SESSION['user_id'] ?>">My Activities</option>
+                        </select>
+                    `;
+                }
+                
+                toolbarHTML = `
+                    <div class="activity-manager-toolbar">
+                        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; border-radius: 12px; margin-bottom: 20px; color: white; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);">
+                            <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 15px;">
+                                <i class="fas fa-chart-line" style="font-size: 28px;"></i>
+                                <div>
+                                    <h3 style="margin: 0; font-size: 18px; font-weight: 600;">Activity Manager</h3>
+                                    <p style="margin: 5px 0 0 0; opacity: 0.9; font-size: 13px;">Monitor, filter, and analyze user activities</p>
+                                </div>
+                            </div>
+                            
+                            ${isAdmin ? `
+                            <div style="background: rgba(255,255,255,0.15); padding: 12px; border-radius: 8px; margin-bottom: 15px;">
+                                <label style="display: block; margin-bottom: 8px; font-weight: 600; font-size: 13px;">
+                                    <i class="fas fa-user-circle"></i> View Activities For:
+                                </label>
+                                ${userSelectHTML}
+                            </div>
+                            ` : ''}
+                            
+                            <!-- Date Range Filter -->
+                            <div style="background: rgba(255,255,255,0.15); padding: 12px; border-radius: 8px; margin-bottom: 15px;">
+                                <label style="display: block; margin-bottom: 8px; font-weight: 600; font-size: 13px;">
+                                    <i class="fas fa-calendar-alt"></i> Date Range:
+                                </label>
+                                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                                    <input type="date" id="activity-date-from" class="form-input" style="flex: 1; min-width: 150px; padding: 8px 12px; background: white; color: #1f2937;">
+                                    <span style="display: flex; align-items: center; font-weight: 600;">to</span>
+                                    <input type="date" id="activity-date-to" class="form-input" style="flex: 1; min-width: 150px; padding: 8px 12px; background: white; color: #1f2937;">
+                                    <button onclick="applyDateFilter()" class="btn" style="background: rgba(255,255,255,0.25); color: white; padding: 8px 16px; border: 1px solid rgba(255,255,255,0.3);">
+                                        <i class="fas fa-filter"></i> Apply
+                                    </button>
+                                    <button onclick="clearDateFilter()" class="btn" style="background: rgba(255,255,255,0.15); color: white; padding: 8px 16px;">
+                                        <i class="fas fa-times"></i> Clear
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <!-- Quick Stats -->
+                            <div id="activity-stats" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 15px;">
+                                <div style="background: rgba(255,255,255,0.2); padding: 12px; border-radius: 8px; text-align: center;">
+                                    <div style="font-size: 24px; font-weight: 700;" id="stat-total-activities">-</div>
+                                    <div style="font-size: 12px; opacity: 0.9;">Total Activities</div>
+                                </div>
+                                <div style="background: rgba(255,255,255,0.2); padding: 12px; border-radius: 8px; text-align: center;">
+                                    <div style="font-size: 24px; font-weight: 700;" id="stat-today-activities">-</div>
+                                    <div style="font-size: 12px; opacity: 0.9;">Today</div>
+                                </div>
+                                <div style="background: rgba(255,255,255,0.2); padding: 12px; border-radius: 8px; text-align: center;">
+                                    <div style="font-size: 24px; font-weight: 700;" id="stat-this-week">-</div>
+                                    <div style="font-size: 12px; opacity: 0.9;">This Week</div>
+                                </div>
+                                <div style="background: rgba(255,255,255,0.2); padding: 12px; border-radius: 8px; text-align: center;">
+                                    <div style="font-size: 24px; font-weight: 700;" id="stat-unique-types">-</div>
+                                    <div style="font-size: 12px; opacity: 0.9;">Activity Types</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div style="background: #f8f9fa; padding: 15px; border-radius: 10px; margin-bottom: 20px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                                    <button onclick="exportActivities('csv')" class="btn" style="background: #10b981; color: white; padding: 8px 16px; font-size: 14px;">
+                                        <i class="fas fa-file-csv"></i> Export CSV
+                                    </button>
+                                    <button onclick="exportActivities('json')" class="btn" style="background: #3b82f6; color: white; padding: 8px 16px; font-size: 14px;">
+                                        <i class="fas fa-file-code"></i> Export JSON
+                                    </button>
+                                    <button onclick="exportActivities('pdf')" class="btn" style="background: #f59e0b; color: white; padding: 8px 16px; font-size: 14px;">
+                                        <i class="fas fa-file-pdf"></i> Export PDF
+                                    </button>
+                                    ${isAdmin ? `
+                                    <button onclick="if(confirm('⚠️ This will permanently clear all activity history for the selected user. Are you sure?')) clearActivities()" class="btn" style="background: #ef4444; color: white; padding: 8px 16px; font-size: 14px;">
+                                        <i class="fas fa-trash-alt"></i> Clear History
+                                    </button>
+                                    <button onclick="showActivityAnalytics()" class="btn" style="background: #8b5cf6; color: white; padding: 8px 16px; font-size: 14px;">
+                                        <i class="fas fa-chart-pie"></i> Analytics
+                                    </button>` : ''}
+                                </div>
+                                <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                                    <input type="text" id="activity-search" placeholder="🔍 Search activities..." class="form-input" style="width: 220px; padding: 8px 12px; font-size: 14px;">
+                                    <select id="activity-filter" class="form-input" style="width: auto; padding: 8px 12px;">
+                                        <option value="">📋 All Types</option>
+                                        <option value="login">🔐 Login</option>
+                                        <option value="logout">🚪 Logout</option>
+                                        <option value="create">➕ Create</option>
+                                        <option value="update">✏️ Update</option>
+                                        <option value="delete">🗑️ Delete</option>
+                                        <option value="store">🏪 Store</option>
+                                        <option value="product">📦 Product</option>
+                                        <option value="user">👤 User</option>
+                                    </select>
+                                    <button onclick="loadActivities(false, true)" class="btn" style="background: #6b7280; color: white; padding: 8px 16px; font-size: 14px;" title="Refresh activities">
+                                        <i class="fas fa-sync-alt"></i> Refresh
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                container.insertAdjacentHTML('afterbegin', toolbarHTML);
+                
+                // Setup event listeners for search and filter
+                setTimeout(() => {
+                    const searchInput = document.getElementById('activity-search');
+                    const filterSelect = document.getElementById('activity-filter');
+                    
+                    let rafId = null;
+                    
+                    if (searchInput) {
+                        searchInput.addEventListener('input', () => {
+                            if (rafId) cancelAnimationFrame(rafId);
+                            rafId = requestAnimationFrame(() => {
+                                visibleActivitiesCount = 20;
+                                renderActivities();
+                            });
+                        });
+                    }
+                    
+                    if (filterSelect) {
+                        filterSelect.addEventListener('change', () => {
+                            visibleActivitiesCount = 20;
+                            renderActivities();
+                        });
+                    }
+                    
+                    // Load users for admin dropdown
+                    if (isAdmin) {
+                        if (!window.usersListCache) {
+                            fetch('profile/api.php?action=get_all_users')
+                                .then(r => r.json())
+                                .then(result => {
+                                    if (result.success) {
+                                        window.usersListCache = result.data;
+                                        const select = document.getElementById('activity-user-filter');
+                                        if (select) {
+                                            result.data.forEach(u => {
+                                                if (u.id !== '<?= $_SESSION['user_id'] ?>') {
+                                                    const opt = document.createElement('option');
+                                                    opt.value = u.id;
+                                                    opt.textContent = u.username + ' (' + u.role + ')';
+                                                    select.appendChild(opt);
+                                                }
+                                            });
+                                            select.addEventListener('change', () => {
+                                                loadActivities(false, true);
+                                            });
+                                        }
+                                    }
+                                });
+                        } else {
+                            const select = document.getElementById('activity-user-filter');
+                            if (select && window.usersListCache) {
+                                window.usersListCache.forEach(u => {
+                                    if (u.id !== '<?= $_SESSION['user_id'] ?>') {
+                                        const opt = document.createElement('option');
+                                        opt.value = u.id;
+                                        opt.textContent = u.username + ' (' + u.role + ')';
+                                        select.appendChild(opt);
+                                    }
+                                });
+                                select.addEventListener('change', () => {
+                                    loadActivities(false, true);
+                                });
+                            }
+                        }
+                    }
+                }, 100);
+            }
+        }
+        
         async function loadActivities(append = false, skipCache = false) {
             // Prevent duplicate simultaneous requests
             if (loadingActivities && !skipCache) {
@@ -1764,8 +1914,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 document.getElementById('activity-loading').style.display = 'none';
                                 document.getElementById('activity-content').style.display = 'block';
                                 
+                                // Add toolbar even when using cache
+                                const container = document.getElementById('activity-content');
+                                if (container && !container.querySelector('.activity-manager-toolbar')) {
+                                    addActivityManagerToolbar();
+                                }
+                                
                                 // Render cached activities
                                 renderActivities();
+                                updateActivityStats();
                                 
                                 loadingActivities = false;
                                 return;
@@ -1834,112 +1991,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     const container = document.getElementById('activity-content');
                     
                     if (!append) {
-                        // Add management toolbar for admin/manager
-                        let toolbarHTML = '';
-                        if (isAdmin || isManager) {
-                            // Load user list for admin
-                            let userSelectHTML = '';
-                            if (isAdmin) {
-                                userSelectHTML = `
-                                    <select id="activity-user-filter" class="form-input" style="width: auto; padding: 8px 12px; min-width: 180px;">
-                                        <option value="all">All Users</option>
-                                        <option value="<?= $_SESSION['user_id'] ?>">My Activities</option>
-                                    </select>
-                                `;
-                                // Load users dynamically (with caching)
-                                if (!window.usersListCache) {
-                                    fetch('profile/api.php?action=get_all_users')
-                                        .then(r => r.json())
-                                        .then(result => {
-                                            if (result.success) {
-                                                window.usersListCache = result.data;
-                                                const select = document.getElementById('activity-user-filter');
-                                                if (select) {
-                                                    result.data.forEach(u => {
-                                                        if (u.id !== '<?= $_SESSION['user_id'] ?>') {
-                                                            const opt = document.createElement('option');
-                                                            opt.value = u.id;
-                                                            opt.textContent = u.username + ' (' + u.role + ')';
-                                                            select.appendChild(opt);
-                                                        }
-                                                    });
-                                                    // Add change listener with debouncing
-                                                    select.addEventListener('change', debounce(() => {
-                                                        loadActivities(false, true);
-                                                    }, 300));
-                                                }
-                                            }
-                                        });
-                                } else {
-                                    // Use cached users
-                                    setTimeout(() => {
-                                        const select = document.getElementById('activity-user-filter');
-                                        if (select && window.usersListCache) {
-                                            window.usersListCache.forEach(u => {
-                                                if (u.id !== '<?= $_SESSION['user_id'] ?>') {
-                                                    const opt = document.createElement('option');
-                                                    opt.value = u.id;
-                                                    opt.textContent = u.username + ' (' + u.role + ')';
-                                                    select.appendChild(opt);
-                                                }
-                                            });
-                                            select.addEventListener('change', debounce(() => {
-                                                loadActivities(false, true);
-                                            }, 300));
-                                        }
-                                    }, 0);
-                                }
-                            }
-                            
-                            toolbarHTML = `
-                                <div style="background: #f8f9fa; padding: 15px; border-radius: 10px; margin-bottom: 20px;">
-                                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: ${isAdmin ? '15px' : '0'};">
-                                        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                                            <button onclick="exportActivities('csv')" class="btn" style="background: #10b981; color: white; padding: 8px 16px; font-size: 14px;">
-                                                <i class="fas fa-download"></i> Export CSV
-                                            </button>
-                                            <button onclick="exportActivities('json')" class="btn" style="background: #3b82f6; color: white; padding: 8px 16px; font-size: 14px;">
-                                                <i class="fas fa-file-code"></i> Export JSON
-                                            </button>
-                                            ${isAdmin ? `
-                                            <button onclick="if(confirm('Are you sure you want to clear the selected user&apos;s activity history?')) clearActivities()" class="btn" style="background: #ef4444; color: white; padding: 8px 16px; font-size: 14px;">
-                                                <i class="fas fa-trash"></i> Clear History
-                                            </button>` : ''}
-                                        </div>
-                                        <div style="display: flex; gap: 10px; align-items: center;">
-                                            <input type="text" id="activity-search" placeholder="Search activities..." class="form-input" style="width: 200px; padding: 8px 12px; font-size: 14px;">
-                                            <select id="activity-filter" class="form-input" style="width: auto; padding: 8px 12px;">
-                                                <option value="">All Types</option>
-                                                <option value="login">Login</option>
-                                                <option value="logout">Logout</option>
-                                                <option value="create">Create</option>
-                                                <option value="update">Update</option>
-                                                <option value="delete">Delete</option>
-                                        </select>
-                                        <button onclick="loadActivities(false, true)" class="btn" style="background: #6b7280; color: white; padding: 8px 16px; font-size: 14px;">
-                                            <i class="fas fa-sync"></i> Refresh
-                                        </button>
-                                    </div>
-                                </div>
-                                ${isAdmin ? `
-                                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 15px; border-radius: 10px; margin-bottom: 20px; color: white;">
-                                        <div style="display: flex; align-items: center; gap: 12px;">
-                                            <i class="fas fa-users" style="font-size: 20px;"></i>
-                                            <div style="flex: 1;">
-                                                <label style="display: block; margin-bottom: 8px; font-weight: 600;">View Activities For:</label>
-                                                ${userSelectHTML}
-                                            </div>
-                                        </div>
-                                    </div>
-                                ` : ''}
-                            </div>
-                            `;
-                        }
-                        container.innerHTML = toolbarHTML;
+                        // Add Activity Manager toolbar
+                        addActivityManagerToolbar();
                     }
                     
                     // Render activities (will be filtered client-side)
                     renderActivities();
+                    updateActivityStats();
                     
                     activityOffset += data.data.length;
                     
@@ -1985,13 +2043,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
                     }
                 } else if (!append) {
-                    document.getElementById('activity-content').innerHTML = `
-                        <div class="empty-state">
-                            <i class="fas fa-history"></i>
-                            <h3>No Activity Yet</h3>
-                            <p>Your activity history will appear here</p>
-                        </div>
+                    // Show toolbar even when no activities
+                    addActivityManagerToolbar();
+                    
+                    // Add empty state after toolbar
+                    const container = document.getElementById('activity-content');
+                    const emptyState = document.createElement('div');
+                    emptyState.className = 'empty-state';
+                    emptyState.innerHTML = `
+                        <i class="fas fa-history"></i>
+                        <h3>No Activity Yet</h3>
+                        <p>Your activity history will appear here</p>
                     `;
+                    container.appendChild(emptyState);
+                    
+                    // Update stats to show zeros
+                    if (document.getElementById('stat-total-activities')) {
+                        document.getElementById('stat-total-activities').textContent = '0';
+                        document.getElementById('stat-today-activities').textContent = '0';
+                        document.getElementById('stat-this-week').textContent = '0';
+                        document.getElementById('stat-unique-types').textContent = '0';
+                    }
                 }
             } catch (error) {
                 if (error.name === 'AbortError') {
@@ -2238,9 +2310,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 <a href="../stores/list.php" class="btn" style="background: #3b82f6; color: white; padding: 8px 16px; font-size: 14px; text-decoration: none;">
                                     <i class="fas fa-list"></i> All Stores
                                 </a>
-                                <a href="../stores/add.php" class="btn" style="background: #10b981; color: white; padding: 8px 16px; font-size: 14px; text-decoration: none;">
-                                    <i class="fas fa-plus"></i> Add Store
-                                </a>` : ''}
+                                <button onclick="showAddStoreModal()" class="btn" style="background: #10b981; color: white; padding: 8px 16px; font-size: 14px; border: none; cursor: pointer;">
+                                    <i class="fas fa-plus"></i> Assign Store
+                                </button>` : ''}
                             </div>
                         </div>
                     `;
@@ -2297,9 +2369,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <h3>No Store Access</h3>
                         <p>You don't have access to any stores yet</p>
                         ${isAdmin || isManager ? `
-                        <a href="../stores/add.php" class="btn btn-primary" style="margin-top: 20px; text-decoration: none;">
-                            <i class="fas fa-plus"></i> Add New Store
-                        </a>` : ''}
+                        <button onclick="showAddStoreModal()" class="btn btn-primary" style="margin-top: 20px;">
+                            <i class="fas fa-plus"></i> Assign Store Access
+                        </button>` : ''}
                     </div>
                 `;
             }
@@ -2582,6 +2654,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     // Background auto-refresh (every 30 seconds when online)    // Background auto-refresh (every 30 seconds when online)
     let autoRefreshInterval = null;
+    
+    // Global user ID for API calls
+    const userId = '<?php echo $userId; ?>';
+    console.log('Global userId initialized:', userId);
     
     function startAutoRefresh() {
         // Only auto-refresh if online
@@ -2895,6 +2971,401 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         showNotification('Stores data refreshed successfully!', 'success');
     }
     
+    // Show modal to assign store access
+    async function showAddStoreModal() {
+        console.log('=== Opening Add Store Modal ===');
+        
+        // Show loading modal immediately to prevent delay perception
+        const loadingModal = document.createElement('div');
+        loadingModal.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            backdrop-filter: blur(4px);
+        `;
+        loadingModal.innerHTML = `
+            <div style="background: white; padding: 40px; border-radius: 16px; text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+                <i class="fas fa-spinner fa-spin" style="font-size: 32px; color: #10b981; margin-bottom: 16px;"></i>
+                <div style="font-size: 16px; color: #6b7280; font-weight: 500;">Loading available stores...</div>
+            </div>
+        `;
+        loadingModal.className = 'modal-wrapper';
+        document.body.appendChild(loadingModal);
+        
+        // Fetch available stores (stores user doesn't have access to yet)
+        try {
+            console.time('API: get_available_stores');
+            const response = await fetch('profile/api.php?action=get_available_stores<?php echo isset($viewingUserId) ? "&user_id={$viewingUserId}" : ""; ?>');
+            console.timeEnd('API: get_available_stores');
+            
+            const data = await response.json();
+            console.log('Available stores response:', data);
+            
+            // Remove loading modal
+            loadingModal.remove();
+            
+            if (!data.success) {
+                showNotification(data.error || 'Failed to load stores', 'error');
+                return;
+            }
+            
+            const availableStores = data.data || [];
+            console.log('Available stores count:', availableStores.length);
+            
+            if (availableStores.length === 0) {
+                showNotification('User already has access to all stores', 'info');
+                return;
+            }
+            
+            // Create modal with improved design
+            const modal = document.createElement('div');
+            modal.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0,0,0,0.6);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 10000;
+                backdrop-filter: blur(4px);
+                animation: fadeIn 0.2s ease-out;
+            `;
+            
+            const modalContent = document.createElement('div');
+            modalContent.style.cssText = `
+                background: white;
+                padding: 0;
+                border-radius: 16px;
+                max-width: 600px;
+                width: 90%;
+                max-height: 85vh;
+                overflow: hidden;
+                box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                animation: slideUp 0.3s ease-out;
+            `;
+            
+            modalContent.innerHTML = `
+                <div style="padding: 24px; border-bottom: 1px solid #e5e7eb;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <h3 style="margin: 0; font-size: 20px; color: #111827;">
+                                <i class="fas fa-store" style="color: #10b981; margin-right: 8px;"></i>
+                                Assign Store Access
+                            </h3>
+                            <p style="color: #6b7280; margin: 8px 0 0 0; font-size: 14px;">
+                                Select one or more stores to grant access
+                            </p>
+                        </div>
+                        <button onclick="this.closest('.modal-wrapper').remove()" style="
+                            background: none;
+                            border: none;
+                            font-size: 24px;
+                            color: #6b7280;
+                            cursor: pointer;
+                            padding: 8px;
+                            line-height: 1;
+                            border-radius: 8px;
+                            transition: all 0.2s;
+                        " onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='none'">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                <div style="padding: 20px; max-height: 50vh; overflow-y: auto;">
+                    <div id="store-search" style="margin-bottom: 16px;">
+                        <input type="text" id="store-search-input" placeholder="Search stores..." style="
+                            width: 100%;
+                            padding: 12px 16px;
+                            border: 2px solid #e5e7eb;
+                            border-radius: 10px;
+                            font-size: 14px;
+                            transition: border-color 0.2s;
+                        " onfocus="this.style.borderColor='#10b981'" onblur="this.style.borderColor='#e5e7eb'">
+                    </div>
+                    <div id="store-count" style="margin-bottom: 12px; font-size: 13px; color: #6b7280;">
+                        <span id="selected-count">0</span> of <span id="total-count">0</span> stores selected
+                    </div>
+                    <div id="store-list"></div>
+                </div>
+                
+                <div style="padding: 20px; border-top: 1px solid #e5e7eb; background: #f9fafb; display: flex; gap: 12px; justify-content: flex-end;">
+                    <button onclick="this.closest('.modal-wrapper').remove()" style="
+                        padding: 10px 20px;
+                        background: white;
+                        color: #6b7280;
+                        border: 2px solid #e5e7eb;
+                        border-radius: 10px;
+                        font-weight: 600;
+                        cursor: pointer;
+                        transition: all 0.2s;
+                    " onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='white'">
+                        <i class="fas fa-times"></i> Cancel
+                    </button>
+                    <button onclick="assignSelectedStores(event)" id="assign-btn" style="
+                        padding: 10px 20px;
+                        background: #10b981;
+                        color: white;
+                        border: none;
+                        border-radius: 10px;
+                        font-weight: 600;
+                        cursor: pointer;
+                        transition: all 0.2s;
+                    " onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
+                        <i class="fas fa-plus"></i> Assign Selected
+                    </button>
+                </div>
+            `;
+            
+            modal.appendChild(modalContent);
+            modal.className = 'modal-wrapper';
+            document.body.appendChild(modal);
+            
+            // Add CSS animations
+            const style = document.createElement('style');
+            style.textContent = `
+                @keyframes fadeIn {
+                    from { opacity: 0; }
+                    to { opacity: 1; }
+                }
+                @keyframes slideUp {
+                    from { transform: translateY(20px); opacity: 0; }
+                    to { transform: translateY(0); opacity: 1; }
+                }
+            `;
+            document.head.appendChild(style);
+            
+            // Populate store list with improved design
+            const storeList = document.getElementById('store-list');
+            const totalCount = document.getElementById('total-count');
+            const selectedCount = document.getElementById('selected-count');
+            totalCount.textContent = availableStores.length;
+            
+            availableStores.forEach(store => {
+                const storeItem = document.createElement('label');
+                storeItem.className = 'store-item';
+                storeItem.style.cssText = `
+                    display: flex;
+                    align-items: center;
+                    padding: 14px 16px;
+                    background: white;
+                    border: 2px solid #e5e7eb;
+                    border-radius: 12px;
+                    margin-bottom: 10px;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                `;
+                
+                storeItem.innerHTML = `
+                    <input type="checkbox" value="${store.id}" style="
+                        width: 20px;
+                        height: 20px;
+                        margin-right: 14px;
+                        cursor: pointer;
+                        accent-color: #10b981;
+                    ">
+                    <div style="flex: 1;">
+                        <div style="font-weight: 600; color: #111827; margin-bottom: 4px; display: flex; align-items: center; gap: 8px;">
+                            <i class="fas fa-store" style="color: #10b981; font-size: 14px;"></i>
+                            ${store.name}
+                        </div>
+                        ${store.address ? `<div style="font-size: 13px; color: #6b7280;">
+                            <i class="fas fa-map-marker-alt" style="width: 14px;"></i> ${store.address}
+                        </div>` : ''}
+                    </div>
+                `;
+                
+                // Hover effects
+                storeItem.onmouseenter = () => {
+                    storeItem.style.borderColor = '#10b981';
+                    storeItem.style.background = '#f0fdf4';
+                    storeItem.style.transform = 'translateX(4px)';
+                };
+                storeItem.onmouseleave = () => {
+                    const checkbox = storeItem.querySelector('input[type="checkbox"]');
+                    if (!checkbox.checked) {
+                        storeItem.style.borderColor = '#e5e7eb';
+                        storeItem.style.background = 'white';
+                    }
+                    storeItem.style.transform = 'translateX(0)';
+                };
+                
+                // Update selected count
+                const checkbox = storeItem.querySelector('input[type="checkbox"]');
+                checkbox.onchange = () => {
+                    const checkedCount = document.querySelectorAll('#store-list input[type="checkbox"]:checked').length;
+                    selectedCount.textContent = checkedCount;
+                    
+                    if (checkbox.checked) {
+                        storeItem.style.borderColor = '#10b981';
+                        storeItem.style.background = '#f0fdf4';
+                    } else {
+                        storeItem.style.borderColor = '#e5e7eb';
+                        storeItem.style.background = 'white';
+                    }
+                };
+                
+                storeList.appendChild(storeItem);
+            });
+            
+            // Add search functionality
+            const searchInput = document.getElementById('store-search-input');
+            searchInput.addEventListener('input', (e) => {
+                const searchTerm = e.target.value.toLowerCase();
+                const storeItems = storeList.querySelectorAll('.store-item');
+                
+                storeItems.forEach(item => {
+                    const text = item.textContent.toLowerCase();
+                    if (text.includes(searchTerm)) {
+                        item.style.display = 'flex';
+                    } else {
+                        item.style.display = 'none';
+                    }
+                });
+            });
+            
+            // Close on outside click
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    modal.remove();
+                }
+            });
+            
+        } catch (error) {
+            console.error('=== Error Loading Stores ===');
+            console.error('Error details:', error);
+            console.error('Stack trace:', error.stack);
+            
+            // Remove loading modal if it exists
+            const existingLoadingModal = document.querySelector('.modal-wrapper');
+            if (existingLoadingModal) {
+                existingLoadingModal.remove();
+            }
+            
+            showNotification('Failed to load stores: ' + error.message, 'error');
+        }
+    }
+    
+    // Assign selected stores to user
+    async function assignSelectedStores(event) {
+        console.log('=== Starting Store Assignment ===');
+        console.log('Current userId:', userId);
+        
+        const checkboxes = document.querySelectorAll('#store-list input[type="checkbox"]:checked');
+        const storeIds = Array.from(checkboxes).map(cb => cb.value);
+        
+        console.log('Selected stores:', storeIds);
+        
+        if (storeIds.length === 0) {
+            console.warn('No stores selected');
+            showNotification('Please select at least one store', 'warning');
+            return;
+        }
+        
+        // Disable button to prevent double submission
+        const assignBtn = event ? event.target : document.getElementById('assign-btn');
+        assignBtn.disabled = true;
+        assignBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Assigning...';
+        
+        try {
+            let successCount = 0;
+            let failCount = 0;
+            let failedStores = [];
+            
+            // Process each store assignment
+            for (const storeId of storeIds) {
+                console.log(`\n--- Processing store: ${storeId} ---`);
+                
+                const requestData = {
+                    user_id: userId,
+                    store_id: storeId
+                };
+                
+                console.log('Request data:', requestData);
+                
+                try {
+                    const response = await fetch('profile/api.php?action=add_store_access', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(requestData)
+                    });
+                    
+                    console.log('Response status:', response.status);
+                    console.log('Response OK:', response.ok);
+                    
+                    const responseText = await response.text();
+                    console.log('Raw response:', responseText);
+                    
+                    let data;
+                    try {
+                        data = JSON.parse(responseText);
+                        console.log('Parsed response:', data);
+                    } catch (parseError) {
+                        console.error('JSON parse error:', parseError);
+                        console.error('Response was:', responseText);
+                        throw new Error('Invalid JSON response: ' + responseText.substring(0, 100));
+                    }
+                    
+                    if (data.success) {
+                        console.log('✓ Store assigned successfully');
+                        successCount++;
+                    } else {
+                        console.error('✗ Assignment failed:', data.error);
+                        failCount++;
+                        // Get store name from checkbox label
+                        const checkbox = document.querySelector(`input[value="${storeId}"]`);
+                        const storeName = checkbox?.parentElement?.textContent.trim() || storeId;
+                        failedStores.push(`${storeName}: ${data.error || 'Unknown error'}`);
+                    }
+                } catch (err) {
+                    failCount++;
+                    console.error(`✗ Exception assigning store ${storeId}:`, err);
+                    const checkbox = document.querySelector(`input[value="${storeId}"]`);
+                    const storeName = checkbox?.parentElement?.textContent.trim() || storeId;
+                    failedStores.push(`${storeName}: ${err.message}`);
+                }
+            }
+            
+            console.log('\n=== Assignment Summary ===');
+            console.log('Success:', successCount);
+            console.log('Failed:', failCount);
+            console.log('Failed stores:', failedStores);
+            
+            // Show detailed results
+            if (successCount > 0 && failCount === 0) {
+                showNotification(`✓ Successfully assigned ${successCount} store(s)`, 'success');
+                document.querySelector('.modal-wrapper').remove();
+                await refreshStores();
+            } else if (successCount > 0 && failCount > 0) {
+                const message = `Assigned ${successCount} store(s). Failed: ${failCount}\n${failedStores.join('\n')}`;
+                showNotification(message, 'warning');
+                // Refresh to show successfully added stores
+                await refreshStores();
+                // Keep modal open to show which stores failed
+            } else {
+                const message = `Failed to assign all stores:\n${failedStores.join('\n')}`;
+                showNotification(message, 'error');
+            }
+        } catch (error) {
+            console.error('Error assigning stores:', error);
+            showNotification('Failed to assign stores: ' + error.message, 'error');
+        } finally {
+            // Re-enable button
+            assignBtn.disabled = false;
+            assignBtn.innerHTML = '<i class="fas fa-plus"></i> Assign Selected';
+        }
+    }
+    
     // Start auto-refresh when page loads
     document.addEventListener('DOMContentLoaded', () => {
         console.log('=== Profile Page Loading ===');
@@ -2923,40 +3394,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             confirmPasswordInput.addEventListener('input', checkPasswordMatch);
         }
         
-        // Pre-load all tab data immediately (no lazy loading)
-        console.log('Pre-loading all tab data...');
-        const loadStartTime = performance.now();
-        
-        // Load activities if tab exists (for admin/manager)
-        if (document.getElementById('tab-activity')) {
-            console.log('Loading activities...');
-            loadActivities().then(() => {
-                console.log('Activities loaded');
-            }).catch((error) => {
-                console.error('Failed to load activities:', error);
-                // Ensure loading is hidden even if promise rejects
-                document.getElementById('activity-loading').style.display = 'none';
-                document.getElementById('activity-content').style.display = 'block';
-            });
-        }
-        
-        // Load permissions if tab exists (for admin)
-        if (document.getElementById('tab-permissions')) {
-            console.log('Loading permissions...');
-            loadPermissions().then(() => {
-                console.log('Permissions loaded');
-            });
-        }
-        
-        // Load stores (for all users)
-        if (document.getElementById('tab-stores')) {
-            console.log('Loading stores...');
-            loadStores().then(() => {
-                console.log('Stores loaded');
-                const loadEndTime = performance.now();
-                console.log(`All tabs loaded in ${(loadEndTime - loadStartTime).toFixed(2)}ms`);
-            });
-        }
+        // Profile page now only contains personal info - no admin features to load
+        console.log('Profile page initialized - personal view only');
         
         // Attach click handler to refresh button
         const refreshBtn = document.getElementById('refreshCacheBtn');
@@ -2993,16 +3432,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             const userFilter = isAdmin ? (document.getElementById('activity-user-filter')?.value || 'all') : '';
             const userParam = userFilter ? `&user_id=${userFilter}` : '';
             
-            const response = await fetch(`profile/api.php?action=export_activities&format=${format}${userParam}`);
-            const blob = await response.blob();
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `activities_${new Date().toISOString().split('T')[0]}.${format}`;
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-            document.body.removeChild(a);
+            if (format === 'pdf') {
+                // Open in new window for PDF printing
+                const url = `profile/api.php?action=export_activities&format=pdf${userParam}`;
+                window.open(url, '_blank');
+                showNotification('Opening PDF report...', 'info');
+            } else {
+                const response = await fetch(`profile/api.php?action=export_activities&format=${format}${userParam}`);
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `activities_${new Date().toISOString().split('T')[0]}.${format}`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+                showNotification(`Activities exported as ${format.toUpperCase()}`, 'success');
+            }
         } catch (error) {
             console.error('Export failed:', error);
             alert('Failed to export activities');
@@ -3030,6 +3477,205 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             alert('Failed to clear activities');
         }
     }
+    
+    // New Activity Manager Functions
+    function updateActivityStats() {
+        if (!allActivitiesCache || allActivitiesCache.length === 0) return;
+        
+        const now = new Date();
+        const today = now.toDateString();
+        const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        
+        let todayCount = 0;
+        let weekCount = 0;
+        const uniqueTypes = new Set();
+        
+        allActivitiesCache.forEach(activity => {
+            const activityDate = new Date(activity.created_at);
+            uniqueTypes.add(activity.action_type || activity.activity_type);
+            
+            if (activityDate.toDateString() === today) {
+                todayCount++;
+            }
+            if (activityDate >= oneWeekAgo) {
+                weekCount++;
+            }
+        });
+        
+        document.getElementById('stat-total-activities').textContent = allActivitiesCache.length.toLocaleString();
+        document.getElementById('stat-today-activities').textContent = todayCount.toLocaleString();
+        document.getElementById('stat-this-week').textContent = weekCount.toLocaleString();
+        document.getElementById('stat-unique-types').textContent = uniqueTypes.size.toLocaleString();
+    }
+    
+    function applyDateFilter() {
+        const dateFrom = document.getElementById('activity-date-from').value;
+        const dateTo = document.getElementById('activity-date-to').value;
+        
+        if (!dateFrom && !dateTo) {
+            showNotification('Please select at least one date', 'warning');
+            return;
+        }
+        
+        // Store filter in variable for renderActivities to use
+        window.activityDateFilter = { from: dateFrom, to: dateTo };
+        
+        // Re-render with date filter
+        visibleActivitiesCount = 20;
+        renderActivities();
+        
+        showNotification('Date filter applied', 'success');
+    }
+    
+    function clearDateFilter() {
+        document.getElementById('activity-date-from').value = '';
+        document.getElementById('activity-date-to').value = '';
+        window.activityDateFilter = null;
+        
+        visibleActivitiesCount = 20;
+        renderActivities();
+        
+        showNotification('Date filter cleared', 'info');
+    }
+    
+    function showActivityAnalytics() {
+        if (!allActivitiesCache || allActivitiesCache.length === 0) {
+            showNotification('No activity data to analyze', 'warning');
+            return;
+        }
+        
+        // Create analytics modal
+        const modal = document.createElement('div');
+        modal.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            backdrop-filter: blur(4px);
+            animation: fadeIn 0.3s;
+        `;
+        
+        // Calculate analytics
+        const typeCount = {};
+        const hourCount = {};
+        const dayCount = {};
+        
+        allActivitiesCache.forEach(activity => {
+            const type = activity.action_type || activity.activity_type || 'unknown';
+            typeCount[type] = (typeCount[type] || 0) + 1;
+            
+            const date = new Date(activity.created_at);
+            const hour = date.getHours();
+            const day = date.toDateString();
+            
+            hourCount[hour] = (hourCount[hour] || 0) + 1;
+            dayCount[day] = (dayCount[day] || 0) + 1;
+        });
+        
+        // Get top 10 activity types
+        const topTypes = Object.entries(typeCount)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 10);
+        
+        // Get most active hours
+        const topHours = Object.entries(hourCount)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 5);
+        
+        // Get most active days
+        const topDays = Object.entries(dayCount)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 7);
+        
+        modal.innerHTML = `
+            <div style="background: white; border-radius: 16px; padding: 30px; max-width: 900px; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.4); width: 90%;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px;">
+                    <div>
+                        <h2 style="margin: 0; color: #1f2937; font-size: 24px;">
+                            <i class="fas fa-chart-pie" style="color: #8b5cf6;"></i> Activity Analytics
+                        </h2>
+                        <p style="margin: 5px 0 0 0; color: #6b7280;">Insights and patterns from ${allActivitiesCache.length.toLocaleString()} activities</p>
+                    </div>
+                    <button onclick="this.closest('div').parentElement.remove()" style="background: #ef4444; color: white; border: none; width: 36px; height: 36px; border-radius: 50%; cursor: pointer; font-size: 18px;">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px;">
+                    <!-- Top Activity Types -->
+                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; padding: 20px; color: white;">
+                        <h3 style="margin: 0 0 15px 0; font-size: 16px; display: flex; align-items: center; gap: 10px;">
+                            <i class="fas fa-fire"></i> Top Activity Types
+                        </h3>
+                        ${topTypes.map(([type, count]) => `
+                            <div style="background: rgba(255,255,255,0.15); padding: 10px; border-radius: 8px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
+                                <span style="font-weight: 500;">${escapeHtml(type)}</span>
+                                <span style="background: rgba(255,255,255,0.25); padding: 4px 10px; border-radius: 12px; font-weight: 700;">${count}</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                    
+                    <!-- Most Active Hours -->
+                    <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border-radius: 12px; padding: 20px; color: white;">
+                        <h3 style="margin: 0 0 15px 0; font-size: 16px; display: flex; align-items: center; gap: 10px;">
+                            <i class="fas fa-clock"></i> Peak Activity Hours
+                        </h3>
+                        ${topHours.map(([hour, count]) => {
+                            const displayHour = hour == 0 ? '12 AM' : hour < 12 ? hour + ' AM' : hour == 12 ? '12 PM' : (hour - 12) + ' PM';
+                            return `
+                            <div style="background: rgba(255,255,255,0.15); padding: 10px; border-radius: 8px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
+                                <span style="font-weight: 500;">${displayHour}</span>
+                                <span style="background: rgba(255,255,255,0.25); padding: 4px 10px; border-radius: 12px; font-weight: 700;">${count}</span>
+                            </div>
+                        `}).join('')}
+                    </div>
+                    
+                    <!-- Most Active Days -->
+                    <div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); border-radius: 12px; padding: 20px; color: white;">
+                        <h3 style="margin: 0 0 15px 0; font-size: 16px; display: flex; align-items: center; gap: 10px;">
+                            <i class="fas fa-calendar-week"></i> Most Active Days
+                        </h3>
+                        ${topDays.map(([day, count]) => `
+                            <div style="background: rgba(255,255,255,0.15); padding: 10px; border-radius: 8px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
+                                <span style="font-weight: 500; font-size: 13px;">${new Date(day).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                                <span style="background: rgba(255,255,255,0.25); padding: 4px 10px; border-radius: 12px; font-weight: 700;">${count}</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+                
+                <div style="margin-top: 20px; padding: 15px; background: #f3f4f6; border-radius: 10px; text-align: center;">
+                    <button onclick="exportActivities('csv')" class="btn" style="background: #10b981; color: white; margin: 0 5px;">
+                        <i class="fas fa-download"></i> Export Data
+                    </button>
+                    <button onclick="this.closest('div').parentElement.parentElement.remove()" class="btn" style="background: #6b7280; color: white; margin: 0 5px;">
+                        <i class="fas fa-times"></i> Close
+                    </button>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        
+        // Close on backdrop click
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) modal.remove();
+        });
+    }
+    
+    // Update stats when activities load
+    const originalLoadActivities = loadActivities;
+    loadActivities = async function(...args) {
+        await originalLoadActivities.apply(this, args);
+        updateActivityStats();
+    };
+    
     </script>
 </body>
 </html>

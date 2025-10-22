@@ -13,8 +13,12 @@ if (!isLoggedIn()) {
     exit;
 }
 
-// Check permission to manage stores
-requirePermission('manage_stores', '../../index.php');
+// Check permission to add stores
+if (!currentUserHasPermission('can_add_stores')) {
+    $_SESSION['error'] = 'You do not have permission to add stores';
+    header('Location: ../../index.php');
+    exit;
+}
 
 $db = getDB();
 $errors = [];

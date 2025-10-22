@@ -11,8 +11,12 @@ if (!isLoggedIn()) {
     exit;
 }
 
-// Check permission to manage stores
-requirePermission('manage_stores', '../../index.php');
+// Check permission to delete stores
+if (!currentUserHasPermission('can_delete_stores')) {
+    $_SESSION['error'] = 'You do not have permission to delete stores';
+    header('Location: ../../index.php');
+    exit;
+}
 
 $db = getDB();
 $store_id = isset($_GET['id']) ? intval($_GET['id']) : 0;

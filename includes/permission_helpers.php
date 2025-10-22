@@ -8,7 +8,7 @@
  * Check if a user has a specific permission
  * 
  * @param string $userId User ID to check
- * @param string $permission Permission key to check (e.g., 'manage_inventory')
+ * @param string $permission Permission key to check (e.g., 'manage_inventory' or 'can_view_inventory')
  * @return bool True if user has permission, false otherwise
  */
 function hasPermission($userId, $permission) {
@@ -25,47 +25,79 @@ function hasPermission($userId, $permission) {
         }
         
         $role = strtolower($user['role'] ?? 'user');
-        
-        // Define default permissions by role
-        $rolePermissions = [
-            'admin' => [
-                'view_reports',
-                'manage_inventory',
-                'manage_users',
-                'manage_stores',
-                'configure_system',
-                'manage_pos',
-                'view_analytics',
-                'manage_alerts'
-            ],
-            'manager' => [
-                'view_reports',
-                'manage_inventory',
-                'manage_stores',
-                'manage_pos'
-            ],
-            'user' => [
-                'view_reports'
-            ]
+
+        // Map legacy permission names to new can_* keys
+        $legacyMap = [
+            'view_reports' => 'can_view_reports',
+            'manage_inventory' => 'can_manage_inventory',
+            'manage_users' => 'can_manage_users',
+            'manage_stores' => 'can_manage_stores',
+            'configure_system' => 'can_configure_system',
+            'manage_pos' => 'can_manage_pos',
+            'view_analytics' => 'can_view_reports',
+            'view_inventory' => 'can_view_inventory'
         ];
-        
-        // Check if permission is in role defaults
-        if (in_array($permission, $rolePermissions[$role] ?? [])) {
-            return true;
+
+        // Normalize permission key to can_* form if possible
+        $permKey = $permission;
+        if (isset($legacyMap[$permission])) {
+            $permKey = $legacyMap[$permission];
         }
-        
-        // Check custom permission overrides
+
+        // If explicit can_* field exists on user, use that
+        if (isset($user[$permKey])) {
+            return (bool)$user[$permKey];
+        }
+
+        // If permission overrides stored as JSON, check them
         $overrides = $user['permission_overrides'] ?? null;
         if (!empty($overrides)) {
             if (is_string($overrides)) {
                 $overrides = json_decode($overrides, true);
             }
-            if (is_array($overrides) && !empty($overrides[$permission])) {
-                return true;
+            if (is_array($overrides) && array_key_exists($permKey, $overrides)) {
+                return (bool)$overrides[$permKey];
             }
         }
-        
-        return false;
+
+        // Fallback to role defaults for new granular keys
+        $roleDefaults = [
+            'admin' => [
+                'can_view_reports' => true,
+                'can_view_inventory' => true,
+                'can_add_inventory' => true,
+                'can_edit_inventory' => true,
+                'can_delete_inventory' => true,
+                'can_view_stores' => true,
+                'can_add_stores' => true,
+                'can_edit_stores' => true,
+                'can_delete_stores' => true,
+                'can_use_pos' => true,
+                'can_manage_pos' => true,
+                'can_view_users' => true,
+                'can_manage_users' => true,
+                'can_configure_system' => true
+            ],
+            'manager' => [
+                'can_view_reports' => true,
+                'can_view_inventory' => true,
+                'can_add_inventory' => true,
+                'can_edit_inventory' => true,
+                'can_view_stores' => true,
+                'can_add_stores' => true,
+                'can_edit_stores' => true,
+                'can_use_pos' => true,
+                'can_view_users' => true
+            ],
+            'user' => [
+                'can_view_reports' => true,
+                'can_view_inventory' => true,
+                'can_view_stores' => true,
+                'can_view_users' => true
+            ]
+        ];
+
+        return $roleDefaults[$role][$permKey] ?? false;
     } catch (Exception $e) {
         error_log('hasPermission error: ' . $e->getMessage());
         return false;
@@ -158,46 +190,69 @@ function getUserPermissions($userId) {
         
         $role = strtolower($user['role'] ?? 'user');
         
-        // Get default permissions for role
-        $rolePermissions = [
-            'admin' => [
-                'view_reports',
-                'manage_inventory',
-                'manage_users',
-                'manage_stores',
-                'configure_system',
-                'manage_pos',
-                'view_analytics',
-                'manage_alerts'
-            ],
+        // Define granular permission keys
+        $allPermKeys = [
+            'can_view_reports',
+            'can_view_inventory', 'can_add_inventory', 'can_edit_inventory', 'can_delete_inventory',
+            'can_view_stores', 'can_add_stores', 'can_edit_stores', 'can_delete_stores',
+            'can_use_pos', 'can_manage_pos',
+            'can_view_users', 'can_manage_users',
+            'can_configure_system'
+        ];
+
+        // Role defaults for granular permissions
+        $roleDefaults = [
+            'admin' => array_fill_keys($allPermKeys, true),
             'manager' => [
-                'view_reports',
-                'manage_inventory',
-                'manage_stores',
-                'manage_pos'
+                'can_view_reports' => true,
+                'can_view_inventory' => true,
+                'can_add_inventory' => true,
+                'can_edit_inventory' => true,
+                'can_delete_inventory' => false,
+                'can_view_stores' => true,
+                'can_add_stores' => true,
+                'can_edit_stores' => true,
+                'can_delete_stores' => false,
+                'can_use_pos' => true,
+                'can_manage_pos' => false,
+                'can_view_users' => true,
+                'can_manage_users' => false,
+                'can_configure_system' => false
             ],
             'user' => [
-                'view_reports'
+                'can_view_reports' => true,
+                'can_view_inventory' => true,
+                'can_view_stores' => true,
+                'can_view_users' => true
             ]
         ];
-        
-        $permissions = $rolePermissions[$role] ?? [];
-        
-        // Add custom overrides
+
+        $defaults = $roleDefaults[$role] ?? $roleDefaults['user'];
+
+        $permissions = [];
+        foreach ($allPermKeys as $key) {
+            if (isset($user[$key])) {
+                if ($user[$key]) $permissions[] = $key;
+            } else {
+                if (!empty($defaults[$key])) $permissions[] = $key;
+            }
+        }
+
+        // Merge JSON overrides if present
         $overrides = $user['permission_overrides'] ?? null;
         if (!empty($overrides)) {
-            if (is_string($overrides)) {
-                $overrides = json_decode($overrides, true);
-            }
+            if (is_string($overrides)) $overrides = json_decode($overrides, true);
             if (is_array($overrides)) {
-                foreach ($overrides as $key => $value) {
-                    if ($value && !in_array($key, $permissions)) {
-                        $permissions[] = $key;
+                foreach ($overrides as $k => $v) {
+                    if ($v && !in_array($k, $permissions)) $permissions[] = $k;
+                    if (!$v && in_array($k, $permissions)) {
+                        // remove if explicitly disabled
+                        $permissions = array_values(array_diff($permissions, [$k]));
                     }
                 }
             }
         }
-        
+
         return $permissions;
     } catch (Exception $e) {
         error_log('getUserPermissions error: ' . $e->getMessage());
@@ -316,7 +371,22 @@ function getPermissionLabel($permissionKey) {
         'configure_system' => 'System Configuration',
         'manage_pos' => 'Manage POS',
         'view_analytics' => 'View Analytics',
-        'manage_alerts' => 'Manage Alerts'
+        'manage_alerts' => 'Manage Alerts',
+        // granular keys
+        'can_view_reports' => 'View Reports',
+        'can_view_inventory' => 'View Inventory',
+        'can_add_inventory' => 'Add Inventory',
+        'can_edit_inventory' => 'Edit Inventory',
+        'can_delete_inventory' => 'Delete Inventory',
+        'can_view_stores' => 'View Stores',
+        'can_add_stores' => 'Add Stores',
+        'can_edit_stores' => 'Edit Stores',
+        'can_delete_stores' => 'Delete Stores',
+        'can_use_pos' => 'Use POS',
+        'can_manage_pos' => 'Manage POS',
+        'can_view_users' => 'View Users',
+        'can_manage_users' => 'Manage Users',
+        'can_configure_system' => 'System Configuration'
     ];
     
     return $labels[$permissionKey] ?? ucwords(str_replace('_', ' ', $permissionKey));
@@ -376,6 +446,85 @@ function getAllAvailablePermissions() {
             'description' => 'Configure and manage system alerts',
             'icon' => 'bell',
             'category' => 'System'
+        ],
+        // granular permissions
+        'can_view_inventory' => [
+            'name' => 'View Inventory',
+            'description' => 'See inventory lists and item details',
+            'icon' => 'eye',
+            'category' => 'Inventory'
+        ],
+        'can_add_inventory' => [
+            'name' => 'Add Inventory',
+            'description' => 'Add new inventory items',
+            'icon' => 'plus-square',
+            'category' => 'Inventory'
+        ],
+        'can_edit_inventory' => [
+            'name' => 'Edit Inventory',
+            'description' => 'Modify existing inventory items',
+            'icon' => 'edit',
+            'category' => 'Inventory'
+        ],
+        'can_delete_inventory' => [
+            'name' => 'Delete Inventory',
+            'description' => 'Remove inventory items',
+            'icon' => 'trash',
+            'category' => 'Inventory'
+        ],
+        'can_view_stores' => [
+            'name' => 'View Stores',
+            'description' => 'View store locations and assignments',
+            'icon' => 'store',
+            'category' => 'Stores'
+        ],
+        'can_add_stores' => [
+            'name' => 'Add Stores',
+            'description' => 'Create new store locations',
+            'icon' => 'plus-square',
+            'category' => 'Stores'
+        ],
+        'can_edit_stores' => [
+            'name' => 'Edit Stores',
+            'description' => 'Edit store information',
+            'icon' => 'edit',
+            'category' => 'Stores'
+        ],
+        'can_delete_stores' => [
+            'name' => 'Delete Stores',
+            'description' => 'Remove store locations',
+            'icon' => 'trash',
+            'category' => 'Stores'
+        ],
+        'can_use_pos' => [
+            'name' => 'Use POS',
+            'description' => 'Access the point-of-sale terminal',
+            'icon' => 'cash-register',
+            'category' => 'Sales'
+        ],
+        'can_manage_pos' => [
+            'name' => 'Manage POS',
+            'description' => 'Configure and manage POS terminals',
+            'icon' => 'cogs',
+            'category' => 'Sales'
+        ],
+        'can_view_users' => [
+            'name' => 'View Users',
+            'description' => 'See user list and basic profiles',
+            'icon' => 'users',
+            'category' => 'Administration'
+        ],
+        'can_manage_users' => [
+            'name' => 'Manage Users',
+            'description' => 'Create and edit user accounts',
+            'icon' => 'user-cog',
+            'category' => 'Administration'
+        ],
+        'can_configure_system' => [
+            'name' => 'System Configuration',
+            'description' => 'Access system settings and configurations',
+            'icon' => 'cog',
+            'category' => 'Administration'
         ]
     ];
 }

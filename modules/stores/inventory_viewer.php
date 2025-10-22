@@ -16,7 +16,11 @@ if (!isLoggedIn()) {
 }
 
 // Require permission to view store inventory
-requirePermission('manage_stores', '../../index.php');
+if (!currentUserHasPermission('can_view_stores') && !currentUserHasPermission('can_view_inventory')) {
+    $_SESSION['error'] = 'You do not have permission to view store inventory';
+    header('Location: ../../index.php');
+    exit;
+}
 
 $sql_db = getSQLDB();
 $store_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
