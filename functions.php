@@ -834,43 +834,38 @@ function hasPermission($userId, $permission) {
             return true;
         }
         
-        // Check permission overrides first (decode if JSON string)
-        $overrides = $user['permission_overrides'] ?? null;
-        if (!empty($overrides)) {
-            // Handle JSON string
-            if (is_string($overrides)) {
-                $overrides = json_decode($overrides, true);
-            }
-            // Check if this permission is in overrides
-            if (is_array($overrides) && isset($overrides[$permission])) {
-                return (bool)$overrides[$permission];
-            }
-        }
-        
-        // Define role-based permissions
-        $rolePermissions = [
-            'admin' => ['view_reports', 'manage_inventory', 'manage_users', 'manage_stores', 'configure_system', 'manage_pos', 'view_audit'],
-            'manager' => ['view_reports', 'manage_inventory', 'manage_stores', 'manage_pos', 'view_audit'],
-            'user' => ['view_reports', 'view_inventory']
+        // Map old permission names to new can_* field names
+        $permissionMap = [
+            'view_reports' => 'can_view_reports',
+            'manage_inventory' => 'can_manage_inventory',
+            'manage_users' => 'can_manage_users',
+            'manage_stores' => 'can_manage_stores',
+            'configure_system' => 'can_configure_system',
+            'manage_pos' => 'can_manage_pos',
+            'view_audit' => 'can_view_audit',
+            'view_inventory' => 'can_view_inventory'
         ];
         
-        // Check if role has the permission
-        if (isset($rolePermissions[$role]) && in_array($permission, $rolePermissions[$role])) {
-            return true;
+        // If using old permission name, convert to new format
+        $permissionKey = $permission;
+        if (isset($permissionMap[$permission])) {
+            $permissionKey = $permissionMap[$permission];
         }
         
-        // Check role_id based permissions
-        if (!empty($user['role_id'])) {
-            $roleData = $db->read('roles', $user['role_id']);
-            if ($roleData && !empty($roleData['permissions'])) {
-                $permissions = is_string($roleData['permissions']) 
-                    ? json_decode($roleData['permissions'], true) 
-                    : $roleData['permissions'];
-                
-                if (is_array($permissions) && in_array($permission, $permissions)) {
-                    return true;
-                }
-            }
+        // Check if permission field exists and is true
+        if (isset($user[$permissionKey])) {
+            return (bool)$user[$permissionKey];
+        }
+        
+        // Fallback: Check role-based permissions for backward compatibility
+        $rolePermissions = [
+            'admin' => ['can_view_reports', 'can_manage_inventory', 'can_manage_users', 'can_manage_stores', 'can_configure_system'],
+            'manager' => ['can_view_reports', 'can_manage_inventory', 'can_manage_stores'],
+            'user' => ['can_view_reports']
+        ];
+        
+        if (isset($rolePermissions[$role]) && in_array($permissionKey, $rolePermissions[$role])) {
+            return true;
         }
         
         return false;

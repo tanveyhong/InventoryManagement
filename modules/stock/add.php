@@ -11,6 +11,13 @@ if (!isLoggedIn()) {
     exit;
 }
 
+// Require permission to manage inventory
+if (!currentUserHasPermission('can_add_inventory') && !currentUserHasPermission('can_edit_inventory')) {
+    $_SESSION['error'] = 'You do not have permission to add products';
+    header('Location: ../../index.php');
+    exit;
+}
+
 $db = getDB();
 $errors = [];
 $success = false;

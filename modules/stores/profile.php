@@ -15,8 +15,12 @@ if (!isLoggedIn()) {
     exit;
 }
 
-// Require permission to manage stores
-requirePermission('manage_stores', '../../index.php');
+// Require permission to view stores
+if (!currentUserHasPermission('can_view_stores') && !currentUserHasPermission('can_edit_stores')) {
+    $_SESSION['error'] = 'You do not have permission to view store profiles';
+    header('Location: ../../index.php');
+    exit;
+}
 
 $sql_db = getSQLDB();
 $store_id = isset($_GET['id']) ? intval($_GET['id']) : 0;

@@ -9,6 +9,13 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
+// Require permission to view/manage inventory
+if (!currentUserHasPermission('can_view_inventory') && !currentUserHasPermission('can_use_pos') && !currentUserHasPermission('can_view_reports')) {
+    $_SESSION['error'] = 'You do not have permission to access inventory';
+    header('Location: ../../index.php');
+    exit;
+}
+
 function fs_put_low_stock_alert($db, array $prod): void {
     // Normalize product id & name
     $pid = isset($prod['id']) ? trim((string)$prod['id']) : '';
@@ -557,10 +564,14 @@ $page_title = 'Stock Management - Inventory System';
                                                 <i class="fas fa-eye"></i> View
                                             </a>
 
-                                            <a href="edit.php?id=<?php echo $product['id']; ?>" class="btn btn-sm btn-primary" title="Edit Product">Edit</a>
-                                            <a href="adjust.php?id=<?php echo $product['id']; ?>" class="btn btn-sm btn-warning" title="Adjust Stock">Adjust</a>
-                                            <a href="delete.php?id=<?php echo $product['id']; ?>" class="btn btn-sm btn-danger"
-                                                onclick="return confirm('Are you sure you want to delete this product?')" title="Delete Product">Delete</a>
+                                            <?php if (currentUserHasPermission('can_edit_inventory')): ?>
+                                                <a href="edit.php?id=<?php echo $product['id']; ?>" class="btn btn-sm btn-primary" title="Edit Product">Edit</a>
+                                                <a href="adjust.php?id=<?php echo $product['id']; ?>" class="btn btn-sm btn-warning" title="Adjust Stock">Adjust</a>
+                                            <?php endif; ?>
+                                            <?php if (currentUserHasPermission('can_delete_inventory')): ?>
+                                                <a href="delete.php?id=<?php echo $product['id']; ?>" class="btn btn-sm btn-danger"
+                                                    onclick="return confirm('Are you sure you want to delete this product?')" title="Delete Product">Delete</a>
+                                            <?php endif; ?>
                                         </div>
                                     </td>
                                 </tr>

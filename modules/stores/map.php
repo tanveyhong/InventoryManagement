@@ -17,7 +17,11 @@ if (!isLoggedIn()) {
 }
 
 // Require permission to view stores
-requirePermission('manage_stores', '../../index.php');
+if (!currentUserHasPermission('can_view_stores')) {
+    $_SESSION['error'] = 'You do not have permission to view store map';
+    header('Location: ../../index.php');
+    exit;
+}
 
 // Cache configuration
 $cacheDir = '../../storage/cache/';

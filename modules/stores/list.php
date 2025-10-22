@@ -19,8 +19,10 @@ if (!isLoggedIn()) {
 }
 
 // Require permission to view stores
-if (function_exists('requirePermission')) {
-    requirePermission('manage_stores', '../../index.php');
+if (!currentUserHasPermission('can_view_stores') && !currentUserHasPermission('can_add_stores') && !currentUserHasPermission('can_edit_stores')) {
+    $_SESSION['error'] = 'You do not have permission to access stores';
+    header('Location: ../../index.php');
+    exit;
 }
 
 // Cache configuration
@@ -1490,9 +1492,11 @@ $page_title = 'Store Management - Inventory System';
                         <button onclick="alert('Button clicked! Function: bulkExport'); bulkExport();" class="btn btn-sm btn-info" title="Export selected stores">
                             <i class="fas fa-download"></i> Export
                         </button>
-                        <button onclick="alert('Button clicked! Function: bulkDelete'); bulkDelete();" class="btn btn-sm btn-danger" title="Delete selected stores">
-                            <i class="fas fa-trash"></i> Delete
-                        </button>
+                        <?php if (currentUserHasPermission('can_delete_stores')): ?>
+                            <button onclick="alert('Button clicked! Function: bulkDelete'); bulkDelete();" class="btn btn-sm btn-danger" title="Delete selected stores">
+                                <i class="fas fa-trash"></i> Delete
+                            </button>
+                        <?php endif; ?>
                         <button onclick="alert('Button clicked! Function: clearSelection'); clearSelection();" class="btn btn-sm btn-outline">
                             <i class="fas fa-times"></i> Clear
                         </button>
@@ -1625,23 +1629,27 @@ $page_title = 'Store Management - Inventory System';
                                             <a href="profile.php?id=<?php echo $store['id']; ?>" class="btn btn-sm btn-primary" title="View Store Profile">
                                                 <i class="fas fa-eye"></i>
                                             </a>
-                                            <button onclick="openQuickEdit('<?php echo $store['id']; ?>')" class="btn btn-sm btn-secondary" title="Quick Edit">
-                                                <i class="fas fa-edit"></i>
-                                            </button>
-                                            <a href="edit.php?id=<?php echo $store['id']; ?>" class="btn btn-sm btn-secondary" title="Full Edit" style="opacity: 0.8;">
-                                                <i class="fas fa-pen-square"></i>
-                                            </a>
+                                            <?php if (currentUserHasPermission('can_edit_stores')): ?>
+                                                <button onclick="openQuickEdit('<?php echo $store['id']; ?>')" class="btn btn-sm btn-secondary" title="Quick Edit">
+                                                    <i class="fas fa-edit"></i>
+                                                </button>
+                                                <a href="edit.php?id=<?php echo $store['id']; ?>" class="btn btn-sm btn-secondary" title="Full Edit" style="opacity: 0.8;">
+                                                    <i class="fas fa-pen-square"></i>
+                                                </a>
+                                            <?php endif; ?>
                                             <a href="inventory_viewer.php?id=<?php echo $store['id']; ?>" class="btn btn-sm btn-warning" title="View Inventory">
                                                 <i class="fas fa-boxes"></i>
                                             </a>
-                                            <button onclick="duplicateStore('<?php echo $store['id']; ?>')" class="btn btn-sm btn-info" title="Duplicate Store">
-                                                <i class="fas fa-copy"></i>
-                                            </button>
-                                            <button onclick="toggleStoreStatus('<?php echo $store['id']; ?>', <?php echo isset($store['active']) && $store['active'] ? 'true' : 'false'; ?>)" 
-                                                    class="btn btn-sm <?php echo (isset($store['active']) && $store['active']) ? 'btn-success' : 'btn-danger'; ?>" 
-                                                    title="<?php echo (isset($store['active']) && $store['active']) ? 'Deactivate' : 'Activate'; ?> Store">
-                                                <i class="fas fa-<?php echo (isset($store['active']) && $store['active']) ? 'check' : 'times'; ?>-circle"></i>
-                                            </button>
+                                            <?php if (currentUserHasPermission('can_edit_stores')): ?>
+                                                <button onclick="duplicateStore('<?php echo $store['id']; ?>')" class="btn btn-sm btn-info" title="Duplicate Store">
+                                                    <i class="fas fa-copy"></i>
+                                                </button>
+                                                <button onclick="toggleStoreStatus('<?php echo $store['id']; ?>', <?php echo isset($store['active']) && $store['active'] ? 'true' : 'false'; ?>)" 
+                                                        class="btn btn-sm <?php echo (isset($store['active']) && $store['active']) ? 'btn-success' : 'btn-danger'; ?>" 
+                                                        title="<?php echo (isset($store['active']) && $store['active']) ? 'Deactivate' : 'Activate'; ?> Store">
+                                                    <i class="fas fa-<?php echo (isset($store['active']) && $store['active']) ? 'check' : 'times'; ?>-circle"></i>
+                                                </button>
+                                            <?php endif; ?>
                                             <?php if (isset($store['has_pos']) && $store['has_pos']): ?>
                                             <a href="../pos/full_retail.php?store_firebase_id=<?php echo htmlspecialchars($store['id']); ?>" 
                                                class="btn btn-sm" 

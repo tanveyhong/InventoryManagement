@@ -40,7 +40,7 @@ function canAccess($permission) {
         <ul class="nav-menu">
             <li><a href="../../index.php" class="nav-link"><i class="fas fa-tachometer-alt"></i> Dashboard</a></li>
             
-            <?php if (canAccess('manage_inventory')): ?>
+            <?php if (canAccess('can_view_inventory') || canAccess('can_use_pos') || canAccess('can_add_inventory')): ?>
             <li class="dropdown">
                 <a href="#" class="nav-link dropdown-toggle">
                     <i class="fas fa-boxes"></i> Stock <i class="fas fa-chevron-down"></i>
@@ -51,21 +51,25 @@ function canAccess($permission) {
                             <i class="fas fa-list"></i> View Stock
                         </a>
                     </li>
+                    <?php if (canAccess('can_add_inventory') || canAccess('can_edit_inventory')): ?>
                     <li>
                         <a href="../../modules/stock/add.php">
                             <i class="fas fa-plus-circle"></i> Add Stock
                         </a>
                     </li>
+                    <?php endif; ?>
+                    <?php if (canAccess('can_edit_inventory')): ?>
                     <li>
                         <a href="../../modules/stock/adjust.php">
                             <i class="fas fa-edit"></i> Stock Adjustments
                         </a>
                     </li>
+                    <?php endif; ?>
                 </ul>
             </li>
             <?php endif; ?>
             
-            <?php if (canAccess('manage_stores')): ?>
+            <?php if (canAccess('can_view_stores') || canAccess('can_add_stores')): ?>
             <li class="dropdown">
                 <a href="#" class="nav-link dropdown-toggle">
                     <i class="fas fa-store"></i> Stores <i class="fas fa-chevron-down"></i>
@@ -76,11 +80,13 @@ function canAccess($permission) {
                             <i class="fas fa-list"></i> Store List
                         </a>
                     </li>
+                    <?php if (canAccess('can_add_stores')): ?>
                     <li>
                         <a href="../../modules/stores/add.php">
                             <i class="fas fa-plus-circle"></i> Add Store
                         </a>
                     </li>
+                    <?php endif; ?>
                     <li>
                         <a href="../../modules/stores/enhanced_map.php">
                             <i class="fas fa-map-marked-alt"></i> Store Map
@@ -95,7 +101,7 @@ function canAccess($permission) {
             </li>
             <?php endif; ?>
             
-            <?php if (canAccess('manage_pos')): ?>
+            <?php if (canAccess('can_use_pos')): ?>
             <li>
                 <a href="../../modules/pos/quick_service.php" class="nav-link">
                     <i class="fas fa-cash-register"></i> Point of Sale
@@ -128,7 +134,7 @@ function canAccess($permission) {
             </li>
             <?php endif; ?>
             
-            <?php if (canAccess('manage_users')): ?>
+            <?php if (canAccess('can_manage_users') || canAccess('can_view_users')): ?>
             <li class="dropdown">
                 <a href="#" class="nav-link dropdown-toggle">
                     <i class="fas fa-users-cog"></i> Administration <i class="fas fa-chevron-down"></i>
