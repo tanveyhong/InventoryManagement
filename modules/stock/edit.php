@@ -80,6 +80,124 @@ function fs_resolve_low_stock_if_recovered(
   elseif (method_exists($db, 'write'))     $db->write('alerts', $docId, $payload);
 }
 
+function fs_resolve_expiry_if_normal(
+  $db,
+  string $productId,
+  ?string $expiryRaw = null,   // pass the new value if you have it
+  ?string $who = null
+): void {
+  if ($productId === '') return;
+
+  // If not provided, fetch the product once
+  if ($expiryRaw === null) {
+    $p = method_exists($db, 'readDoc') ? $db->readDoc('products', $productId)
+      : (method_exists($db, 'read') ? $db->read('products', $productId) : null);
+    if (!$p) return;
+    $expiryRaw = $p['expiry_date'] ?? null;
+  }
+
+  // If no expiry or clearly not expiring soon/expired -> resolve
+  $expTs = $expiryRaw ? strtotime($expiryRaw) : false;
+  $now   = time();
+  $soon  = strtotime('+30 days');
+
+  $isExpired  = ($expTs !== false && $expTs < $now);
+  $isExpiring = ($expTs !== false && $expTs >= $now && $expTs <= $soon);
+
+  if ($isExpired || $isExpiring) return; // still needs an alert, do nothing
+
+  // Not expired/expiring → mark alert RESOLVED
+  $docId  = 'EXP_' . $productId;
+  $nowIso = date('c');
+  $payload = [
+    'status'      => 'RESOLVED',
+    'resolved_at' => $nowIso,
+    'updated_at'  => $nowIso,
+    'resolution_note' => 'Expiry date updated',
+  ];
+  if (!empty($who)) $payload['resolved_by'] = $who;
+
+  if (method_exists($db, 'update'))        $db->update('alerts', $docId, $payload);
+  elseif (method_exists($db, 'writeDoc'))  $db->writeDoc('alerts', $docId, $payload);
+  elseif (method_exists($db, 'setDoc'))    $db->setDoc('alerts', $docId, array_merge(['alert_type' => 'EXPIRY'], $payload));
+  elseif (method_exists($db, 'write'))     $db->write('alerts', $docId, $payload);
+}
+
+function fs_delete_expiry_alert_if_normal(
+  $db,
+  string $productId,
+  ?string $newExpiryRaw = null
+): void {
+  if ($productId === '') return;
+
+  // Get latest expiry if not provided
+  if ($newExpiryRaw === null) {
+    $p = method_exists($db, 'readDoc') ? $db->readDoc('products', $productId)
+      : (method_exists($db, 'read') ? $db->read('products', $productId) : null);
+    $newExpiryRaw = $p['expiry_date'] ?? null;
+  }
+
+  // Decide if "normal" (not expired, not within 30 days)
+  $expTs = $newExpiryRaw ? strtotime($newExpiryRaw) : false;
+  $now   = time();
+  $soon  = strtotime('+30 days');
+
+  $isExpired  = ($expTs !== false && $expTs < $now);
+  $isExpiring = ($expTs !== false && $expTs >= $now && $expTs <= $soon);
+
+  if ($isExpired || $isExpiring) {
+    // still needs an expiry alert -> keep
+    return;
+  }
+
+  // Primary: delete the canonical alert doc "EXP_<productId>"
+  $docId = 'EXP_' . $productId;
+  try {
+    if (method_exists($db, 'delete')) {
+      $db->delete('alerts', $docId);
+      return;
+    }
+    if (method_exists($db, 'deleteDoc')) {
+      $db->deleteDoc('alerts', $docId);
+      return;
+    }
+    if (method_exists($db, 'remove')) {
+      $db->remove('alerts', $docId);
+      return;
+    }
+    if (method_exists($db, 'setDoc')) {
+      $db->setDoc('alerts', $docId, null);
+      return;
+    } // some wrappers treat null as delete
+  } catch (Throwable $t) {
+    // fall through to scan fallback
+  }
+
+  // Fallback: scan and delete any alerts with this product_id and alert_type=EXPIRY
+  try {
+    $rows = method_exists($db, 'readAll') ? $db->readAll('alerts', [], null, 1000) : [];
+    foreach ($rows as $row) {
+      $pid   = (string)($row['product_id'] ?? '');
+      $atype = strtoupper($row['alert_type'] ?? '');
+      if ($atype !== 'EXPIRY') continue;
+      if ($pid !== $productId) continue;
+
+      // infer alert doc id field (common wrappers expose 'id' or 'doc_id')
+      $aid = $row['id'] ?? $row['doc_id'] ?? ('EXP_' . $pid);
+      try {
+        if (method_exists($db, 'delete'))    $db->delete('alerts', $aid);
+        elseif (method_exists($db, 'deleteDoc')) $db->deleteDoc('alerts', $aid);
+        elseif (method_exists($db, 'remove'))    $db->remove('alerts', $aid);
+        elseif (method_exists($db, 'setDoc'))    $db->setDoc('alerts', $aid, null);
+      } catch (Throwable $t) {
+        // ignore individual failures; continue
+      }
+    }
+  } catch (Throwable $t) {
+    // ignore
+  }
+}
+
 // ----- load target product -----
 $docId = isset($_GET['id']) ? trim((string)$_GET['id']) : '';
 $skuQ  = isset($_GET['sku']) ? norm_sku((string)$_GET['sku']) : '';
@@ -270,6 +388,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           (int)$quantity,        // new qty from the form (already validated above)
           (int)$reorderLevel,    // new min level from the form
           (string)$who
+        );
+
+        fs_delete_expiry_alert_if_normal(
+          $db,
+          (string)$docId,
+          $expiryDate !== '' ? $expiryDate : null   // pass the new saved value
         );
 
         // optional refresh (not required for redirect)
