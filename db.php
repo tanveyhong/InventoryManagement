@@ -67,6 +67,12 @@ class Database {
     // Read all documents from a collection
     public function readAll($collection, $conditions = [], $orderBy = null, $limit = null) {
         try {
+            // IMPORTANT: Set default limit to prevent excessive Firebase reads
+            // Each document read costs money! Set explicit limit to avoid surprises.
+            if ($limit === null) {
+                $limit = 100; // Safe default to prevent fetching thousands of documents
+            }
+            
             // REST client has limited query support for now
             $results = $this->restClient->queryCollection($collection, $limit);
             
@@ -165,8 +171,15 @@ class Database {
     // Legacy methods for backward compatibility
     
     // Emulate SQL-like queries (simplified)
-    public function query($collection, $conditions = [], $params = []) {
-        return $this->readAll($collection, $conditions);
+    // Support both old signature: query($collection, $conditions, $params) 
+    // and new signature: query($collection, $conditions, $orderBy, $sortDir, $limit)
+    public function query($collection, $conditions = [], $orderByOrParams = null, $sortDir = null, $limit = null) {
+        // If $orderByOrParams is an array and we only have 3 params, it's the old $params signature
+        if (is_array($orderByOrParams) && $sortDir === null && $limit === null) {
+            return $this->readAll($collection, $conditions);
+        }
+        // New signature with ordering and limit
+        return $this->readAll($collection, $conditions, $orderByOrParams, $limit);
     }
     
     // Fetch a single document (alias for read)

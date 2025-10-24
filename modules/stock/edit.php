@@ -396,8 +396,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           $expiryDate !== '' ? $expiryDate : null   // pass the new saved value
         );
 
-        // optional refresh (not required for redirect)
-        // $stock = fs_get_product_by_doc($docId);
+        // Clear cache to force refresh on list page
+        $cacheFile = __DIR__ . '/../../storage/cache/stock_list_data.cache';
+        if (file_exists($cacheFile)) {
+            @unlink($cacheFile);
+        }
 
         header('Location: view.php?id=' . rawurlencode($docId) . '&updated=1');
         exit;

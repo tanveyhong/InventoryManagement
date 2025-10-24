@@ -107,9 +107,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
   }
 
-  // 2) Persist
+  // 2) Persist to both Firebase AND SQL
   $ok = false;
   $err = null;
+  
+  // Update Firebase first (primary database)
   if ($db && method_exists($db, 'update')) {
     try {
       $ok = $db->update('products', $docId, [
@@ -122,6 +124,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
   } else {
     $err = 'Database update not available.';
+  }
+  
+  // Also update SQL database if available (for POS consistency)
+  if ($ok) {
+    try {
+      require_once __DIR__ . '/../../sql_db.php';
+      $sqlDb = getSQLDB();
+      
+      if ($sqlDb) {
+        $updateSql = "UPDATE products SET quantity = ?, updated_at = ? WHERE id = ?";
+        $sqlDb->execute($updateSql, [$newQty, date('c'), $docId]);
+        error_log("Stock adjusted in SQL: Product {$docId} quantity updated to {$newQty}");
+        
+        // Clear POS cache to reflect changes
+        $posCacheFile = __DIR__ . '/../../storage/cache/pos_products.cache';
+        if (file_exists($posCacheFile)) {
+          @unlink($posCacheFile);
+        }
+      }
+    } catch (Throwable $sqlErr) {
+      error_log("SQL stock adjustment failed (non-critical): " . $sqlErr->getMessage());
+      // Don't fail the whole operation if SQL update fails
+    }
   }
 
   // 3) Audit (only if update succeeded)
@@ -166,6 +191,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
   // 4) Respond
   if ($ok) {
+    // Clear cache when stock is updated
+    $cacheFile = __DIR__ . '/../../storage/cache/stock_list_data.cache';
+    if (file_exists($cacheFile)) {
+        @unlink($cacheFile);
+    }
+    
     echo json_encode([
       'success' => true,
       'old'     => $oldQty,
@@ -181,12 +212,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $adjustProductId = $_GET['id'] ?? '';
 $returnRaw = $_GET['return'] ?? '';  // encoded list.php URL from previous page
 
-// Build safe redirect after successful update
-$redirectAfterSave = 'list.php';
+// Build safe redirect after successful update - add refresh parameter
+$redirectAfterSave = 'list.php?refresh=1';
 if ($returnRaw !== '') {
   $decoded = rawurldecode($returnRaw);
   if (preg_match('#(^|/)list\.php(\?|$)#', $decoded)) {
+    // Add refresh parameter if not already present
     $redirectAfterSave = $decoded;
+    if (strpos($redirectAfterSave, '?') !== false) {
+        $redirectAfterSave .= '&refresh=1';
+    } else {
+        $redirectAfterSave .= '?refresh=1';
+    }
   }
 }
 

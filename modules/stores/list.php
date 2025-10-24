@@ -74,8 +74,10 @@ $fetchedFromFirebase = false;
 if ($shouldRefreshCache || !$cacheIsFresh) {
     try {
         $client = new FirebaseRestClient();
-        $firebaseStores = $client->queryCollection('stores');
-        $firebaseProducts = $client->queryCollection('products', 500);
+        // IMPORTANT: Limit queries to prevent excessive Firebase reads
+        // queryCollection now has a default limit of 100, but we explicitly set reasonable limits
+        $firebaseStores = $client->queryCollection('stores', 200); // Max 200 stores
+        $firebaseProducts = $client->queryCollection('products', 300); // Max 300 products for overview
         
         error_log("Firebase fetch attempt - Stores count: " . count($firebaseStores) . ", Products count: " . count($firebaseProducts));
         

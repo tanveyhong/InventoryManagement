@@ -32,7 +32,8 @@ $categories   = [];
 // ---- Load products from Firestore ----
 if ($fs) {
   try {
-    $productDocs = $fs->readAll('products', [], null, 2000);
+    // IMPORTANT: Increased limit but consider adding pagination for large inventories
+    $productDocs = $fs->readAll('products', [], null, 1000);
     foreach ($productDocs as $r) {
       if (!empty($r['deleted_at'])) continue;
       if (isset($r['status']) && $r['status'] === 'disabled') continue;

@@ -168,77 +168,143 @@ function fs_put_expiry_alert($db, array $prod): void
 }
 
 
-// Load products from Firebase and map to template fields
+// Load products from Firebase with aggressive caching to reduce reads
 $all_products = [];
 $stores = [];
 $categories = [];
+
+// Check if we should force refresh (e.g., after add/edit/delete)
+$forceRefresh = isset($_GET['refresh']) && $_GET['refresh'] === '1';
+
 try {
     $db = getDB();
-
-    // Fetch products from Firebase
-    $productDocs = $db->readAll('products', [], null, 1000); // fetch up to 1000 for now
-    foreach ($productDocs as $r) {
-        $prod = [
-            'id' => $r['id'] ?? null,
-            'name' => $r['name'] ?? '',
-            'sku' => $r['sku'] ?? '',
-            'description' => $r['description'] ?? '',
-            'quantity' => isset($r['quantity']) ? intval($r['quantity']) : 0,
-            'min_stock_level' => isset($r['reorder_level']) ? intval($r['reorder_level']) : (isset($r['min_stock_level']) ? intval($r['min_stock_level']) : 0),
-            'unit_price' => isset($r['price']) ? floatval($r['price']) : (isset($r['unit_price']) ? floatval($r['unit_price']) : 0.0),
-            'expiry_date' => $r['expiry_date'] ?? null,
-            'created_at' => $r['created_at'] ?? null,
-            'category_name' => $r['category'] ?? ($r['category_name'] ?? null),
-            'store_id' => $r['store_id'] ?? null,
-            'store_name' => null,
-            'deleted_at' => $r['deleted_at'] ?? null,   // <-- keep soft-delete flag
-            'status_db'  => $r['status']     ?? null,   // <-- keep DB status, separate from stock status
-
-            '_raw' => $r,
-        ];
-        $all_products[] = $prod;
+    
+    // Cache directory for stock list data
+    $cacheDir = __DIR__ . '/../../storage/cache/';
+    if (!is_dir($cacheDir)) {
+        mkdir($cacheDir, 0755, true);
     }
-
-    // Fetch stores from Firebase (if collection exists)
-    try {
-        $storeDocs = $db->readAll('stores', [], null, 1000);
-        foreach ($storeDocs as $s) {
-            $stores[] = ['id' => $s['id'] ?? null, 'name' => $s['name'] ?? ($s['store_name'] ?? null)];
-        }
-    } catch (Exception $e) {
-        $stores = [];
-    }
-
-    // Build quick store lookup to attach store_name to products
-    $storeLookup = [];
-    foreach ($stores as $s) {
-        if (!empty($s['id'])) $storeLookup[$s['id']] = $s['name'];
-    }
-    foreach ($all_products as &$p) {
-        if (!empty($p['store_id']) && isset($storeLookup[$p['store_id']])) {
-            $p['store_name'] = $storeLookup[$p['store_id']];
-        }
-    }
-    unset($p);
-
-    // Fetch categories collection if present, else derive from products
-    try {
-        $catDocs = $db->readAll('categories', [], null, 1000);
-        if (!empty($catDocs)) {
-            foreach ($catDocs as $c) {
-                $categories[] = ['name' => $c['name'] ?? null];
+    
+    $cacheFile = $cacheDir . 'stock_list_data.cache';
+    $cacheMaxAge = 300; // 5 minutes cache - only refresh when data changes or cache expires
+    
+    $useCache = !$forceRefresh && file_exists($cacheFile) && (time() - filemtime($cacheFile) < $cacheMaxAge);
+    
+    if ($useCache) {
+        // Load from cache - NO Firebase reads!
+        $cachedData = unserialize(file_get_contents($cacheFile));
+        $all_products = $cachedData['products'] ?? [];
+        $stores = $cachedData['stores'] ?? [];
+        $categories = $cachedData['categories'] ?? [];
+    } else {
+        // OPTIMIZED: Fetch from SQL first (primary database), fallback to Firebase
+        $sqlDb = getSQLDB();
+        $productDocs = [];
+        
+        if ($sqlDb) {
+            try {
+                // Get all products from SQL
+                $sqlProducts = $sqlDb->fetchAll("SELECT * FROM products WHERE deleted_at IS NULL ORDER BY name ASC");
+                foreach ($sqlProducts as $r) {
+                    $productDocs[] = $r; // Use SQL data directly
+                }
+                error_log("Stock List: Loaded " . count($productDocs) . " products from SQL");
+            } catch (Exception $e) {
+                error_log("Stock List SQL failed, falling back to Firebase: " . $e->getMessage());
             }
         }
-    } catch (Exception $e) {
-        // Derive categories from product data
-    }
-
-    if (empty($categories)) {
-        $catNames = [];
-        foreach ($all_products as $p) {
-            if (!empty($p['category_name'])) $catNames[$p['category_name']] = true;
+        
+        // Fallback to Firebase if SQL failed or returned no data
+        if (empty($productDocs)) {
+            $productDocs = $db->readAll('products', [], null, 1000);
+            error_log("Stock List: Loaded " . count($productDocs) . " products from Firebase (fallback)");
         }
-        $categories = array_map(fn($n) => ['name' => $n], array_keys($catNames));
+        
+        foreach ($productDocs as $r) {
+            $prod = [
+                'id' => $r['id'] ?? null,
+                'name' => $r['name'] ?? '',
+                'sku' => $r['sku'] ?? '',
+                'description' => $r['description'] ?? '',
+                'quantity' => isset($r['quantity']) ? intval($r['quantity']) : 0,
+                'min_stock_level' => isset($r['reorder_level']) ? intval($r['reorder_level']) : (isset($r['min_stock_level']) ? intval($r['min_stock_level']) : 0),
+                'unit_price' => isset($r['price']) ? floatval($r['price']) : (isset($r['unit_price']) ? floatval($r['unit_price']) : 0.0),
+                'expiry_date' => $r['expiry_date'] ?? null,
+                'created_at' => $r['created_at'] ?? null,
+                'category_name' => $r['category'] ?? ($r['category_name'] ?? null),
+                'store_id' => $r['store_id'] ?? null,
+                'store_name' => null,
+                'deleted_at' => $r['deleted_at'] ?? null,
+                'status_db'  => $r['status']     ?? null,
+                '_raw' => $r,
+            ];
+            $all_products[] = $prod;
+        }
+
+        // OPTIMIZED: Fetch stores from SQL first
+        if ($sqlDb) {
+            try {
+                $sqlStores = $sqlDb->fetchAll("SELECT id, name FROM stores ORDER BY name ASC");
+                foreach ($sqlStores as $s) {
+                    $stores[] = ['id' => $s['id'] ?? null, 'name' => $s['name'] ?? null];
+                }
+            } catch (Exception $e) {
+                error_log("Store loading from SQL failed: " . $e->getMessage());
+            }
+        }
+        
+        // Fallback to Firebase if SQL failed
+        if (empty($stores)) {
+            try {
+                $storeDocs = $db->readAll('stores', [], null, 1000);
+                foreach ($storeDocs as $s) {
+                    $stores[] = ['id' => $s['id'] ?? null, 'name' => $s['name'] ?? ($s['store_name'] ?? null)];
+                }
+            } catch (Exception $e) {
+                $stores = [];
+            }
+        }
+
+        // Build quick store lookup to attach store_name to products
+        $storeLookup = [];
+        foreach ($stores as $s) {
+            if (!empty($s['id'])) $storeLookup[$s['id']] = $s['name'];
+        }
+        foreach ($all_products as &$p) {
+            if (!empty($p['store_id']) && isset($storeLookup[$p['store_id']])) {
+                $p['store_name'] = $storeLookup[$p['store_id']];
+            }
+        }
+        unset($p);
+
+        // Fetch categories collection if present, else derive from products
+        try {
+            $catDocs = $db->readAll('categories', [], null, 1000);
+            if (!empty($catDocs)) {
+                foreach ($catDocs as $c) {
+                    $categories[] = ['name' => $c['name'] ?? null];
+                }
+            }
+        } catch (Exception $e) {
+            // Derive categories from product data
+        }
+
+        if (empty($categories)) {
+            $catNames = [];
+            foreach ($all_products as $p) {
+                if (!empty($p['category_name'])) $catNames[$p['category_name']] = true;
+            }
+            $categories = array_map(fn($n) => ['name' => $n], array_keys($catNames));
+        }
+        
+        // Save to cache for next requests
+        $cacheData = [
+            'products' => $all_products,
+            'stores' => $stores,
+            'categories' => $categories,
+            'cached_at' => time()
+        ];
+        file_put_contents($cacheFile, serialize($cacheData));
     }
 } catch (Exception $e) {
     // If Firebase not available, fall back to empty lists
@@ -330,12 +396,109 @@ $filtered_products = array_filter($all_products, function ($p) use ($store_filte
     return true;
 });
 
-// Sorting
+// FILTER: Remove Firebase-generated duplicate products with corrupted SKUs
+$filtered_products = array_filter($filtered_products, function($p) {
+    $sku = $p['sku'] ?? '';
+    
+    // Skip products with Firebase random IDs (20+ chars after dash)
+    if (preg_match('/-S[a-zA-Z0-9]{20,}/', $sku)) {
+        error_log("Filtering out Firebase duplicate: $sku");
+        return false;
+    }
+    
+    // Skip excessively long SKUs
+    if (strlen($sku) > 50) {
+        return false;
+    }
+    
+    return true;
+});
+
+// Group products by base SKU (main product + store variants)
+$productGroups = [];
+foreach ($filtered_products as $product) {
+    $sku = $product['sku'] ?? '';
+    $storeId = $product['store_id'] ?? null;
+    
+    // Extract base SKU (remove store suffix like -S6, -S7)
+    $baseSku = $sku;
+    $isStoreVariant = false;
+    
+    if (preg_match('/^(.+)-S(\d+)$/', $sku, $matches)) {
+        // Properly formatted store variant (e.g., COM-BREAD-WHT-S6)
+        $baseSku = $matches[1];
+        $isStoreVariant = true;
+        $product['_is_store_variant'] = true;
+        // Use store name instead of S# suffix
+        $product['_store_suffix'] = $product['store_name'] ? $product['store_name'] : 'Store ' . $matches[2];
+    } elseif (!empty($storeId)) {
+        // Has store_id but no suffix - treat as malformed variant
+        // Show it but mark it for easier identification
+        $product['_is_store_variant'] = true;
+        $product['_store_suffix'] = $product['store_name'] ? $product['store_name'] : 'Store ' . $storeId;
+        $product['_malformed_sku'] = true;
+        $isStoreVariant = true;
+    } else {
+        // Main product (no store_id)
+        $product['_is_store_variant'] = false;
+    }
+    
+    if (!isset($productGroups[$baseSku])) {
+        $productGroups[$baseSku] = [
+            'main' => null,
+            'variants' => []
+        ];
+    }
+    
+    // Main product (no store suffix and no store_id) or first product with this base SKU
+    if (!$isStoreVariant) {
+        $productGroups[$baseSku]['main'] = $product;
+    } else {
+        $productGroups[$baseSku]['variants'][] = $product;
+    }
+}
+
+// Flatten back to list: main product followed by its variants
+$filtered_products = [];
+foreach ($productGroups as $baseSku => $group) {
+    // Add main product first (if exists)
+    if ($group['main']) {
+        $filtered_products[] = $group['main'];
+    }
+    
+    // Add store variants (sorted by store name)
+    usort($group['variants'], function($a, $b) {
+        return strcmp($a['store_name'] ?? '', $b['store_name'] ?? '');
+    });
+    
+    foreach ($group['variants'] as $variant) {
+        // If there's no main product, show the first variant as the main one
+        if (!$group['main'] && $variant === $group['variants'][0]) {
+            $variant['_is_store_variant'] = false; // Treat as main
+            $variant['_is_first_orphan'] = true; // Mark it as first orphan variant
+        }
+        $filtered_products[] = $variant;
+    }
+}
+
+// Sorting (after grouping)
 $valid_sorts = ['name', 'sku', 'quantity', 'unit_price', 'expiry_date', 'created_at', 'category_name', 'store_name'];
 if (!in_array($sort_by, $valid_sorts)) {
     $sort_by = 'name';
 }
 $sort_func = function ($a, $b) use ($sort_by, $sort_order) {
+    // Keep variants grouped with their main product
+    $aBaseSku = preg_replace('/-S\d+$/', '', $a['sku'] ?? '');
+    $bBaseSku = preg_replace('/-S\d+$/', '', $b['sku'] ?? '');
+    
+    if ($aBaseSku === $bBaseSku) {
+        // Same group: main product comes first, then variants by store
+        if (!($a['_is_store_variant'] ?? false)) return -1;
+        if (!($b['_is_store_variant'] ?? false)) return 1;
+        return strcmp($a['store_name'] ?? '', $b['store_name'] ?? '');
+    }
+    
+    // Different groups: sort by requested field
     $av = $a[$sort_by] ?? '';
     $bv = $b[$sort_by] ?? '';
     if ($av == $bv) return 0;
@@ -440,6 +603,26 @@ $page_title = 'Stock Management - Inventory System';
             <div class="page-header">
                 <h2>Stock Management</h2>
                 <div class="page-actions">
+                    <?php
+                    // Show cache status
+                    $cacheFile = __DIR__ . '/../../storage/cache/stock_list_data.cache';
+                    if (file_exists($cacheFile)) {
+                        $cacheAge = time() - filemtime($cacheFile);
+                        $cacheMinutes = floor($cacheAge / 60);
+                        $cacheSeconds = $cacheAge % 60;
+                        if ($cacheMinutes > 0) {
+                            $cacheAgeStr = $cacheMinutes . 'm ' . $cacheSeconds . 's ago';
+                        } else {
+                            $cacheAgeStr = $cacheSeconds . 's ago';
+                        }
+                        echo '<span style="font-size: 12px; color: #666; margin-right: 10px;" title="Data cached to reduce Firebase usage. Click refresh to get latest data.">📊 Cached: ' . htmlspecialchars($cacheAgeStr) . '</span>';
+                        
+                        // Show refresh button if cache is more than 1 minute old
+                        if ($cacheAge > 60) {
+                            echo '<a href="?refresh=1" class="btn" style="background: #17a2b8; margin-right: 5px;" title="Fetch latest data from Firebase">🔄 Refresh Data</a>';
+                        }
+                    }
+                    ?>
                     <a href="add.php" class="btn btn-addprod">Add Product</a>
                 </div>
             </div>
@@ -579,7 +762,7 @@ $page_title = 'Stock Management - Inventory System';
 
 
                                 <tr
-                                    class="product-row status-<?php echo htmlspecialchars($product['status']); ?>"
+                                    class="product-row <?php echo ($product['_is_store_variant'] ?? false) ? 'store-variant' : 'main-product'; ?> status-<?php echo htmlspecialchars($product['status']); ?>"
                                     data-doc-id="<?php echo htmlspecialchars($linkId); ?>"
                                     data-name="<?php echo htmlspecialchars($product['name']); ?>"
                                     data-sku="<?php echo htmlspecialchars($product['sku']); ?>"
@@ -587,8 +770,23 @@ $page_title = 'Stock Management - Inventory System';
                                     data-min="<?php echo (int)$product['min_stock_level']; ?>">
 
                                     <td>
-                                        <div class="product-info">
-                                            <strong><?php echo htmlspecialchars($product['name']); ?></strong>
+                                        <div class="product-info" style="<?php echo ($product['_is_store_variant'] ?? false) ? 'padding-left: 30px;' : ''; ?>">
+                                            <?php if ($product['_is_store_variant'] ?? false): ?>
+                                                <span style="color: #7f8c8d; margin-right: 8px;">└─</span>
+                                            <?php endif; ?>
+                                            <strong <?php echo ($product['_is_store_variant'] ?? false) ? 'style="color: #34495e; font-weight: 500;"' : ''; ?>>
+                                                <?php echo htmlspecialchars($product['name']); ?>
+                                                <?php if ($product['_is_store_variant'] ?? false): ?>
+                                                    <span style="color: #3498db; font-size: 11px; font-weight: 600; background: #e8f4fd; padding: 2px 6px; border-radius: 3px; margin-left: 5px;">
+                                                        <?php echo htmlspecialchars($product['_store_suffix'] ?? ''); ?>
+                                                    </span>
+                                                    <?php if ($product['_malformed_sku'] ?? false): ?>
+                                                        <span style="color: #e67e22; font-size: 10px; font-weight: 600; background: #ffeaa7; padding: 2px 6px; border-radius: 3px; margin-left: 3px;" title="SKU should include store suffix">
+                                                            ⚠️ Needs Fix
+                                                        </span>
+                                                    <?php endif; ?>
+                                                <?php endif; ?>
+                                            </strong>
                                             <?php if (!empty($product['sku'])): ?>
                                                 <br><small class="sku">SKU: <?php echo htmlspecialchars($product['sku']); ?></small>
                                             <?php endif; ?>
