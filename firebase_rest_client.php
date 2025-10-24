@@ -205,6 +205,12 @@ class FirebaseRestClient {
     public function queryCollection($collection, $limit = null) {
         $url = $this->baseUrl . '/' . $collection;
         
+        // IMPORTANT: Set a default limit to prevent reading ALL documents
+        // Firebase charges per document read, so unlimited queries are expensive!
+        if ($limit === null) {
+            $limit = 100; // Safe default limit
+        }
+        
         if ($limit) {
             $url .= '?pageSize=' . $limit;
         }

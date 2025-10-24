@@ -520,7 +520,7 @@ function searchStores() {
         'date_to' => $_GET['date_to'] ?? ''
     ];
     
-    // Get all stores
+    // Get all stores with reasonable limit
     $conditions = [];
     if ($filters['status'] === 'active') {
         $conditions[] = ['active', '==', true];
@@ -528,7 +528,8 @@ function searchStores() {
         $conditions[] = ['active', '==', false];
     }
     
-    $stores = empty($conditions) ? $db->readAll('stores') : $db->readAll('stores', $conditions);
+    // IMPORTANT: Add explicit limit to prevent excessive Firebase reads
+    $stores = empty($conditions) ? $db->readAll('stores', [], null, 200) : $db->readAll('stores', $conditions, null, 200);
     
     // Apply filters
     $filtered = [];
@@ -600,13 +601,14 @@ function searchStores() {
 function getAnalytics() {
     global $db;
     
-    $all_stores = $db->readAll('stores');
+    // IMPORTANT: Add limits to prevent excessive Firebase reads
+    $all_stores = $db->readAll('stores', [], null, 200);
     $active_stores = array_filter($all_stores, function($store) {
         return $store['active'] ?? true;
     });
     
-    // Get products for all stores
-    $all_products = $db->readAll('products', [['active', '==', true]]);
+    // Get products for all stores - limit to representative sample
+    $all_products = $db->readAll('products', [['active', '==', true]], null, 500);
     
     // Calculate stats
     $stats = [

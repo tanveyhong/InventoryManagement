@@ -247,7 +247,13 @@ if (method_exists($db, 'updateMerge')) {
       error_log('delete audit failed: ' . $t->getMessage());
     }
 
-    header('Location: list.php?deleted=1');
+    // Clear cache to force refresh on list page
+    $cacheFile = __DIR__ . '/../../storage/cache/stock_list_data.cache';
+    if (file_exists($cacheFile)) {
+        @unlink($cacheFile);
+    }
+
+    header('Location: list.php?refresh=1&deleted=1');
     exit;
   } catch (Throwable $e) {
     error_log('Soft delete (merge) failed: ' . $e->getMessage());

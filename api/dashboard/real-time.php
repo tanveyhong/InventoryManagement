@@ -53,8 +53,8 @@ try {
     // Get recent activity
     $recent_activity = [];
     
-    // Recent stock additions (last 24 hours)
-    $products = $db->readAll('products') ?? [];
+    // Recent stock additions (last 24 hours) - Limit to prevent excessive reads
+    $products = $db->readAll('products', [], null, 200) ?? [];
     $yesterday = strtotime('-24 hours');
     
     $recent_products = [];

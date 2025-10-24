@@ -64,11 +64,11 @@ function createFirebaseUser($userData)
 {
     $db = getDB();
 
-    // Check if user already exists
+    // Check if user already exists - use explicit limit to prevent excessive reads
     $existingUsers = $db->readAll('users', [
         ['username', '==', $userData['username']],
         ['email', '==', $userData['email']]
-    ]);
+    ], null, 5); // Only need to check if any exist
 
     if (!empty($existingUsers)) {
         return false;
@@ -561,8 +561,9 @@ function fs_fetch_all_products(): array
     $db = @getDB();
     if (!is_object($db) || !method_exists($db, 'readAll')) return $items;
 
-    // Read all product documents using the Database wrapper
-    $raw = $db->readAll('products');
+    // IMPORTANT: Read products with reasonable limit to prevent excessive Firebase reads
+    // Consider implementing pagination if you need all products
+    $raw = $db->readAll('products', [], null, 500); // Limit to 500 products
     if (!is_array($raw)) return $items;
 
     // If Firestore REST returned the "documents" shape

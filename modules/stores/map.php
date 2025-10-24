@@ -72,8 +72,9 @@ $fetchedFromFirebase = false;
 if ($shouldRefreshCache || !$cacheIsFresh) {
     try {
         $client = new FirebaseRestClient();
-        $firebaseStores = $client->queryCollection('stores');
-        $firebaseRegions = $client->queryCollection('regions');
+        // IMPORTANT: Limit queries to prevent excessive Firebase reads
+        $firebaseStores = $client->queryCollection('stores', 200); // Max 200 stores
+        $firebaseRegions = $client->queryCollection('regions', 50); // Max 50 regions
         
         error_log("Firebase fetch attempt - Stores count: " . count($firebaseStores) . ", Regions count: " . count($firebaseRegions));
         

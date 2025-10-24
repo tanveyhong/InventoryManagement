@@ -253,8 +253,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 error_log('create audit failed: ' . $t->getMessage());
             }
 
-            // --- 7) PRG redirect to avoid double-submit -----------------------
-            header('Location: list.php?success=' . rawurlencode("Product '{$name}' added successfully!"));
+            // --- 7) Clear cache and redirect to refresh data -----------------------
+            $cacheFile = __DIR__ . '/../../storage/cache/stock_list_data.cache';
+            if (file_exists($cacheFile)) {
+                @unlink($cacheFile);
+            }
+            header('Location: list.php?refresh=1&success=' . rawurlencode("Product '{$name}' added successfully!"));
             exit;
         } catch (Throwable $t) {
             if ($sqlDb->inTransaction()) $sqlDb->rollBack();

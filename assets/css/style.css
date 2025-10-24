@@ -619,3 +619,22 @@ small {
 .details-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:1rem }
 .details-grid .label { display:block; color:#666; font-size:.85rem }
 .details-grid .value { font-weight:600; margin-top:.25rem }
+
+/* Store variant styling for grouped products */
+.data-table tr.main-product {
+    background: #ffffff;
+    border-left: 3px solid #3498db;
+}
+
+.data-table tr.store-variant {
+    background: #f8f9fa;
+    border-left: 3px solid #95a5a6;
+}
+
+.data-table tr.store-variant:hover {
+    background: #e9ecef;
+}
+
+.data-table tr.main-product:hover {
+    background: #f1f8ff;
+}

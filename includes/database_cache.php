@@ -330,21 +330,25 @@ function getUserInfoBatch(array $userIds, $ttl = 3600) {
 function getAllUsersCached($ttl = 300) {
     return DatabaseCache::getList('users', function() {
         $db = getDB();
-        return $db->readAll('users');
+        // LIMIT users to prevent excessive Firebase reads
+        return $db->readAll('users', [], null, 200);
     }, $ttl);
 }
 
 function getAllStoresCached($ttl = 300) {
     return DatabaseCache::getList('stores', function() {
         $db = getDB();
-        return $db->readAll('stores');
+        // LIMIT stores to prevent excessive Firebase reads
+        return $db->readAll('stores', [], null, 200);
     }, $ttl);
 }
 
 function getAllProductsCached($ttl = 300) {
     return DatabaseCache::getList('products', function() {
         $db = getDB();
-        return $db->readAll('products');
+        // LIMIT products to prevent excessive Firebase reads
+        // Consider adding pagination for pages that need all products
+        return $db->readAll('products', [], null, 500);
     }, $ttl);
 }
 
