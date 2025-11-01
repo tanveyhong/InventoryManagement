@@ -1,14 +1,10 @@
 <?php
 /**
- * Optimized User Profile Page - Lazy Loading Implementation
- * Loads data on-demand via AJAX for better performance
+ * Optimized User Profile Page - PostgreSQL Fast Loading
  */
 
-// Enable output compression
-ob_start('ob_gzhandler');
-
 require_once '../../config.php';
-require_once '../../db.php';
+require_once '../../sql_db.php';
 require_once '../../functions.php';
 require_once '../../activity_logger.php';
 
@@ -20,219 +16,38 @@ if (!isLoggedIn()) {
     exit;
 }
 
-$db = getDB();
 $userId = $_SESSION['user_id'];
 
-// Define cache file path
-$cacheDir = __DIR__ . '/../../storage/cache';
-$cacheFile = $cacheDir . '/profile_' . md5($userId) . '.json';
-
-// Ensure cache directory exists
-if (!file_exists($cacheDir)) {
-    mkdir($cacheDir, 0755, true);
-}
-
-// Try to load user data from Firebase, fallback to cache
+// Load user data from PostgreSQL (fast, no caching needed)
 $user = null;
-$isOfflineMode = false;
-$cacheAge = null;
-$shouldRefreshCache = true;
-
-// Check if cache exists and is fresh (less than 5 minutes old)
-if (file_exists($cacheFile)) {
-    $cacheTimestamp = filemtime($cacheFile);
-    $cacheAge = time() - $cacheTimestamp;
-    $cacheAgeMinutes = floor($cacheAge / 60);
-    
-    // Only refresh cache if it's older than 5 minutes (300 seconds)
-    // or if manual refresh is requested
-    $shouldRefreshCache = $cacheAge > 300 || isset($_GET['refresh_cache']);
-    
-    if (!$shouldRefreshCache) {
-        error_log("Using fresh cache (age: {$cacheAgeMinutes} minutes)");
-    }
-}
-
 try {
-    // Try to fetch from Firebase only if cache needs refresh
-    if ($shouldRefreshCache) {
-        $user = $db->read('users', $userId);
-        
-        // If successful, cache the data for offline use
-        if ($user) {
-            $cacheData = [
-                'user' => $user,
-                'cached_at' => date('Y-m-d H:i:s'),
-                'user_id' => $userId
-            ];
-            file_put_contents($cacheFile, json_encode($cacheData, JSON_PRETTY_PRINT));
-            error_log("Cache updated successfully");
-        }
-    } else {
-        // Use existing cache instead of fetching
-        $cacheData = json_decode(file_get_contents($cacheFile), true);
-        if ($cacheData && isset($cacheData['user'])) {
-            $user = $cacheData['user'];
-            error_log("Using existing fresh cache");
-        }
-    }
+    $sqlDb = SQLDatabase::getInstance();
+    $user = $sqlDb->fetch("SELECT * FROM users WHERE id = ? OR firebase_id = ?", [$userId, $userId]);
     
-} catch (Exception $e) {
-    // Firebase threw exception - will try cache below
-    error_log("Firebase exception: " . $e->getMessage());
-}
-
-// If Firebase failed (null/false) or threw exception, try cache
-if (!$user) {
-    error_log("Firebase failed to load user, trying cache...");
-    
-    if (file_exists($cacheFile)) {
-        $cacheData = json_decode(file_get_contents($cacheFile), true);
-        
-        if ($cacheData && isset($cacheData['user'])) {
-            $user = $cacheData['user'];
-            $isOfflineMode = true;
-            error_log("✓ Loaded user data from cache (cached at: " . $cacheData['cached_at'] . ")");
-        } else {
-            error_log("✗ Cache exists but no valid user data. CacheData: " . json_encode($cacheData));
-        }
-    } else {
-        error_log("✗ Cache file does not exist: " . $cacheFile);
-    }
-    
-    // If no cache available, show offline page
     if (!$user) {
-        error_log("No cached data available for offline mode");
-        
-        // Show offline mode page
-            echo '<!DOCTYPE html>
-            <html lang="en">
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>Offline Mode - Profile</title>
-                <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-                <style>
-                    body { 
-                        font-family: system-ui, -apple-system, sans-serif; 
-                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                        min-height: 100vh;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        margin: 0;
-                        padding: 20px;
-                    }
-                    .offline-container {
-                        background: white;
-                        border-radius: 16px;
-                        padding: 40px;
-                        max-width: 500px;
-                        text-align: center;
-                    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-                }
-                .offline-icon {
-                    font-size: 80px;
-                    color: #ef4444;
-                    margin-bottom: 20px;
-                }
-                h1 { color: #1f2937; margin-bottom: 10px; }
-                p { color: #6b7280; margin-bottom: 30px; line-height: 1.6; }
-                .retry-btn {
-                    background: linear-gradient(135deg, #667eea, #764ba2);
-                    color: white;
-                    border: none;
-                    padding: 12px 30px;
-                    border-radius: 8px;
-                    font-weight: 600;
-                    cursor: pointer;
-                    font-size: 16px;
-                }
-                .retry-btn:hover { opacity: 0.9; }
-                .status { 
-                    display: inline-block;
-                    padding: 8px 16px;
-                    background: #fee2e2;
-                    color: #dc2626;
-                    border-radius: 20px;
-                    font-size: 14px;
-                    font-weight: 600;
-                    margin-bottom: 20px;
-                }
-            </style>
-        </head>
-        <body>
-            <div class="offline-container">
-                <div class="offline-icon">
-                    <i class="fas fa-wifi-slash"></i>
-                </div>
-                <div class="status">
-                    <i class="fas fa-circle" style="font-size: 8px;"></i> Offline Mode
-                </div>
-                <h1>Connection Lost</h1>
-                <p>
-                    Unable to connect to the server. Please check your internet connection and try again.
-                    <br><br>
-                    <strong>Your data is safe!</strong> Any changes you make will be saved locally 
-                    and synchronized automatically when connection is restored.
-                </p>
-                <button class="retry-btn" onclick="location.reload()">
-                    <i class="fas fa-sync-alt"></i> Retry Connection
-                </button>
-                <br><br>
-                <a href="../../index.php" style="color: #667eea; text-decoration: none;">
-                    <i class="fas fa-arrow-left"></i> Back to Dashboard
-                </a>
-            </div>
-            
-            <!-- Auto-retry every 10 seconds -->
-            <script>
-                let retryCount = 0;
-                const maxRetries = 6;
-                
-                function checkConnection() {
-                    fetch(window.location.href, { method: "HEAD" })
-                        .then(() => {
-                            console.log("Connection restored!");
-                            location.reload();
-                        })
-                        .catch(() => {
-                            retryCount++;
-                            if (retryCount < maxRetries) {
-                                console.log(`Retry ${retryCount}/${maxRetries} in 10 seconds...`);
-                                setTimeout(checkConnection, 10000);
-                            }
-                        });
-                }
-                
-                // Start auto-retry after 10 seconds
-                setTimeout(checkConnection, 10000);
-                
-                // Show connectivity status
-                window.addEventListener("online", () => {
-                    alert("Connection restored! Reloading...");
-                    location.reload();
-                });
-            </script>
-        </body>
-        </html>';
-        exit;
+        // Fallback to Firebase
+        $db = getDB();
+        $user = $db->read('users', $userId);
+    }
+} catch (Exception $e) {
+    error_log("Error loading user profile: " . $e->getMessage());
+    // Fallback to Firebase
+    try {
+        $db = getDB();
+        $user = $db->read('users', $userId);
+    } catch (Exception $e2) {
+        error_log("Firebase also failed: " . $e2->getMessage());
     }
 }
 
-// Check if user data was loaded successfully (handle both false and null)
-error_log("DEBUG: Checking user data. Type: " . gettype($user) . ", Empty: " . (empty($user) ? 'yes' : 'no') . ", Truthiness: " . ($user ? 'true' : 'false'));
-
+// If still no user data, show error
 if (!$user) {
-    error_log("Failed to load user data for user ID: " . $userId . " - No cache available");
-    
-    // Show friendly offline message
     echo '<!DOCTYPE html>
     <html lang="en">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Offline - Profile</title>
+        <title>Error - Profile</title>
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
         <style>
             body { 
@@ -245,7 +60,7 @@ if (!$user) {
                 margin: 0;
                 padding: 20px;
             }
-            .message-box {
+            .error-container {
                 background: white;
                 border-radius: 16px;
                 padding: 40px;
@@ -253,10 +68,14 @@ if (!$user) {
                 text-align: center;
                 box-shadow: 0 20px 60px rgba(0,0,0,0.3);
             }
-            .icon { font-size: 80px; color: #f59e0b; margin-bottom: 20px; }
+            .error-icon {
+                font-size: 80px;
+                color: #ef4444;
+                margin-bottom: 20px;
+            }
             h1 { color: #1f2937; margin-bottom: 10px; }
             p { color: #6b7280; margin-bottom: 30px; line-height: 1.6; }
-            .btn {
+            .retry-btn {
                 background: linear-gradient(135deg, #667eea, #764ba2);
                 color: white;
                 border: none;
@@ -265,68 +84,56 @@ if (!$user) {
                 font-weight: 600;
                 cursor: pointer;
                 font-size: 16px;
-                text-decoration: none;
-                display: inline-block;
-                margin: 5px;
             }
+            .retry-btn:hover { opacity: 0.9; }
         </style>
     </head>
     <body>
-        <div class="message-box">
-            <div class="icon"><i class="fas fa-cloud-download-alt"></i></div>
-            <h1>Profile Not Cached</h1>
-            <p>
-                Your profile data hasn\'t been cached yet. Please visit this page while online first 
-                to enable offline access.
-            </p>
-            <a href="../../index.php" class="btn">
+        <div class="error-container">
+            <div class="error-icon">
+                <i class="fas fa-exclamation-triangle"></i>
+            </div>
+            <h1>Unable to Load Profile</h1>
+            <p>We couldn\'t load your profile data. Please try again.</p>
+            <button class="retry-btn" onclick="location.reload()">
+                <i class="fas fa-sync-alt"></i> Retry
+            </button>
+            <br><br>
+            <a href="../../index.php" style="color: #667eea; text-decoration: none;">
                 <i class="fas fa-arrow-left"></i> Back to Dashboard
             </a>
-            <button class="btn" onclick="location.reload()">
-                <i class="fas fa-sync-alt"></i> Try Again
-            </button>
         </div>
     </body>
     </html>';
     exit;
 }
 
+// User data loaded successfully
+error_log("User profile loaded successfully for: " . ($user['username'] ?? $userId));
+
 $pageTitle = 'My Profile';
 
-// Get role info (lightweight query)
+// Get role info
 $role = ['role_name' => 'User'];
+$userRole = strtolower($user['role'] ?? 'user');
+$isAdmin = ($userRole === 'admin');
+$isManager = ($userRole === 'manager');
 
 // Check if user has direct role field (string) or role_id (reference)
 if (!empty($user['role']) && is_string($user['role'])) {
     // Direct role assignment (e.g., 'admin', 'manager', 'user')
     $role['role_name'] = ucfirst(strtolower($user['role']));
-} elseif (!empty($user['role_id'])) {
-    // Role ID reference
-    $roleData = $db->read('roles', $user['role_id']);
-    if ($roleData) {
-        $role = $roleData;
-    }
 }
 
 // Handle form submissions
 $message = '';
 $messageType = '';
 
-// Check if manual cache refresh was requested
-if (isset($_GET['refresh_cache']) && !isset($_GET['silent'])) {
-    $message = 'Cache refreshed successfully! You\'re viewing the latest data.';
-    $messageType = 'success';
-}
-
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Skip POST processing if we're in offline mode (loaded from cache)
-    if ($isOfflineMode) {
-        $message = 'Changes saved locally and will sync when connection is restored.';
-        $messageType = 'info';
-    } else {
-        $action = $_POST['action'] ?? '';
-        
-        if ($action === 'update_profile') {
+    $db = getDB(); // Firebase for write operations (will migrate later)
+    $action = $_POST['action'] ?? '';
+    
+    if ($action === 'update_profile') {
         // Track changes for activity log
         $changes = [];
         $oldData = $user; // Store original data
@@ -445,7 +252,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     }
-    } // Close else block for offline mode check
 }
 ?>
 <!DOCTYPE html>
@@ -1231,31 +1037,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <div class="dashboard-content">
         <div class="container">
         
-        <?php if ($isOfflineMode): ?>
-        <?php 
-            // Calculate cache age for display
-            $cacheTimestamp = file_exists($cacheFile) ? filemtime($cacheFile) : time();
-            $cacheAgeSeconds = time() - $cacheTimestamp;
-            
-            if ($cacheAgeSeconds < 60) {
-                $cacheAgeDisplay = "just now";
-            } elseif ($cacheAgeSeconds < 3600) {
-                $minutes = floor($cacheAgeSeconds / 60);
-                $cacheAgeDisplay = $minutes . " minute" . ($minutes > 1 ? "s" : "") . " ago";
-            } elseif ($cacheAgeSeconds < 86400) {
-                $hours = floor($cacheAgeSeconds / 3600);
-                $cacheAgeDisplay = $hours . " hour" . ($hours > 1 ? "s" : "") . " ago";
-            } else {
-                $days = floor($cacheAgeSeconds / 86400);
-                $cacheAgeDisplay = $days . " day" . ($days > 1 ? "s" : "") . " ago";
-            }
-        ?>
-        <div class="alert" style="background: #fef3c7; color: #92400e; border-left: 4px solid #f59e0b; margin-bottom: 20px;">
-            <i class="fas fa-exclamation-triangle"></i>
-            <strong>Offline Mode:</strong> You're viewing cached profile data (updated <?= $cacheAgeDisplay ?>). Some features may be limited. Changes will sync when connection is restored.
-        </div>
-        <?php endif; ?>
-        
         <?php if ($message): ?>
         <div class="alert alert-<?= $messageType ?>">
             <i class="fas fa-<?= $messageType === 'success' ? 'check-circle' : ($messageType === 'info' ? 'info-circle' : 'exclamation-circle') ?>"></i>
@@ -1300,26 +1081,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <i class="fas fa-sync-alt" id="refreshIcon"></i> 
                     <span id="refreshText">Refresh Cache</span>
                 </button>
-                <small id="cacheStatus" style="display: block; margin-top: 5px; color: #6b7280; font-size: 12px;">
-                    <?php
-                    if (file_exists($cacheFile)) {
-                        $cacheTimestamp = filemtime($cacheFile);
-                        $cacheAgeSeconds = time() - $cacheTimestamp;
-                        
-                        if ($cacheAgeSeconds < 60) {
-                            echo "Cache: Updated just now";
-                        } elseif ($cacheAgeSeconds < 3600) {
-                            $minutes = floor($cacheAgeSeconds / 60);
-                            echo "Cache: Updated {$minutes} min ago";
-                        } else {
-                            $hours = floor($cacheAgeSeconds / 3600);
-                            echo "Cache: Updated {$hours}h ago";
-                        }
-                    } else {
-                        echo "Cache: Not available";
-                    }
-                    ?>
-                </small>
             </div>
         </div>
         
@@ -2452,7 +2213,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             username: <?php echo json_encode($user['username'] ?? '', JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>,
             phone: <?php echo json_encode($user['phone'] ?? '', JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>,
             role: <?php echo json_encode($user['role'] ?? '', JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>,
-            isOffline: <?php echo $isOfflineMode ? 'true' : 'false'; ?>
+            isOffline: false
         };
         
         // Store in sessionStorage for quick access
@@ -2478,14 +2239,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             // Update pending count badge
             await window.connectivityMonitor.updatePendingCount();
-            
-            // Show offline mode indicator if using cached data
-            <?php if ($isOfflineMode): ?>
-            window.connectivityMonitor.showNotification(
-                'Using cached data from offline mode',
-                'warning'
-            );
-            <?php endif; ?>
             
             // Listen for sync events
             window.profileSyncManager.addEventListener((event, data) => {

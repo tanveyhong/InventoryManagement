@@ -4,14 +4,34 @@ define('APP_NAME', 'Inventory Management System');
 define('APP_VERSION', '1.0.0');
 define('APP_TIMEZONE', 'America/New_York');
 
-// Database Configuration - SQLite for local development
+// Database Configuration
+// Change DB_TYPE to switch between 'sqlite', 'pgsql', or 'mysql'
+define('DB_TYPE', 'pgsql'); // Options: 'sqlite', 'pgsql', 'mysql'
+
+// SQLite Configuration (Local Development)
 define('DB_HOST', 'localhost');
 define('DB_PORT', 5432);
 define('DB_NAME', __DIR__ . '/storage/database.sqlite'); // SQLite database file (absolute path)
 define('DB_USERNAME', 'user');
 define('DB_PASSWORD', 'password');
 define('DB_CHARSET', 'utf8');
-define('DB_DRIVER', 'sqlite'); // SQLite driver for local development
+define('DB_DRIVER', DB_TYPE); // Will be 'sqlite', 'pgsql', or 'mysql'
+
+// PostgreSQL Configuration (Production - Multi-user)
+// Configured for local PostgreSQL server
+define('PG_HOST', 'localhost');
+define('PG_PORT', '5433'); // Custom port
+define('PG_DATABASE', 'inventory_system');
+define('PG_USERNAME', 'inventory_user'); // PostgreSQL user with database access
+define('PG_PASSWORD', 'SecurePassword123!'); // PostgreSQL password
+
+// MySQL Configuration (Alternative to PostgreSQL)
+// Uncomment if using MySQL instead of PostgreSQL
+define('MYSQL_HOST', 'localhost');
+define('MYSQL_PORT', '3306');
+define('MYSQL_DATABASE', 'inventory_system');
+define('MYSQL_USERNAME', 'inventory_user');
+define('MYSQL_PASSWORD', 'your_secure_password');
 
 // Security Configuration
 define('SESSION_TIMEOUT', 3600); // 1 hour in seconds

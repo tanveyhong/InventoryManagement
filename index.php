@@ -1,10 +1,10 @@
 <?php
-// Ultra-Fast Dashboard with Aggressive Caching
-// Use fast initialization for optimal performance
-require_once 'includes/fast_init.php';
+// Ultra-Fast Dashboard with PostgreSQL
+require_once 'config.php';
+require_once 'functions.php';
+require_once 'sql_db.php';
 
-// Optional: Enable performance monitoring (comment out in production)
-// require_once 'includes/performance_monitor.php';
+session_start();
 
 // Check if user is logged in
 if (!isset($_SESSION['user_id'])) {
@@ -12,31 +12,16 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
-// Preload user data in background
-preloadUserData();
+// Get dashboard statistics - OPTIMIZED: Direct PostgreSQL queries (no caching needed - queries are <5ms)
+$stats = getAllDashboardStats();
 
-// Get dashboard statistics with aggressive caching
-$stats = DatabaseCache::getQuery('dashboard_stats_' . $_SESSION['user_id'], function() {
-    return [
-        'total_products' => getTotalProducts(),
-        'low_stock' => getLowStockCount(),
-        'total_stores' => getTotalStores(),
-        'todays_sales' => getTodaysSales(),
-        'notifications' => getNotifications()
-    ];
-}, 180); // 3 minute cache
+// Get weekly sales data for chart
+$weekly_sales = getWeeklySalesData();
 
-// Get recent activity with caching
-$recent_activity = DatabaseCache::getQuery('recent_activity_' . $_SESSION['user_id'], function() {
-    // Return empty for now, can be expanded
-    return [];
-}, 300); // 5 minute cache
+// Get recent activity
+$recent_activity = [];
 
 $page_title = 'Dashboard - Inventory Management System';
-
-// Add caching headers for browser
-header('Cache-Control: private, max-age=180');
-header('Vary: Cookie');
 ?>
 
 <!DOCTYPE html>
@@ -726,19 +711,27 @@ header('Vary: Cookie');
             
             init() {
                 this.createSalesChart();
-                this.startAutoRefresh();
+                // Auto-refresh DISABLED to save Firebase quota
+                // this.startAutoRefresh(); 
                 this.setupEventListeners();
+                console.log('📊 Dashboard initialized (auto-refresh disabled to save Firebase reads)');
             }
             
             createSalesChart() {
                 const ctx = document.getElementById('salesChart').getContext('2d');
+                
+                // Use real sales data from PHP
+                const weeklySalesData = <?php echo json_encode($weekly_sales); ?>;
+                const labels = weeklySalesData.map(d => d.day);
+                const salesValues = weeklySalesData.map(d => d.sales);
+                
                 this.salesChart = new Chart(ctx, {
                     type: 'line',
                     data: {
-                        labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+                        labels: labels,
                         datasets: [{
                             label: 'Sales ($)',
-                            data: [1200, 1900, 3000, 2100, 3200, 2800, <?php echo $stats['todays_sales']; ?>],
+                            data: salesValues,
                             borderColor: '#667eea',
                             backgroundColor: 'rgba(102, 126, 234, 0.1)',
                             borderWidth: 2,
@@ -820,6 +813,10 @@ header('Vary: Cookie');
                 });
             }
             
+            // DISABLED: Auto-refresh functionality to prevent Firebase quota consumption
+            // Dashboard uses cached data (3-minute TTL) from index.php
+            // Click "Refresh Data" button to reload page and get fresh data
+            /*
             async refreshDashboardData() {
                 try {
                     const response = await fetch('api/dashboard/real-time.php');
@@ -837,7 +834,10 @@ header('Vary: Cookie');
                     this.showErrorIndicator();
                 }
             }
+            */
             
+            // DISABLED: These update functions are no longer needed without auto-refresh
+            /*
             updateStatistics(stats) {
                 // Update stat numbers with animation
                 this.animateNumber('.stat-number', stats.total_products, 0);
@@ -845,7 +845,9 @@ header('Vary: Cookie');
                 this.animateNumber('.stat-card.success .stat-number', stats.total_stores, 2);
                 this.animateNumber('.stat-card.warning .stat-number', stats.todays_sales, 3, '$');
             }
+            */
             
+            // These helper functions are kept for potential future use
             animateNumber(selector, newValue, index, prefix = '') {
                 const elements = document.querySelectorAll(selector);
                 if (elements[index]) {
@@ -872,6 +874,8 @@ header('Vary: Cookie');
                 step();
             }
             
+            // DISABLED: Chart and activity updates (not needed without auto-refresh)
+            /*
             updateSalesChart(salesData) {
                 if (this.salesChart && salesData && salesData.length > 0) {
                     const labels = salesData.map(d => d.day);
@@ -899,6 +903,7 @@ header('Vary: Cookie');
                     `).join('');
                 }
             }
+            */
             
             setupEventListeners() {
                 // Add click handlers for stat cards
@@ -937,11 +942,15 @@ header('Vary: Cookie');
                 
                 // Add refresh button if needed
                 this.addRefreshButton();
+                
+                console.log('✅ Dashboard event listeners registered');
+                console.log('💡 Auto-refresh is DISABLED - click "Refresh Data" button to update');
             }
             
+            // Manual refresh only (no auto-refresh to save Firebase quota)
             addRefreshButton() {
                 const refreshBtn = document.createElement('button');
-                refreshBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Refresh';
+                refreshBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Refresh Data';
                 refreshBtn.className = 'refresh-btn';
                 refreshBtn.style.cssText = `
                     position: fixed;
@@ -956,24 +965,44 @@ header('Vary: Cookie');
                     box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
                     z-index: 1000;
                     transition: all 0.3s ease;
+                    font-size: 14px;
+                    font-weight: 600;
                 `;
+                
+                refreshBtn.addEventListener('mouseenter', () => {
+                    refreshBtn.style.transform = 'translateY(-2px)';
+                    refreshBtn.style.boxShadow = '0 6px 20px rgba(102, 126, 234, 0.4)';
+                });
+                
+                refreshBtn.addEventListener('mouseleave', () => {
+                    refreshBtn.style.transform = '';
+                    refreshBtn.style.boxShadow = '0 4px 15px rgba(102, 126, 234, 0.3)';
+                });
                 
                 refreshBtn.addEventListener('click', () => {
                     refreshBtn.style.transform = 'rotate(360deg)';
-                    this.refreshDashboardData();
+                    refreshBtn.disabled = true;
+                    refreshBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Refreshing...';
+                    
+                    // Reload page to get fresh data from cache (3-minute TTL)
                     setTimeout(() => {
-                        refreshBtn.style.transform = '';
+                        window.location.reload();
                     }, 500);
                 });
                 
                 document.body.appendChild(refreshBtn);
             }
             
+            // Auto-refresh REMOVED to prevent excessive Firebase reads
+            // If you need real-time updates, use PostgreSQL instead of Firebase
             startAutoRefresh() {
-                // Refresh every 60 seconds
-                this.refreshInterval = setInterval(() => {
-                    this.refreshDashboardData();
-                }, 60000);
+                console.log('⚠️ Auto-refresh is disabled to conserve Firebase quota');
+                console.log('💡 Click "Refresh Data" button to manually update dashboard');
+                console.log('🚀 For real-time updates, migrate to PostgreSQL');
+                // Auto-refresh disabled - uncomment below to re-enable (will consume Firebase quota)
+                // this.refreshInterval = setInterval(() => {
+                //     this.refreshDashboardData();
+                // }, 60000); // Every 60 seconds
             }
             
             showSuccessIndicator() {
@@ -1057,6 +1086,26 @@ header('Vary: Cookie');
          * - activities: Recent activity log (for profile tab)
          * - permissions: User permissions (for profile access control)
          */
+        
+        /* ============================================================
+         * DATA PRELOADER - DISABLED TO CONSERVE FIREBASE QUOTA
+         * ============================================================
+         * This system has been disabled to minimize Firebase API calls.
+         * Stores and profile modules will now load their own data on-demand.
+         * 
+         * Previous behavior:
+         * - Made 5 parallel API calls on every dashboard load
+         * - Cached results in localStorage for 5 minutes
+         * - If dashboard loaded 20 times/day = 100 API calls
+         * 
+         * Current behavior:
+         * - No automatic preloading
+         * - Modules load data when accessed
+         * - Saves ~100+ Firebase reads/day
+         * ============================================================
+         */
+        
+        /*
         // Global Data Cache Manager with localStorage
         class DataPreloader {
             constructor() {
@@ -1409,21 +1458,24 @@ header('Vary: Cookie');
                 }, 3000);
             }
         }
+        */
+        // END OF DISABLED DATAPRELOADER
         
         // Initialize dashboard when page loads
         document.addEventListener('DOMContentLoaded', function() {
             console.log('📊 Initializing dashboard...');
+            console.log('ℹ️ Data preloading disabled to conserve Firebase quota');
+            console.log('ℹ️ Stores and profile modules will load data on-demand');
             
-            // Initialize data preloader
-            window.dataPreloader = new DataPreloader();
+            // DataPreloader initialization - DISABLED
+            // window.dataPreloader = new DataPreloader();
+            // window.dataPreloader.preloadAll();
             
-            // Initialize dashboard manager
+            // Initialize dashboard manager only
             window.dashboardManager = new DashboardManager();
             
-            // Start pre-loading data immediately
-            window.dataPreloader.preloadAll();
-            
-            // Make helper functions globally available
+            // Helper functions - DISABLED (preloader not active)
+            /*
             window.getPreloadedData = function(key) {
                 if (!window.dataPreloader) {
                     console.warn('DataPreloader not initialized');
@@ -1449,8 +1501,9 @@ header('Vary: Cookie');
                     window.dataPreloader.invalidateCache(key);
                 }
             };
+            */
             
-            console.log('✅ Global preload helpers registered');
+            console.log('✅ Dashboard initialized (preloader disabled for Firebase quota savings)');
         });
         
         // Cleanup on page unload

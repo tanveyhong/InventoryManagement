@@ -2,6 +2,7 @@
 // Enhanced Interactive Store Map with Leaflet
 require_once '../../config.php';
 require_once '../../db.php';
+require_once '../../sql_db.php';
 require_once '../../functions.php';
 require_once '../../firebase_rest_client.php';
 
@@ -23,108 +24,97 @@ if (!currentUserHasPermission('can_view_stores')) {
     exit;
 }
 
-// Cache configuration
-$cacheDir = '../../storage/cache/';
-if (!is_dir($cacheDir)) {
-    @mkdir($cacheDir, 0755, true);
-}
-
-$cacheFile = $cacheDir . 'stores_map_' . md5('stores_map_data') . '.cache';
-$cacheMaxAge = 300; // 5 minutes
-$isOfflineMode = false;
-$cacheAgeDisplay = '';
-$message = '';
-$messageType = '';
-
-// Check if manual refresh is requested
-$shouldRefreshCache = isset($_GET['refresh_cache']);
-
-// Check cache age
-$cacheExists = file_exists($cacheFile);
-$cacheAge = $cacheExists ? (time() - filemtime($cacheFile)) : PHP_INT_MAX;
-$cacheIsFresh = $cacheAge < $cacheMaxAge;
-
-// Calculate cache age display
-if ($cacheExists) {
-    $cacheTimestamp = filemtime($cacheFile);
-    $cacheAgeSeconds = time() - $cacheTimestamp;
-    
-    if ($cacheAgeSeconds < 60) {
-        $cacheAgeDisplay = 'just now';
-    } elseif ($cacheAgeSeconds < 3600) {
-        $minutes = floor($cacheAgeSeconds / 60);
-        $cacheAgeDisplay = $minutes . ' ' . ($minutes == 1 ? 'minute' : 'minutes') . ' ago';
-    } elseif ($cacheAgeSeconds < 86400) {
-        $hours = floor($cacheAgeSeconds / 3600);
-        $cacheAgeDisplay = $hours . ' ' . ($hours == 1 ? 'hour' : 'hours') . ' ago';
-    } else {
-        $days = floor($cacheAgeSeconds / 86400);
-        $cacheAgeDisplay = $days . ' ' . ($days == 1 ? 'day' : 'days') . ' ago';
-    }
-}
-
 // Initialize variables
 $all_stores = [];
 $regions = [];
-$fetchedFromFirebase = false;
+$message = '';
+$messageType = '';
+$dataSource = 'postgresql';
 
-// Try to fetch from Firebase if cache is stale or refresh requested
-if ($shouldRefreshCache || !$cacheIsFresh) {
+// Fetch from PostgreSQL (fast, no caching needed)
+try {
+    $sqlDb = SQLDatabase::getInstance();
+    
+    // Fetch all active stores with location data - optimized query
+    $storeRecords = $sqlDb->fetchAll("
+        SELECT 
+            id, name, code, address, city, state, zip_code, phone, email, 
+            manager, manager_name, description, latitude, longitude, region_id, 
+            store_type, status, operating_hours, active, created_at, updated_at
+        FROM stores 
+        WHERE active = TRUE 
+        ORDER BY name ASC
+    ");
+    
+    // Fetch all active regions
+    $regionRecords = $sqlDb->fetchAll("
+        SELECT id, name, description, active 
+        FROM regions 
+        WHERE active = TRUE 
+        ORDER BY name ASC
+    ");
+    
+    // Convert to array format expected by the map
+    $all_stores = array_map(function($s) {
+        return [
+            'id' => $s['id'],
+            'name' => $s['name'],
+            'code' => $s['code'] ?? '',
+            'address' => $s['address'] ?? '',
+            'city' => $s['city'] ?? '',
+            'state' => $s['state'] ?? '',
+            'postal_code' => $s['zip_code'] ?? '',
+            'latitude' => $s['latitude'] ?? null,
+            'longitude' => $s['longitude'] ?? null,
+            'phone' => $s['phone'] ?? '',
+            'email' => $s['email'] ?? '',
+            'manager' => $s['manager'] ?? ($s['manager_name'] ?? ''),
+            'store_type' => $s['store_type'] ?? 'retail',
+            'opening_hours' => $s['operating_hours'] ?? '',
+            'status' => $s['status'] ?? 'active',
+            'region' => $s['region_id'] ?? '',
+            'active' => 1,
+            'created_at' => $s['created_at'] ?? null,
+            'updated_at' => $s['updated_at'] ?? null
+        ];
+    }, $storeRecords);
+    
+    $regions = array_map(function($r) {
+        return [
+            'id' => $r['id'],
+            'name' => $r['name'],
+            'description' => $r['description'] ?? '',
+            'active' => 1
+        ];
+    }, $regionRecords);
+    
+    if (isset($_GET['refresh_cache']) && !isset($_GET['silent'])) {
+        $message = 'Data loaded successfully from database!';
+        $messageType = 'success';
+    }
+    
+} catch (Exception $e) {
+    error_log('PostgreSQL fetch failed for stores map, falling back to Firebase: ' . $e->getMessage());
+    
+    // Fallback to Firebase
     try {
         $client = new FirebaseRestClient();
-        // IMPORTANT: Limit queries to prevent excessive Firebase reads
-        $firebaseStores = $client->queryCollection('stores', 200); // Max 200 stores
-        $firebaseRegions = $client->queryCollection('regions', 50); // Max 50 regions
+        $firebaseStores = $client->queryCollection('stores', 200);
+        $firebaseRegions = $client->queryCollection('regions', 50);
         
-        error_log("Firebase fetch attempt - Stores count: " . count($firebaseStores) . ", Regions count: " . count($firebaseRegions));
-        
-        // Check if we got data (not just empty arrays from errors)
         if (is_array($firebaseStores) && count($firebaseStores) > 0) {
-            // Filter active stores
             $all_stores = array_filter($firebaseStores, function($s) {
                 return isset($s['active']) && $s['active'] == 1;
             });
             
-            // Filter active regions (might be empty, that's ok)
             $regions = is_array($firebaseRegions) ? array_filter($firebaseRegions, function($r) {
                 return isset($r['active']) && $r['active'] == 1;
             }) : [];
             
-            // Save to cache
-            $cacheData = [
-                'stores' => array_values($all_stores),
-                'regions' => array_values($regions),
-                'timestamp' => time()
-            ];
-            file_put_contents($cacheFile, json_encode($cacheData));
-            
-            $fetchedFromFirebase = true;
-            error_log("Firebase fetch successful - saved to cache");
-            
-            if ($shouldRefreshCache && !isset($_GET['silent'])) {
-                $message = 'Cache refreshed successfully! You\'re viewing the latest data.';
-                $messageType = 'success';
-            }
-        } else {
-            error_log("Firebase returned empty or invalid data");
-            throw new Exception('Firebase returned no data');
+            $dataSource = 'firebase';
         }
-    } catch (Exception $e) {
-        error_log('Firebase fetch failed for stores map: ' . $e->getMessage());
-        // Fall through to cache loading below
-    }
-}
-
-// Load from cache if Firebase fetch failed or wasn't attempted
-if (empty($all_stores) && $cacheExists) {
-    $cacheData = json_decode(file_get_contents($cacheFile), true);
-    if ($cacheData) {
-        $all_stores = $cacheData['stores'] ?? [];
-        $regions = $cacheData['regions'] ?? [];
-        // Only set offline mode if we tried to fetch from Firebase but failed
-        if ($shouldRefreshCache || !$cacheIsFresh) {
-            $isOfflineMode = true;
-        }
+    } catch (Exception $e2) {
+        error_log('Firebase fetch also failed for stores map: ' . $e2->getMessage());
     }
 }
 
@@ -793,14 +783,6 @@ $page_title = 'Interactive Store Map - Inventory System';
     ?>
     
     <div class="container">
-        <!-- Offline Mode Banner -->
-        <?php if ($isOfflineMode): ?>
-        <div class="alert" style="background: #fef3c7; color: #92400e; border-left: 4px solid #f59e0b; margin-bottom: 20px;">
-            <i class="fas fa-exclamation-triangle"></i>
-            <strong>Offline Mode:</strong> You're viewing cached map data (updated <?= $cacheAgeDisplay ?>). Some features may be limited.
-        </div>
-        <?php endif; ?>
-        
         <?php if ($message): ?>
         <div class="alert alert-<?= $messageType ?>">
             <i class="fas fa-<?= $messageType === 'success' ? 'check-circle' : 'info-circle' ?>"></i>
@@ -813,9 +795,6 @@ $page_title = 'Interactive Store Map - Inventory System';
             <div>
                 <h1><i class="fas fa-map-marked-alt"></i> Interactive Store Map</h1>
                 <p style="margin: 5px 0 0 0; color: #718096;">Visualize and manage all store locations</p>
-                <small id="cacheStatus" style="display: block; margin-top: 5px; color: #6b7280; font-size: 12px;">
-                    Last updated: <?= $cacheAgeDisplay ?>
-                </small>
             </div>
             <div class="nav-links" style="display: flex; align-items: center; gap: 10px;">
                 <a href="../../index.php" class="btn btn-outline">

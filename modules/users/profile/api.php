@@ -7,6 +7,7 @@
 header('Content-Type: application/json');
 require_once '../../../config.php';
 require_once '../../../db.php';
+require_once '../../../sql_db.php';
 require_once '../../../functions.php';
 require_once '../../../activity_logger.php';
 
@@ -19,7 +20,8 @@ if (!isLoggedIn()) {
     exit;
 }
 
-$db = getDB();
+$db = getDB(); // Firebase fallback
+$sqlDb = SQLDatabase::getInstance(); // PostgreSQL - PRIMARY
 $userId = $_SESSION['user_id'];
 $action = $_GET['action'] ?? '';
 
@@ -32,82 +34,149 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 try {
     switch ($action) {
         case 'get_user_info':
-            $user = $db->read('users', $userId);
-            if ($user) {
-                // Remove sensitive data
-                unset($user['password_hash']);
-                echo json_encode(['success' => true, 'data' => $user]);
-            } else {
-                echo json_encode(['success' => false, 'error' => 'User not found']);
+            // Try PostgreSQL first, fallback to Firebase
+            try {
+                $user = $sqlDb->fetch("SELECT * FROM users WHERE id = ? OR firebase_id = ?", [$userId, $userId]);
+                if ($user) {
+                    // Remove sensitive data
+                    unset($user['password_hash']);
+                    echo json_encode(['success' => true, 'data' => $user, 'source' => 'postgresql']);
+                } else {
+                    // Fallback to Firebase
+                    $user = $db->read('users', $userId);
+                    if ($user) {
+                        unset($user['password_hash']);
+                        echo json_encode(['success' => true, 'data' => $user, 'source' => 'firebase']);
+                    } else {
+                        echo json_encode(['success' => false, 'error' => 'User not found']);
+                    }
+                }
+            } catch (Exception $e) {
+                // Fallback to Firebase on any PostgreSQL error
+                $user = $db->read('users', $userId);
+                if ($user) {
+                    unset($user['password_hash']);
+                    echo json_encode(['success' => true, 'data' => $user, 'source' => 'firebase']);
+                } else {
+                    echo json_encode(['success' => false, 'error' => 'User not found']);
+                }
             }
             break;
             
         case 'get_activities':
             $limit = intval($_GET['limit'] ?? 20);
             $offset = intval($_GET['offset'] ?? 0);
-            $targetUserId = $_GET['user_id'] ?? $userId; // Allow admin to view any user's activities
+            $targetUserId = $_GET['user_id'] ?? $userId;
             
-            // Check permission - only admin can view other users' activities
-            $currentUser = $db->read('users', $userId);
-            $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
-            
-            // If requesting another user's activities, must be admin
-            if ($targetUserId !== $userId && !$isAdmin) {
-                http_response_code(403);
-                echo json_encode(['success' => false, 'error' => 'Permission denied']);
-                exit;
-            }
-            
-            // Build query
-            $conditions = [['deleted_at', '==', null]];
-            
-            // If specific user requested or not admin, filter by user
-            if ($targetUserId !== 'all') {
-                $conditions[] = ['user_id', '==', $targetUserId];
-            } elseif (!$isAdmin) {
-                // Non-admins can only see their own activities
-                $conditions[] = ['user_id', '==', $userId];
-            }
-            
-            // Optimized query with limit
-            $activities = $db->readAll('user_activities', $conditions, ['created_at', 'DESC'], $limit + $offset);
-            
-            // Handle database errors
-            if ($activities === false) {
-                http_response_code(500);
-                echo json_encode([
-                    'success' => false,
-                    'error' => 'Failed to retrieve activities from database'
-                ]);
-                exit;
-            }
-            
-            // Ensure activities is an array
-            if (!is_array($activities)) {
-                $activities = [];
-            }
-            
-            // Apply offset manually
-            $activities = array_slice($activities, $offset, $limit);
-            
-            // Enrich activities with user info for admin view
-            if ($isAdmin && $targetUserId === 'all') {
-                foreach ($activities as &$activity) {
-                    if (!empty($activity['user_id'])) {
-                        $activityUser = $db->read('users', $activity['user_id']);
-                        $activity['user_name'] = $activityUser ? ($activityUser['username'] ?? 'Unknown') : 'Unknown';
+            // Try PostgreSQL first for activities
+            try {
+                // Get current user to check permissions
+                $currentUser = $sqlDb->fetch("SELECT role FROM users WHERE id = ? OR firebase_id = ?", [$userId, $userId]);
+                if (!$currentUser) {
+                    $currentUser = $db->read('users', $userId);
+                }
+                $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
+                
+                // Check permissions
+                if ($targetUserId !== $userId && $targetUserId !== 'all' && !$isAdmin) {
+                    http_response_code(403);
+                    echo json_encode(['success' => false, 'error' => 'Permission denied']);
+                    exit;
+                }
+                
+                // Build PostgreSQL query
+                $sql = "SELECT * FROM user_activities WHERE deleted_at IS NULL";
+                $params = [];
+                
+                if ($targetUserId !== 'all') {
+                    $sql .= " AND (user_id = ? OR firebase_id = ?)";
+                    $params[] = $targetUserId;
+                    $params[] = $targetUserId;
+                } elseif (!$isAdmin) {
+                    $sql .= " AND (user_id = ? OR firebase_id = ?)";
+                    $params[] = $userId;
+                    $params[] = $userId;
+                }
+                
+                $sql .= " ORDER BY created_at DESC LIMIT ? OFFSET ?";
+                $params[] = $limit;
+                $params[] = $offset;
+                
+                $activities = $sqlDb->fetchAll($sql, $params);
+                
+                // Enrich with user info for admin view
+                if ($isAdmin && $targetUserId === 'all') {
+                    foreach ($activities as &$activity) {
+                        if (!empty($activity['user_id'])) {
+                            $activityUser = $sqlDb->fetch("SELECT username FROM users WHERE id = ?", [$activity['user_id']]);
+                            $activity['user_name'] = $activityUser['username'] ?? 'Unknown';
+                        }
                     }
                 }
+                
+                echo json_encode([
+                    'success' => true,
+                    'data' => $activities,
+                    'has_more' => count($activities) === $limit,
+                    'source' => 'postgresql'
+                ]);
+                
+            } catch (Exception $e) {
+                // Fallback to Firebase
+                $currentUser = $db->read('users', $userId);
+                $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
+                
+                if ($targetUserId !== $userId && !$isAdmin) {
+                    http_response_code(403);
+                    echo json_encode(['success' => false, 'error' => 'Permission denied']);
+                    exit;
+                }
+                
+                $conditions = [['deleted_at', '==', null]];
+                if ($targetUserId !== 'all') {
+                    $conditions[] = ['user_id', '==', $targetUserId];
+                } elseif (!$isAdmin) {
+                    $conditions[] = ['user_id', '==', $userId];
+                }
+                
+                $activities = $db->readAll('user_activities', $conditions, ['created_at', 'DESC'], $limit + $offset);
+                
+                // Handle database errors
+                if ($activities === false) {
+                    http_response_code(500);
+                    echo json_encode([
+                        'success' => false,
+                        'error' => 'Failed to retrieve activities from database'
+                    ]);
+                    exit;
+                }
+                
+                // Ensure activities is an array
+                if (!is_array($activities)) {
+                    $activities = [];
+                }
+                
+                // Apply offset manually
+                $activities = array_slice($activities, $offset, $limit);
+                
+                // Enrich activities with user info for admin view
+                if ($isAdmin && $targetUserId === 'all') {
+                    foreach ($activities as &$activity) {
+                        if (!empty($activity['user_id'])) {
+                            $activityUser = $db->read('users', $activity['user_id']);
+                            $activity['user_name'] = $activityUser ? ($activityUser['username'] ?? 'Unknown') : 'Unknown';
+                        }
+                    }
+                }
+                
+                echo json_encode([
+                    'success' => true,
+                    'data' => $activities,
+                    'has_more' => count($activities) === $limit,
+                    'source' => 'firebase'
+                ]);
             }
-            
-            echo json_encode([
-                'success' => true,
-                'data' => $activities,
-                'has_more' => count($activities) === $limit
-            ]);
-            break;
-            
-        case 'check_new_activities':
+            break;        case 'check_new_activities':
             // Check if there are new activities since a given timestamp
             $since = $_GET['since'] ?? null;
             
@@ -134,31 +203,68 @@ try {
             
         case 'get_all_users':
             // Admin only - get list of users for activity filtering
-            $currentUser = $db->read('users', $userId);
-            $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
-            
-            if (!$isAdmin) {
-                http_response_code(403);
-                echo json_encode(['success' => false, 'error' => 'Permission denied']);
-                exit;
+            try {
+                // Try PostgreSQL first
+                $currentUser = $sqlDb->fetch("SELECT role FROM users WHERE id = ? OR firebase_id = ?", [$userId, $userId]);
+                if (!$currentUser) {
+                    $currentUser = $db->read('users', $userId);
+                }
+                $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
+                
+                if (!$isAdmin) {
+                    http_response_code(403);
+                    echo json_encode(['success' => false, 'error' => 'Permission denied']);
+                    exit;
+                }
+                
+                // Get all users from PostgreSQL
+                $users = $sqlDb->fetchAll("SELECT id, firebase_id, username, email, first_name, last_name, role, created_at, last_login, status FROM users ORDER BY username ASC");
+                
+                $userList = [];
+                foreach ($users as $user) {
+                    $userList[] = [
+                        'id' => $user['id'] ?? $user['firebase_id'] ?? '',
+                        'username' => $user['username'] ?? 'Unknown',
+                        'email' => $user['email'] ?? '',
+                        'first_name' => $user['first_name'] ?? '',
+                        'last_name' => $user['last_name'] ?? '',
+                        'role' => $user['role'] ?? 'staff',
+                        'status' => $user['status'] ?? 'active',
+                        'created_at' => $user['created_at'] ?? '',
+                        'last_login' => $user['last_login'] ?? ''
+                    ];
+                }
+                
+                echo json_encode(['success' => true, 'data' => $userList, 'source' => 'postgresql']);
+                
+            } catch (Exception $e) {
+                // Fallback to Firebase
+                $currentUser = $db->read('users', $userId);
+                $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
+                
+                if (!$isAdmin) {
+                    http_response_code(403);
+                    echo json_encode(['success' => false, 'error' => 'Permission denied']);
+                    exit;
+                }
+                
+                $users = $db->readAll('users', []);
+                $userList = [];
+                foreach ($users as $user) {
+                    $userList[] = [
+                        'id' => $user['id'] ?? '',
+                        'username' => $user['username'] ?? 'Unknown',
+                        'email' => $user['email'] ?? '',
+                        'first_name' => $user['first_name'] ?? '',
+                        'last_name' => $user['last_name'] ?? '',
+                        'role' => $user['role'] ?? 'staff',
+                        'created_at' => $user['created_at'] ?? '',
+                        'last_login' => $user['last_login'] ?? ''
+                    ];
+                }
+                
+                echo json_encode(['success' => true, 'data' => $userList, 'source' => 'firebase']);
             }
-            
-            $users = $db->readAll('users', []);
-            $userList = [];
-            foreach ($users as $user) {
-                $userList[] = [
-                    'id' => $user['id'] ?? '',
-                    'username' => $user['username'] ?? 'Unknown',
-                    'email' => $user['email'] ?? '',
-                    'first_name' => $user['first_name'] ?? '',
-                    'last_name' => $user['last_name'] ?? '',
-                    'role' => $user['role'] ?? 'staff',
-                    'created_at' => $user['created_at'] ?? '',
-                    'last_login' => $user['last_login'] ?? ''
-                ];
-            }
-            
-            echo json_encode(['success' => true, 'data' => $userList]);
             break;
             
         case 'export_activities':
@@ -306,24 +412,55 @@ try {
             error_log("=== GET_PERMISSIONS API CALLED ===");
             error_log("Target User ID: " . $targetUserId);
             
-            // Check permission if viewing another user
-            if ($targetUserId !== $userId) {
-                $currentUser = $db->read('users', $userId);
-                $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
+            try {
+                // Check permission if viewing another user (PostgreSQL)
+                if ($targetUserId !== $userId) {
+                    $currentUser = $sqlDb->fetch("SELECT role FROM users WHERE id = ? OR firebase_id = ?", [$userId, $userId]);
+                    if (!$currentUser) {
+                        $currentUser = $db->read('users', $userId);
+                    }
+                    $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
+                    
+                    if (!$isAdmin) {
+                        http_response_code(403);
+                        echo json_encode(['success' => false, 'error' => 'Permission denied']);
+                        exit;
+                    }
+                }
                 
-                if (!$isAdmin) {
-                    http_response_code(403);
-                    echo json_encode(['success' => false, 'error' => 'Permission denied']);
+                // Try to get user from PostgreSQL first
+                $user = $sqlDb->fetch("SELECT * FROM users WHERE id = ? OR firebase_id = ?", [$targetUserId, $targetUserId]);
+                if (!$user) {
+                    $user = $db->read('users', $targetUserId);
+                }
+                
+                error_log("User data: " . json_encode($user));
+                
+                if (!$user) {
+                    echo json_encode(['success' => false, 'error' => 'User not found']);
                     exit;
                 }
-            }
-            
-            $user = $db->read('users', $targetUserId);
-            error_log("User data: " . json_encode($user));
-            
-            if (!$user) {
-                echo json_encode(['success' => false, 'error' => 'User not found']);
-                exit;
+                
+            } catch (Exception $e) {
+                // Fallback to Firebase
+                if ($targetUserId !== $userId) {
+                    $currentUser = $db->read('users', $userId);
+                    $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
+                    
+                    if (!$isAdmin) {
+                        http_response_code(403);
+                        echo json_encode(['success' => false, 'error' => 'Permission denied']);
+                        exit;
+                    }
+                }
+                
+                $user = $db->read('users', $targetUserId);
+                error_log("User data: " . json_encode($user));
+                
+                if (!$user) {
+                    echo json_encode(['success' => false, 'error' => 'User not found']);
+                    exit;
+                }
             }
             
             $role = strtolower($user['role'] ?? 'user');
@@ -403,57 +540,118 @@ try {
             
         case 'update_permission':
             // Admin only
-            $currentUser = $db->read('users', $userId);
-            $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
-            
-            if (!$isAdmin) {
-                http_response_code(403);
-                echo json_encode(['success' => false, 'error' => 'Permission denied. Admin access required.']);
-                exit;
-            }
-            
-            $input = json_decode(file_get_contents('php://input'), true);
-            $targetUserId = $input['user_id'] ?? null;
-            $permission = $input['permission'] ?? null;
-            $value = $input['value'] ?? false;
-            
-            if (!$targetUserId || !$permission) {
-                echo json_encode(['success' => false, 'error' => 'Missing user_id or permission']);
-                exit;
-            }
-            
-            // Read target user
-            $targetUser = $db->read('users', $targetUserId);
-            if (!$targetUser) {
-                echo json_encode(['success' => false, 'error' => 'User not found']);
-                exit;
-            }
-            
-            // Update permission
-            $targetUser[$permission] = $value;
-            $updated = $db->update('users', $targetUserId, [$permission => $value]);
-            
-            if ($updated) {
-                // Log activity
-                $action = $value ? 'granted' : 'revoked';
-                $permName = str_replace('can_', '', $permission);
-                $permName = str_replace('_', ' ', $permName);
-                $description = ucfirst($action) . " permission: " . ucfirst($permName) . " for user " . ($targetUser['username'] ?? $targetUserId);
+            try {
+                $currentUser = $sqlDb->fetch("SELECT role FROM users WHERE id = ? OR firebase_id = ?", [$userId, $userId]);
+                if (!$currentUser) {
+                    $currentUser = $db->read('users', $userId);
+                }
+                $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
                 
-                logActivity('permission_updated', $description, [
-                    'target_user_id' => $targetUserId,
-                    'target_username' => $targetUser['username'] ?? '',
-                    'permission' => $permission,
-                    'action' => $action,
-                    'value' => $value
-                ]);
+                if (!$isAdmin) {
+                    http_response_code(403);
+                    echo json_encode(['success' => false, 'error' => 'Permission denied. Admin access required.']);
+                    exit;
+                }
                 
-                echo json_encode([
-                    'success' => true,
-                    'message' => 'Permission updated successfully'
-                ]);
-            } else {
-                echo json_encode(['success' => false, 'error' => 'Failed to update permission']);
+                $input = json_decode(file_get_contents('php://input'), true);
+                $targetUserId = $input['user_id'] ?? null;
+                $permission = $input['permission'] ?? null;
+                $value = $input['value'] ?? false;
+                
+                if (!$targetUserId || !$permission) {
+                    echo json_encode(['success' => false, 'error' => 'Missing user_id or permission']);
+                    exit;
+                }
+                
+                // Try PostgreSQL first
+                $targetUser = $sqlDb->fetch("SELECT * FROM users WHERE id = ? OR firebase_id = ?", [$targetUserId, $targetUserId]);
+                if ($targetUser) {
+                    // Update in PostgreSQL
+                    $boolValue = $value ? 'TRUE' : 'FALSE';
+                    $updated = $sqlDb->execute("UPDATE users SET $permission = $boolValue WHERE id = ? OR firebase_id = ?", [$targetUserId, $targetUserId]);
+                    
+                    if ($updated) {
+                        // Log activity
+                        $action = $value ? 'granted' : 'revoked';
+                        $permName = str_replace('can_', '', $permission);
+                        $permName = str_replace('_', ' ', $permName);
+                        $description = ucfirst($action) . " permission: " . ucfirst($permName) . " for user " . ($targetUser['username'] ?? $targetUserId);
+                        
+                        logActivity('permission_updated', $description, [
+                            'target_user_id' => $targetUserId,
+                            'target_username' => $targetUser['username'] ?? '',
+                            'permission' => $permission,
+                            'action' => $action,
+                            'value' => $value
+                        ]);
+                        
+                        echo json_encode([
+                            'success' => true,
+                            'message' => 'Permission updated successfully',
+                            'source' => 'postgresql'
+                        ]);
+                    } else {
+                        throw new Exception('PostgreSQL update failed');
+                    }
+                } else {
+                    throw new Exception('User not found in PostgreSQL');
+                }
+                
+            } catch (Exception $e) {
+                // Fallback to Firebase
+                $currentUser = $db->read('users', $userId);
+                $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
+                
+                if (!$isAdmin) {
+                    http_response_code(403);
+                    echo json_encode(['success' => false, 'error' => 'Permission denied. Admin access required.']);
+                    exit;
+                }
+                
+                $input = json_decode(file_get_contents('php://input'), true);
+                $targetUserId = $input['user_id'] ?? null;
+                $permission = $input['permission'] ?? null;
+                $value = $input['value'] ?? false;
+                
+                if (!$targetUserId || !$permission) {
+                    echo json_encode(['success' => false, 'error' => 'Missing user_id or permission']);
+                    exit;
+                }
+                
+                // Read target user
+                $targetUser = $db->read('users', $targetUserId);
+                if (!$targetUser) {
+                    echo json_encode(['success' => false, 'error' => 'User not found']);
+                    exit;
+                }
+                
+                // Update permission
+                $targetUser[$permission] = $value;
+                $updated = $db->update('users', $targetUserId, [$permission => $value]);
+                
+                if ($updated) {
+                    // Log activity
+                    $action = $value ? 'granted' : 'revoked';
+                    $permName = str_replace('can_', '', $permission);
+                    $permName = str_replace('_', ' ', $permName);
+                    $description = ucfirst($action) . " permission: " . ucfirst($permName) . " for user " . ($targetUser['username'] ?? $targetUserId);
+                    
+                    logActivity('permission_updated', $description, [
+                        'target_user_id' => $targetUserId,
+                        'target_username' => $targetUser['username'] ?? '',
+                        'permission' => $permission,
+                        'action' => $action,
+                        'value' => $value
+                    ]);
+                    
+                    echo json_encode([
+                        'success' => true,
+                        'message' => 'Permission updated successfully',
+                        'source' => 'firebase'
+                    ]);
+                } else {
+                    echo json_encode(['success' => false, 'error' => 'Failed to update permission']);
+                }
             }
             break;
             
@@ -595,55 +793,94 @@ try {
             $targetUserId = $_GET['user_id'] ?? $userId;
             error_log("Target User ID: " . $targetUserId);
             
-            // Check permission
-            $currentUser = $db->read('users', $userId);
-            $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
-            $isManager = (strtolower($currentUser['role'] ?? '') === 'manager');
-            
-            // Only admin/manager can view other users' stores
-            if ($targetUserId !== $userId && !$isAdmin && !$isManager) {
-                http_response_code(403);
-                echo json_encode(['success' => false, 'error' => 'Permission denied']);
-                exit;
-            }
-            
-            // Get user's store assignments
-            $userStoresData = $db->readAll('user_stores') ?? [];
-            error_log("Total user_stores records: " . count($userStoresData));
-            
-            $userStoreAccess = [];
-            
-            foreach ($userStoresData as $id => $access) {
-                if (($access['user_id'] ?? '') === $targetUserId) {
-                    $userStoreAccess[$access['store_id'] ?? ''] = $access;
-                    error_log("Found store access - ID: $id, Store: " . ($access['store_id'] ?? 'unknown'));
+            try {
+                // Check permission - PostgreSQL first
+                $currentUser = $sqlDb->fetch("SELECT role FROM users WHERE id = ? OR firebase_id = ?", [$userId, $userId]);
+                if (!$currentUser) {
+                    $currentUser = $db->read('users', $userId);
                 }
-            }
-            
-            error_log("User has access to " . count($userStoreAccess) . " stores");
-            
-            $storeIds = array_keys($userStoreAccess);
-            $stores = [];
-            
-            // Load all active stores
-            $allStores = $db->readAll('stores') ?? [];
-            
-            foreach ($allStores as $storeId => $store) {
-                if (($store['active'] ?? true) && in_array($storeId, $storeIds)) {
-                    $store['id'] = $storeId;
-                    $store['permissions'] = $userStoreAccess[$storeId]['permissions'] ?? [];
-                    $stores[] = $store;
-                    error_log("Added store: " . ($store['store_name'] ?? $storeId));
+                $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
+                $isManager = (strtolower($currentUser['role'] ?? '') === 'manager');
+                
+                // Only admin/manager can view other users' stores
+                if ($targetUserId !== $userId && !$isAdmin && !$isManager) {
+                    http_response_code(403);
+                    echo json_encode(['success' => false, 'error' => 'Permission denied']);
+                    exit;
                 }
+                
+                // Get user's store access from PostgreSQL user_store_access table
+                $sql = "
+                    SELECT s.*, usa.granted_at, usa.granted_by 
+                    FROM user_store_access usa
+                    INNER JOIN stores s ON usa.store_id = s.id
+                    WHERE (usa.user_id = ? OR usa.firebase_user_id = ?) AND s.active = TRUE
+                    ORDER BY s.name ASC
+                ";
+                
+                $stores = $sqlDb->fetchAll($sql, [$targetUserId, $targetUserId]);
+                error_log("Found " . count($stores) . " stores from PostgreSQL");
+                
+                echo json_encode([
+                    'success' => true,
+                    'data' => $stores,
+                    'count' => count($stores),
+                    'source' => 'postgresql'
+                ]);
+                
+            } catch (Exception $e) {
+                error_log("PostgreSQL error, falling back to Firebase: " . $e->getMessage());
+                // Fallback to Firebase
+                $currentUser = $db->read('users', $userId);
+                $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
+                $isManager = (strtolower($currentUser['role'] ?? '') === 'manager');
+                
+                // Only admin/manager can view other users' stores
+                if ($targetUserId !== $userId && !$isAdmin && !$isManager) {
+                    http_response_code(403);
+                    echo json_encode(['success' => false, 'error' => 'Permission denied']);
+                    exit;
+                }
+                
+                // Get user's store assignments
+                $userStoresData = $db->readAll('user_stores') ?? [];
+                error_log("Total user_stores records: " . count($userStoresData));
+                
+                $userStoreAccess = [];
+                
+                foreach ($userStoresData as $id => $access) {
+                    if (($access['user_id'] ?? '') === $targetUserId) {
+                        $userStoreAccess[$access['store_id'] ?? ''] = $access;
+                        error_log("Found store access - ID: $id, Store: " . ($access['store_id'] ?? 'unknown'));
+                    }
+                }
+                
+                error_log("User has access to " . count($userStoreAccess) . " stores");
+                
+                $storeIds = array_keys($userStoreAccess);
+                $stores = [];
+                
+                // Load all active stores
+                $allStores = $db->readAll('stores') ?? [];
+                
+                foreach ($allStores as $storeId => $store) {
+                    if (($store['active'] ?? true) && in_array($storeId, $storeIds)) {
+                        $store['id'] = $storeId;
+                        $store['permissions'] = $userStoreAccess[$storeId]['permissions'] ?? [];
+                        $stores[] = $store;
+                        error_log("Added store: " . ($store['store_name'] ?? $storeId));
+                    }
+                }
+                
+                error_log("Returning " . count($stores) . " stores from Firebase");
+                
+                echo json_encode([
+                    'success' => true,
+                    'data' => $stores,
+                    'count' => count($stores),
+                    'source' => 'firebase'
+                ]);
             }
-            
-            error_log("Returning " . count($stores) . " stores");
-            
-            echo json_encode([
-                'success' => true,
-                'data' => $stores,
-                'count' => count($stores)
-            ]);
             break;
             
         case 'get_available_stores':
@@ -796,219 +1033,413 @@ try {
             
         case 'add_store_access':
             // Only admin can add store access for users
-            $currentUser = $db->read('users', $userId);
-            $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
-            
-            if (!$isAdmin) {
-                http_response_code(403);
-                echo json_encode(['success' => false, 'error' => 'Permission denied']);
-                exit;
-            }
-            
-            if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-                http_response_code(405);
-                echo json_encode(['success' => false, 'error' => 'Method not allowed']);
-                exit;
-            }
-            
-            $input = json_decode(file_get_contents('php://input'), true);
-            $targetUserId = $input['user_id'] ?? null;
-            $storeIds = $input['store_ids'] ?? ($input['store_id'] ? [$input['store_id']] : null);
-            
-            if (!$targetUserId || !$storeIds || !is_array($storeIds) || empty($storeIds)) {
-                echo json_encode(['success' => false, 'error' => 'Missing user_id or store_ids']);
-                exit;
-            }
-            
-            $successCount = 0;
-            $failedStores = [];
-            $assignedStores = [];
-            
-            foreach ($storeIds as $storeId) {
-                // Check if store exists
-                $store = $db->read('stores', $storeId);
-                if (!$store) {
-                    $failedStores[] = "Store $storeId not found";
-                    continue;
+            try {
+                $currentUser = $sqlDb->fetch("SELECT role FROM users WHERE id = ? OR firebase_id = ?", [$userId, $userId]);
+                if (!$currentUser) {
+                    $currentUser = $db->read('users', $userId);
+                }
+                $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
+                
+                if (!$isAdmin) {
+                    http_response_code(403);
+                    echo json_encode(['success' => false, 'error' => 'Permission denied']);
+                    exit;
                 }
                 
-                // Check if access already exists
-                $allUserStores = $db->readAll('user_stores') ?? [];
-                $exists = false;
-                foreach ($allUserStores as $record) {
-                    if (($record['user_id'] ?? '') === $targetUserId && ($record['store_id'] ?? '') === $storeId) {
-                        $exists = true;
-                        break;
+                if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+                    http_response_code(405);
+                    echo json_encode(['success' => false, 'error' => 'Method not allowed']);
+                    exit;
+                }
+                
+                $input = json_decode(file_get_contents('php://input'), true);
+                $targetUserId = $input['user_id'] ?? null;
+                $storeIds = $input['store_ids'] ?? ($input['store_id'] ? [$input['store_id']] : null);
+                
+                if (!$targetUserId || !$storeIds || !is_array($storeIds) || empty($storeIds)) {
+                    echo json_encode(['success' => false, 'error' => 'Missing user_id or store_ids']);
+                    exit;
+                }
+                
+                $successCount = 0;
+                $failedStores = [];
+                $assignedStores = [];
+                
+                // Get the target user's database ID (not firebase_id)
+                $targetUser = $sqlDb->fetch("SELECT id, username FROM users WHERE id = ? OR firebase_id = ?", [$targetUserId, $targetUserId]);
+                if (!$targetUser) {
+                    echo json_encode(['success' => false, 'error' => 'Target user not found']);
+                    exit;
+                }
+                $targetUserDbId = $targetUser['id'];
+                
+                foreach ($storeIds as $storeId) {
+                    // Check if store exists in PostgreSQL
+                    $store = $sqlDb->fetch("SELECT id, name FROM stores WHERE id = ?", [$storeId]);
+                    if (!$store) {
+                        $failedStores[] = "Store $storeId not found";
+                        continue;
+                    }
+                    
+                    // Check if access already exists
+                    $existing = $sqlDb->fetch("SELECT id FROM user_store_access WHERE user_id = ? AND store_id = ?", [$targetUserDbId, $storeId]);
+                    
+                    if ($existing) {
+                        $failedStores[] = ($store['name'] ?? $storeId) . " (already has access)";
+                        continue;
+                    }
+                    
+                    // Insert new store access
+                    $created = $sqlDb->execute("
+                        INSERT INTO user_store_access (user_id, store_id, granted_by, granted_at)
+                        VALUES (?, ?, ?, NOW())
+                    ", [$targetUserDbId, $storeId, $userId]);
+                    
+                    if ($created) {
+                        $successCount++;
+                        $assignedStores[] = $store['name'] ?? $storeId;
+                    } else {
+                        $failedStores[] = ($store['name'] ?? $storeId) . " (database error)";
                     }
                 }
                 
-                if ($exists) {
-                    $failedStores[] = ($store['store_name'] ?? $storeId) . " (already has access)";
-                    continue;
+                if ($successCount > 0) {
+                    // Log activity for successful assignments
+                    logActivity(
+                        'store_access_granted',
+                        "Granted store access to user for " . $successCount . " store(s): " . implode(', ', $assignedStores),
+                        [
+                            'target_user' => $targetUserId,
+                            'stores_assigned' => $assignedStores,
+                            'count' => $successCount
+                        ]
+                    );
                 }
                 
-                // Create user_store access
-                $accessId = uniqid('us_', true);
-                $created = $db->create('user_stores', [
-                    'user_id' => $targetUserId,
-                    'store_id' => $storeId,
-                    'assigned_by' => $userId,
-                    'assigned_at' => date('c'),
-                    'created_at' => date('c')
-                ], $accessId);
-                
-                if ($created) {
-                    $successCount++;
-                    $assignedStores[] = $store['store_name'] ?? $store['name'] ?? $storeId;
+                if ($successCount === count($storeIds)) {
+                    echo json_encode([
+                        'success' => true,
+                        'message' => "Successfully assigned access to $successCount store(s)",
+                        'count' => $successCount,
+                        'source' => 'postgresql'
+                    ]);
+                } elseif ($successCount > 0) {
+                    echo json_encode([
+                        'success' => true,
+                        'message' => "Assigned $successCount of " . count($storeIds) . " stores. Some failed: " . implode(', ', $failedStores),
+                        'count' => $successCount,
+                        'failed' => $failedStores,
+                        'source' => 'postgresql'
+                    ]);
                 } else {
-                    $failedStores[] = ($store['store_name'] ?? $store['name'] ?? $storeId) . " (database error)";
+                    echo json_encode([
+                        'success' => false,
+                        'error' => 'Failed to assign any stores: ' . implode(', ', $failedStores),
+                        'failed' => $failedStores
+                    ]);
                 }
-            }
-            
-            if ($successCount > 0) {
-                // Log activity for successful assignments
-                logActivity(
-                    'store_access_granted',
-                    "Granted store access to user for " . $successCount . " store(s): " . implode(', ', $assignedStores),
-                    [
-                        'target_user' => $targetUserId,
-                        'stores_assigned' => $assignedStores,
-                        'count' => $successCount
-                    ]
-                );
-            }
-            
-            if ($successCount === count($storeIds)) {
-                echo json_encode([
-                    'success' => true,
-                    'message' => "Successfully assigned access to $successCount store(s)",
-                    'count' => $successCount
-                ]);
-            } elseif ($successCount > 0) {
-                echo json_encode([
-                    'success' => true,
-                    'message' => "Assigned $successCount of " . count($storeIds) . " stores. Some failed: " . implode(', ', $failedStores),
-                    'count' => $successCount,
-                    'failed' => $failedStores
-                ]);
-            } else {
-                echo json_encode([
-                    'success' => false,
-                    'error' => 'Failed to assign any stores: ' . implode(', ', $failedStores),
-                    'failed' => $failedStores
-                ]);
+                
+            } catch (Exception $e) {
+                error_log("PostgreSQL error in add_store_access: " . $e->getMessage());
+                // Fallback to Firebase (existing code)
+                $currentUser = $db->read('users', $userId);
+                $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
+                
+                if (!$isAdmin) {
+                    http_response_code(403);
+                    echo json_encode(['success' => false, 'error' => 'Permission denied']);
+                    exit;
+                }
+                
+                if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+                    http_response_code(405);
+                    echo json_encode(['success' => false, 'error' => 'Method not allowed']);
+                    exit;
+                }
+                
+                $input = json_decode(file_get_contents('php://input'), true);
+                $targetUserId = $input['user_id'] ?? null;
+                $storeIds = $input['store_ids'] ?? ($input['store_id'] ? [$input['store_id']] : null);
+                
+                if (!$targetUserId || !$storeIds || !is_array($storeIds) || empty($storeIds)) {
+                    echo json_encode(['success' => false, 'error' => 'Missing user_id or store_ids']);
+                    exit;
+                }
+                
+                $successCount = 0;
+                $failedStores = [];
+                $assignedStores = [];
+                
+                foreach ($storeIds as $storeId) {
+                    // Check if store exists
+                    $store = $db->read('stores', $storeId);
+                    if (!$store) {
+                        $failedStores[] = "Store $storeId not found";
+                        continue;
+                    }
+                    
+                    // Check if access already exists
+                    $allUserStores = $db->readAll('user_stores') ?? [];
+                    $exists = false;
+                    foreach ($allUserStores as $record) {
+                        if (($record['user_id'] ?? '') === $targetUserId && ($record['store_id'] ?? '') === $storeId) {
+                            $exists = true;
+                            break;
+                        }
+                    }
+                    
+                    if ($exists) {
+                        $failedStores[] = ($store['store_name'] ?? $storeId) . " (already has access)";
+                        continue;
+                    }
+                    
+                    // Create user_store access
+                    $accessId = uniqid('us_', true);
+                    $created = $db->create('user_stores', [
+                        'user_id' => $targetUserId,
+                        'store_id' => $storeId,
+                        'assigned_by' => $userId,
+                        'assigned_at' => date('c'),
+                        'created_at' => date('c')
+                    ], $accessId);
+                    
+                    if ($created) {
+                        $successCount++;
+                        $assignedStores[] = $store['store_name'] ?? $store['name'] ?? $storeId;
+                    } else {
+                        $failedStores[] = ($store['store_name'] ?? $store['name'] ?? $storeId) . " (database error)";
+                    }
+                }
+                
+                if ($successCount > 0) {
+                    // Log activity for successful assignments
+                    logActivity(
+                        'store_access_granted',
+                        "Granted store access to user for " . $successCount . " store(s): " . implode(', ', $assignedStores),
+                        [
+                            'target_user' => $targetUserId,
+                            'stores_assigned' => $assignedStores,
+                            'count' => $successCount
+                        ]
+                    );
+                }
+                
+                if ($successCount === count($storeIds)) {
+                    echo json_encode([
+                        'success' => true,
+                        'message' => "Successfully assigned access to $successCount store(s)",
+                        'count' => $successCount,
+                        'source' => 'firebase'
+                    ]);
+                } elseif ($successCount > 0) {
+                    echo json_encode([
+                        'success' => true,
+                        'message' => "Assigned $successCount of " . count($storeIds) . " stores. Some failed: " . implode(', ', $failedStores),
+                        'count' => $successCount,
+                        'failed' => $failedStores,
+                        'source' => 'firebase'
+                    ]);
+                } else {
+                    echo json_encode([
+                        'success' => false,
+                        'error' => 'Failed to assign any stores: ' . implode(', ', $failedStores),
+                        'failed' => $failedStores
+                    ]);
+                }
             }
             break;
             
         case 'remove_store_access':
             error_log("=== REMOVE_STORE_ACCESS API CALLED ===");
-            // Only admin can remove store access
-            $currentUser = $db->read('users', $userId);
-            $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
             
-            if (!$isAdmin) {
-                http_response_code(403);
-                echo json_encode(['success' => false, 'error' => 'Permission denied']);
-                exit;
-            }
-            
-            if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-                http_response_code(405);
-                echo json_encode(['success' => false, 'error' => 'Method not allowed']);
-                exit;
-            }
-            
-            $input = json_decode(file_get_contents('php://input'), true);
-            $targetUserId = $input['user_id'] ?? null;
-            $storeId = $input['store_id'] ?? null;
-            
-            error_log("Target User ID: " . $targetUserId);
-            error_log("Store ID to remove: " . $storeId);
-            
-            if (!$targetUserId || !$storeId) {
-                echo json_encode(['success' => false, 'error' => 'Missing user_id or store_id']);
-                exit;
-            }
-            
-            // Find the user_store record - Get ALL to debug
-            $allUserStores = $db->readAll('user_stores') ?? [];
-            error_log("Total user_stores in database: " . count($allUserStores));
-            
-            // Find matching records
-            $matchingRecords = [];
-            foreach ($allUserStores as $id => $record) {
-                if (($record['user_id'] ?? '') === $targetUserId && ($record['store_id'] ?? '') === $storeId) {
-                    $matchingRecords[$id] = $record;
-                    error_log("Found matching record - ID: $id");
+            try {
+                // Only admin can remove store access - check PostgreSQL first
+                $currentUser = $sqlDb->fetch("SELECT role FROM users WHERE id = ? OR firebase_id = ?", [$userId, $userId]);
+                if (!$currentUser) {
+                    $currentUser = $db->read('users', $userId);
+                }
+                $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
+                
+                if (!$isAdmin) {
+                    http_response_code(403);
+                    echo json_encode(['success' => false, 'error' => 'Permission denied']);
+                    exit;
+                }
+                
+                if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+                    http_response_code(405);
+                    echo json_encode(['success' => false, 'error' => 'Method not allowed']);
+                    exit;
+                }
+                
+                $input = json_decode(file_get_contents('php://input'), true);
+                $targetUserId = $input['user_id'] ?? null;
+                $storeId = $input['store_id'] ?? null;
+                
+                error_log("Target User ID: " . $targetUserId);
+                error_log("Store ID to remove: " . $storeId);
+                
+                if (!$targetUserId || !$storeId) {
+                    echo json_encode(['success' => false, 'error' => 'Missing user_id or store_id']);
+                    exit;
+                }
+                
+                // Get the target user's database ID
+                $targetUser = $sqlDb->fetch("SELECT id FROM users WHERE id = ? OR firebase_id = ?", [$targetUserId, $targetUserId]);
+                if (!$targetUser) {
+                    echo json_encode(['success' => false, 'error' => 'User not found']);
+                    exit;
+                }
+                $targetUserDbId = $targetUser['id'];
+                
+                // Delete from PostgreSQL
+                $deleted = $sqlDb->execute("DELETE FROM user_store_access WHERE user_id = ? AND store_id = ?", [$targetUserDbId, $storeId]);
+                
+                error_log("PostgreSQL delete operation returned: " . ($deleted ? 'TRUE' : 'FALSE'));
+                
+                if ($deleted) {
+                    // Get store name for logging
+                    $store = $sqlDb->fetch("SELECT name FROM stores WHERE id = ?", [$storeId]);
+                    $storeName = $store['name'] ?? $storeId;
+                    
+                    error_log("SUCCESS: Deleted store access for: " . $storeName);
+                    
+                    // Log activity
+                    logActivity(
+                        'store_access_revoked',
+                        "Revoked store access from user for store: {$storeName}",
+                        [
+                            'target_user' => $targetUserId,
+                            'store_id' => $storeId,
+                            'store_name' => $storeName
+                        ]
+                    );
+                    
+                    echo json_encode([
+                        'success' => true,
+                        'message' => 'Store access removed successfully',
+                        'source' => 'postgresql'
+                    ]);
+                } else {
+                    error_log("ERROR: PostgreSQL delete failed");
+                    echo json_encode([
+                        'success' => false, 
+                        'error' => 'Failed to remove store access'
+                    ]);
+                }
+                
+            } catch (Exception $e) {
+                error_log("PostgreSQL error in remove_store_access: " . $e->getMessage());
+                // Fallback to Firebase
+                $currentUser = $db->read('users', $userId);
+                $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
+                
+                if (!$isAdmin) {
+                    http_response_code(403);
+                    echo json_encode(['success' => false, 'error' => 'Permission denied']);
+                    exit;
+                }
+                
+                if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+                    http_response_code(405);
+                    echo json_encode(['success' => false, 'error' => 'Method not allowed']);
+                    exit;
+                }
+                
+                $input = json_decode(file_get_contents('php://input'), true);
+                $targetUserId = $input['user_id'] ?? null;
+                $storeId = $input['store_id'] ?? null;
+                
+                error_log("Target User ID: " . $targetUserId);
+                error_log("Store ID to remove: " . $storeId);
+                
+                if (!$targetUserId || !$storeId) {
+                    echo json_encode(['success' => false, 'error' => 'Missing user_id or store_id']);
+                    exit;
+                }
+                
+                // Find the user_store record - Get ALL to debug
+                $allUserStores = $db->readAll('user_stores') ?? [];
+                error_log("Total user_stores in database: " . count($allUserStores));
+                
+                // Find matching records
+                $matchingRecords = [];
+                foreach ($allUserStores as $id => $record) {
+                    if (($record['user_id'] ?? '') === $targetUserId && ($record['store_id'] ?? '') === $storeId) {
+                        $matchingRecords[$id] = $record;
+                        error_log("Found matching record - ID: $id");
+                    }
+                }
+                
+                error_log("Found " . count($matchingRecords) . " matching records");
+                
+                if (empty($matchingRecords)) {
+                    error_log("ERROR: Store access not found!");
+                    echo json_encode([
+                        'success' => false, 
+                        'error' => 'Store access not found',
+                        'debug' => [
+                            'total_records' => count($allUserStores),
+                            'target_user' => $targetUserId,
+                            'target_store' => $storeId
+                        ]
+                    ]);
+                    exit;
+                }
+                
+                // Get the first matching record
+                $userStoreId = array_keys($matchingRecords)[0];
+                error_log("Attempting to delete user_store ID: " . $userStoreId);
+                
+                // Delete the access
+                $deleted = $db->delete('user_stores', $userStoreId);
+                
+                error_log("Delete operation returned: " . ($deleted ? 'TRUE' : 'FALSE'));
+                
+                // Verify deletion by checking if record still exists
+                $stillExists = $db->read('user_stores', $userStoreId);
+                error_log("After delete, record still exists: " . ($stillExists ? 'YES' : 'NO'));
+                
+                if ($deleted && !$stillExists) {
+                    $store = $db->read('stores', $storeId);
+                    $storeName = $store['store_name'] ?? $storeId;
+                    
+                    error_log("SUCCESS: Deleted store access for: " . $storeName);
+                    
+                    // Log activity
+                    logActivity(
+                        'store_access_revoked',
+                        "Revoked store access from user for store: {$storeName}",
+                        [
+                            'target_user' => $targetUserId,
+                            'store_id' => $storeId,
+                            'store_name' => $storeName
+                        ]
+                    );
+                    
+                    echo json_encode([
+                        'success' => true,
+                        'message' => 'Store access removed successfully',
+                        'source' => 'firebase',
+                        'debug' => [
+                            'deleted_id' => $userStoreId,
+                            'verified' => !$stillExists
+                        ]
+                    ]);
+                } else {
+                    error_log("ERROR: Delete returned true but record still exists or delete failed");
+                    echo json_encode([
+                        'success' => false, 
+                        'error' => 'Failed to remove store access - verification failed',
+                        'debug' => [
+                            'delete_returned' => $deleted,
+                            'still_exists' => $stillExists ? true : false,
+                            'attempted_id' => $userStoreId
+                        ]
+                    ]);
                 }
             }
-            
-            error_log("Found " . count($matchingRecords) . " matching records");
-            
-            if (empty($matchingRecords)) {
-                error_log("ERROR: Store access not found!");
-                echo json_encode([
-                    'success' => false, 
-                    'error' => 'Store access not found',
-                    'debug' => [
-                        'total_records' => count($allUserStores),
-                        'target_user' => $targetUserId,
-                        'target_store' => $storeId
-                    ]
-                ]);
-                exit;
-            }
-            
-            // Get the first matching record
-            $userStoreId = array_keys($matchingRecords)[0];
-            error_log("Attempting to delete user_store ID: " . $userStoreId);
-            
-            // Delete the access
-            $deleted = $db->delete('user_stores', $userStoreId);
-            
-            error_log("Delete operation returned: " . ($deleted ? 'TRUE' : 'FALSE'));
-            
-            // Verify deletion by checking if record still exists
-            $stillExists = $db->read('user_stores', $userStoreId);
-            error_log("After delete, record still exists: " . ($stillExists ? 'YES' : 'NO'));
-            
-            if ($deleted && !$stillExists) {
-                $store = $db->read('stores', $storeId);
-                $storeName = $store['store_name'] ?? $storeId;
-                
-                error_log("SUCCESS: Deleted store access for: " . $storeName);
-                
-                // Log activity
-                logActivity(
-                    'store_access_revoked',
-                    "Revoked store access from user for store: {$storeName}",
-                    [
-                        'target_user' => $targetUserId,
-                        'store_id' => $storeId,
-                        'store_name' => $storeName
-                    ]
-                );
-                
-                echo json_encode([
-                    'success' => true,
-                    'message' => 'Store access removed successfully',
-                    'debug' => [
-                        'deleted_id' => $userStoreId,
-                        'verified' => !$stillExists
-                    ]
-                ]);
-            } else {
-                error_log("ERROR: Delete returned true but record still exists or delete failed");
-                echo json_encode([
-                    'success' => false, 
-                    'error' => 'Failed to remove store access - verification failed',
-                    'debug' => [
-                        'delete_returned' => $deleted,
-                        'still_exists' => $stillExists ? true : false,
-                        'attempted_id' => $userStoreId
-                    ]
-                ]);
-            }
+            break;
             break;
             
         case 'get_all_stores_for_management':

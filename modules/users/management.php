@@ -6,6 +6,7 @@
 
 require_once '../../config.php';
 require_once '../../db.php';
+require_once '../../sql_db.php';
 require_once '../../functions.php';
 
 session_start();
@@ -23,9 +24,20 @@ if (!currentUserHasPermission('can_manage_users') && !currentUserHasPermission('
     exit;
 }
 
-$db = getDB();
+$db = getDB(); // Firebase fallback
+$sqlDb = SQLDatabase::getInstance(); // PostgreSQL - PRIMARY
 $currentUserId = $_SESSION['user_id'];
-$currentUser = $db->read('users', $currentUserId);
+
+// Try PostgreSQL first for current user
+try {
+    $currentUser = $sqlDb->fetch("SELECT * FROM users WHERE id = ? OR firebase_id = ?", [$currentUserId, $currentUserId]);
+    if (!$currentUser) {
+        $currentUser = $db->read('users', $currentUserId);
+    }
+} catch (Exception $e) {
+    $currentUser = $db->read('users', $currentUserId);
+}
+
 $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
 
 // Get selected user for viewing (default to showing all)

@@ -2,6 +2,7 @@
 // Add New Store Page
 require_once '../../config.php';
 require_once '../../db.php';
+require_once '../../sql_db.php';
 require_once '../../functions.php';
 require_once '../../activity_logger.php';
 
@@ -20,7 +21,8 @@ if (!currentUserHasPermission('can_add_stores')) {
     exit;
 }
 
-$db = getDB();
+$db = getDB(); // Firebase fallback
+$sqlDb = SQLDatabase::getInstance(); // PostgreSQL - PRIMARY
 $errors = [];
 $success = false;
 
@@ -70,10 +72,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     
     if (!empty($code)) {
-        // Check if store code already exists (Firebase)
-        $existing_store = $db->readAll('stores', [['code', '==', $code], ['active', '==', 1]]);
-        if (!empty($existing_store)) {
-            $errors[] = 'Store code already exists';
+        // Check if store code already exists (PostgreSQL)
+        try {
+            $existing_store = $sqlDb->fetch("SELECT id FROM stores WHERE code = ? AND active = TRUE", [$code]);
+            if ($existing_store) {
+                $errors[] = 'Store code already exists';
+            }
+        } catch (Exception $e) {
+            // Fallback to Firebase
+            $existing_store = $db->readAll('stores', [['code', '==', $code], ['active', '==', 1]]);
+            if (!empty($existing_store)) {
+                $errors[] = 'Store code already exists';
+            }
         }
     }
     
@@ -83,82 +93,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     // Check if store name already exists
     if (empty($errors)) {
-        $existing_store = $db->readAll('stores', [['name', '==', $name], ['active', '==', 1]]);
-        if (!empty($existing_store)) {
-            $errors[] = 'Store name already exists';
+        try {
+            $existing_store = $sqlDb->fetch("SELECT id FROM stores WHERE name = ? AND active = TRUE", [$name]);
+            if ($existing_store) {
+                $errors[] = 'Store name already exists';
+            }
+        } catch (Exception $e) {
+            // Fallback to Firebase
+            $existing_store = $db->readAll('stores', [['name', '==', $name], ['active', '==', 1]]);
+            if (!empty($existing_store)) {
+                $errors[] = 'Store name already exists';
+            }
         }
     }
     
     // Create store if no errors
     if (empty($errors)) {
         try {
-            // Prepare store data for Firebase
-            $storeData = [
-                'name' => $name,
-                'code' => $code,
-                'address' => $address,
-                'city' => $city,
-                'state' => $state,
-                'zip_code' => $zip_code,
-                'phone' => $phone,
-                'email' => $email,
-                'manager_name' => $manager_name,
-                'description' => $description,
-                'latitude' => $latitude ? floatval($latitude) : null,
-                'longitude' => $longitude ? floatval($longitude) : null,
-                'store_type' => $store_type,
-                'region_id' => $region_id,
-                'opening_hours' => $opening_hours,
-                'closing_hours' => $closing_hours,
-                'square_footage' => $square_footage ? intval($square_footage) : null,
-                'max_capacity' => $max_capacity ? intval($max_capacity) : null,
-                'created_by' => $_SESSION['user_id'],
-                'created_at' => date('c'),
-                'updated_at' => date('c'),
-                'active' => 1,
-                'status' => 'active',
-                // POS Integration
-                'has_pos' => $has_pos,
-                'pos_terminal_id' => $pos_terminal_id,
-                'pos_type' => $pos_type,
-                'pos_notes' => $pos_notes,
-                'pos_enabled_at' => $has_pos ? date('c') : null
-            ];
-            $result = $db->create('stores', $storeData);
+            // Prepare store data for PostgreSQL
+            $result = $sqlDb->execute("
+                INSERT INTO stores (
+                    name, code, address, city, state, zip_code, phone, email, manager_name,
+                    description, latitude, longitude, store_type, region_id, opening_hours,
+                    closing_hours, square_footage, max_capacity, created_by, created_at,
+                    updated_at, active, status, has_pos, pos_terminal_id, pos_type, pos_notes,
+                    pos_enabled_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), TRUE, ?, ?, ?, ?, ?, ?)
+            ", [
+                $name, $code, $address, $city, $state, $zip_code, $phone, $email, $manager_name,
+                $description, $latitude ? floatval($latitude) : null, $longitude ? floatval($longitude) : null,
+                $store_type, $region_id, $opening_hours, $closing_hours,
+                $square_footage ? intval($square_footage) : null, $max_capacity ? intval($max_capacity) : null,
+                $_SESSION['user_id'], 'active', $has_pos, $pos_terminal_id, $pos_type, $pos_notes,
+                $has_pos ? date('Y-m-d H:i:s') : null
+            ]);
+            
             if ($result) {
-                // If POS is enabled, also sync to SQL database for POS usage
-                if ($has_pos) {
-                    try {
-                        require_once '../../sql_db.php';
-                        $sqlDb = getSQLDB();
-                        
-                        $sqlDb->execute(
-                            "INSERT OR REPLACE INTO stores (name, code, address, city, phone, manager, firebase_id, has_pos, pos_terminal_id, pos_type, created_at) 
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
-                            [
-                                $name, 
-                                $code, 
-                                $address, 
-                                $city, 
-                                $phone, 
-                                $manager_name, 
-                                $result, 
-                                1, 
-                                $pos_terminal_id, 
-                                $pos_type
-                            ]
-                        );
-                        error_log("Store synced to SQL for POS: {$name} (Firebase ID: {$result})");
-                    } catch (Exception $e) {
-                        error_log("Failed to sync store to SQL: " . $e->getMessage());
-                        // Don't fail the whole operation if SQL sync fails
-                    }
-                }
-                
                 // Log the activity
-                error_log("Store created with ID: {$result}, Name: {$name}, User: {$_SESSION['user_id']}");
+                error_log("Store created - Name: {$name}, User: {$_SESSION['user_id']}");
                 
-                $activityResult = logStoreActivity('created', $result, $name);
+                $activityResult = logStoreActivity('created', $name, $name);
                 error_log("Activity logging result: " . ($activityResult ? 'SUCCESS' : 'FAILED'));
                 
                 addNotification('Store created successfully!' . ($has_pos ? ' POS integration enabled.' : ''), 'success');
@@ -752,7 +726,11 @@ $page_title = 'Add New Store - Inventory System';
                                 <select id="region_id" name="region_id">
                                     <option value="">Select Region</option>
                                     <?php
-                                    $regions = $db->readAll('regions', [['active', '==', 1]]);
+                                    try {
+                                        $regions = $sqlDb->fetchAll("SELECT * FROM regions WHERE active = TRUE ORDER BY name ASC");
+                                    } catch (Exception $e) {
+                                        $regions = $db->readAll('regions', [['active', '==', 1]]);
+                                    }
                                     foreach ($regions as $region):
                                     ?>
                                         <option value="<?php echo htmlspecialchars($region['id']); ?>" 

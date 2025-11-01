@@ -6,8 +6,8 @@ class SQLDatabase {
     
     private function __construct() {
         try {
-            if (DB_DRIVER === 'sqlite') {
-                // Create storage directory if it doesn't exist
+            if (DB_DRIVER === 'sqlite' || DB_TYPE === 'sqlite') {
+                // SQLite configuration
                 $db_dir = dirname(DB_NAME);
                 if (!file_exists($db_dir)) {
                     mkdir($db_dir, 0777, true);
@@ -24,13 +24,15 @@ class SQLDatabase {
                 // Upgrade existing tables if needed
                 $this->upgradeDatabase();
                 
-            } else {
-                // PostgreSQL or MySQL
-                if (DB_DRIVER === 'pgsql') {
-                    $dsn = DB_DRIVER . ':host=' . DB_HOST . ';port=' . DB_PORT . ';dbname=' . DB_NAME . ';charset=' . DB_CHARSET;
-                } else {
-                    $dsn = 'mysql:host=' . DB_HOST . ';dbname=' . DB_NAME . ';charset=utf8mb4';
-                }
+            } elseif (DB_DRIVER === 'pgsql' || DB_TYPE === 'pgsql') {
+                // PostgreSQL configuration
+                $host = defined('PG_HOST') ? PG_HOST : 'localhost';
+                $port = defined('PG_PORT') ? PG_PORT : 5432;
+                $database = defined('PG_DATABASE') ? PG_DATABASE : 'inventory_system';
+                $username = defined('PG_USERNAME') ? PG_USERNAME : 'postgres';
+                $password = defined('PG_PASSWORD') ? PG_PASSWORD : '';
+                
+                $dsn = "pgsql:host={$host};port={$port};dbname={$database}";
                 
                 $options = [
                     PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
@@ -39,7 +41,31 @@ class SQLDatabase {
                     PDO::ATTR_PERSISTENT         => false,
                 ];
                 
-                $this->pdo = new PDO($dsn, DB_USERNAME, DB_PASSWORD, $options);
+                $this->pdo = new PDO($dsn, $username, $password, $options);
+                
+                // Set search path for PostgreSQL
+                $this->pdo->exec("SET search_path TO public");
+                
+            } elseif (DB_DRIVER === 'mysql' || DB_TYPE === 'mysql') {
+                // MySQL configuration
+                $host = defined('MYSQL_HOST') ? MYSQL_HOST : 'localhost';
+                $port = defined('MYSQL_PORT') ? MYSQL_PORT : 3306;
+                $database = defined('MYSQL_DATABASE') ? MYSQL_DATABASE : 'inventory_system';
+                $username = defined('MYSQL_USERNAME') ? MYSQL_USERNAME : 'root';
+                $password = defined('MYSQL_PASSWORD') ? MYSQL_PASSWORD : '';
+                
+                $dsn = "mysql:host={$host};port={$port};dbname={$database};charset=utf8mb4";
+                
+                $options = [
+                    PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+                    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                    PDO::ATTR_EMULATE_PREPARES   => false,
+                    PDO::ATTR_PERSISTENT         => false,
+                ];
+                
+                $this->pdo = new PDO($dsn, $username, $password, $options);
+            } else {
+                throw new Exception("Unsupported database driver: " . (defined('DB_TYPE') ? DB_TYPE : DB_DRIVER));
             }
             
         } catch (PDOException $e) {

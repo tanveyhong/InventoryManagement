@@ -2,6 +2,7 @@
 // Delete Store Page
 require_once '../../config.php';
 require_once '../../db.php';
+require_once '../../sql_db.php';
 require_once '../../functions.php';
 
 session_start();
@@ -18,45 +19,49 @@ if (!currentUserHasPermission('can_delete_stores')) {
     exit;
 }
 
-$db = getDB();
+$db = getDB(); // Firebase fallback
+$sqlDb = SQLDatabase::getInstance(); // PostgreSQL - PRIMARY
 $store_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
 
-// Get store data
-$store = $db->fetch("SELECT * FROM stores WHERE id = ? AND active = 1", [$store_id]);
-
-if (!$store) {
-    addNotification('Store not found', 'error');
+// Get store data from PostgreSQL
+try {
+    $store = $sqlDb->fetch("SELECT * FROM stores WHERE id = ? AND active = TRUE", [$store_id]);
+    
+    if (!$store) {
+        addNotification('Store not found', 'error');
+        header('Location: list.php');
+        exit;
+    }
+    
+    // Check if store has products
+    $product_count_result = $sqlDb->fetch("SELECT COUNT(*) as count FROM products WHERE store_id = ? AND active = TRUE", [$store_id]);
+    $product_count = $product_count_result['count'] ?? 0;
+    
+} catch (Exception $e) {
+    addNotification('Database error: ' . $e->getMessage(), 'error');
     header('Location: list.php');
     exit;
 }
 
-// Check if store has products
-$product_count = $db->fetch("SELECT COUNT(*) as count FROM products WHERE store_id = ? AND active = 1", [$store_id])['count'] ?? 0;
-
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_delete'])) {
     try {
-        $db->beginTransaction();
-        
         if ($product_count > 0) {
             // Move products to default store or mark as inactive
-            $db->query("UPDATE products SET store_id = NULL, updated_at = NOW() WHERE store_id = ?", [$store_id]);
+            $sqlDb->execute("UPDATE products SET store_id = NULL, updated_at = NOW() WHERE store_id = ?", [$store_id]);
         }
         
         // Soft delete the store
-        $result = $db->query("UPDATE stores SET active = 0, updated_at = NOW() WHERE id = ?", [$store_id]);
+        $result = $sqlDb->execute("UPDATE stores SET active = FALSE, updated_at = NOW() WHERE id = ?", [$store_id]);
         
         if ($result) {
-            $db->commit();
             addNotification('Store deleted successfully!', 'success');
             header('Location: list.php');
             exit;
         } else {
-            $db->rollback();
             addNotification('Failed to delete store. Please try again.', 'error');
         }
         
     } catch (Exception $e) {
-        $db->rollback();
         addNotification('Error deleting store: ' . $e->getMessage(), 'error');
     }
 }
