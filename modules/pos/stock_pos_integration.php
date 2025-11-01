@@ -3,11 +3,12 @@
  * Stock-POS Integration Dashboard
  * Shows real-time synchronization between stock and POS systems
  * Manage POS enable/disable per store
+ * OPTIMIZED: PostgreSQL-first with fast queries
  */
 
 require_once __DIR__ . '/../../config.php';
+require_once __DIR__ . '/../../sql_db.php';
 require_once __DIR__ . '/../../functions.php';
-require_once __DIR__ . '/../../getDB.php';
 
 session_start();
 
@@ -23,7 +24,6 @@ if (!currentUserHasPermission('can_view_inventory') && !currentUserHasPermission
     exit;
 }
 
-$db = getDB();
 $messages = [];
 
 // Handle batch add products to store (NEW ARCHITECTURE: Assign main products to stores)
@@ -39,7 +39,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['batch_add_products'])
             $added_count = 0;
             $skipped_count = 0;
             $skip_reasons = [];
-            $sqlDb = getSQLDB();
+            $sqlDb = SQLDatabase::getInstance();
             
             error_log("===== BATCH ASSIGN PRODUCTS TO STORE =====");
             error_log("Target Store ID: $target_store_id");
@@ -51,17 +51,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['batch_add_products'])
                 $assignQty = isset($quantities[$idx]) ? (int)$quantities[$idx] : 0;
                 
                 // Load MAIN product (store_id = NULL)
-                if ($sqlDb) {
-                    try {
-                        $mainProduct = $sqlDb->fetch("SELECT * FROM products WHERE id = ? AND store_id IS NULL LIMIT 1", [$product_id]);
-                        if ($mainProduct) {
-                            error_log("✓ Found main product: {$mainProduct['name']} (SKU: {$mainProduct['sku']}, Qty: {$mainProduct['quantity']})");
-                        } else {
-                            error_log("✗ Product ID $product_id not found or is not a main product");
-                        }
-                    } catch (Exception $e) {
-                        error_log("✗ SQL product fetch error: " . $e->getMessage());
+                try {
+                    $mainProduct = $sqlDb->fetch("SELECT * FROM products WHERE id = ? AND store_id IS NULL LIMIT 1", [$product_id]);
+                    if ($mainProduct) {
+                        error_log("✓ Found main product: {$mainProduct['name']} (SKU: {$mainProduct['sku']}, Qty: {$mainProduct['quantity']})");
+                    } else {
+                        error_log("✗ Product ID $product_id not found or is not a main product");
                     }
+                } catch (Exception $e) {
+                    error_log("✗ SQL product fetch error: " . $e->getMessage());
                 }
                 
                 if (!$mainProduct) {
@@ -96,24 +94,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['batch_add_products'])
                 error_log("Creating store variant with SKU: $variantSku");
                 
                 // Check if variant already exists
-                $existing = null;
-                if ($sqlDb) {
-                    $existing = $sqlDb->fetch("SELECT id FROM products WHERE sku = ? AND active = 1 LIMIT 1", [$variantSku]);
-                    if ($existing) {
-                        error_log("✗ Store variant already exists: $variantSku");
-                    }
-                }
-                
+                $existing = $sqlDb->fetch("SELECT id FROM products WHERE sku = ? AND active = TRUE LIMIT 1", [$variantSku]);
                 if ($existing) {
+                    error_log("✗ Store variant already exists: $variantSku");
                     $skipped_count++;
                     $skip_reasons[] = "Product '$productName': Already assigned to this store";
                     continue;
                 }
                 
                 // NEW ARCHITECTURE: Create store variant and update main product
-                if ($sqlDb) {
-                    try {
-                        $sqlDb->execute("BEGIN TRANSACTION");
+                try {
+                    $sqlDb->execute("BEGIN TRANSACTION");
                         
                         // 1. Create store variant
                         $query = "INSERT INTO products (
@@ -214,15 +205,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['batch_add_products'])
                         error_log("✅ SUCCESS: $productName assigned to store ($assignQty units)");
                         
                     } catch (Exception $e) {
-                        if ($sqlDb) $sqlDb->execute("ROLLBACK");
+                        $sqlDb->execute("ROLLBACK");
                         $skipped_count++;
                         $skip_reasons[] = "Product '$productName': Database error - " . $e->getMessage();
                         error_log("❌ FAILED: " . $e->getMessage());
                     }
-                } else {
-                    $skipped_count++;
-                    $skip_reasons[] = "Product '$productName': Database not available";
-                }
             }
             
             error_log("\n===== BATCH ASSIGN COMPLETE =====");
@@ -262,17 +249,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['toggle_pos'])) {
     $enable_pos = isset($_POST['enable_pos']) && $_POST['enable_pos'] == '1';
     
     try {
+        $sqlDb = SQLDatabase::getInstance();
         $updateData = [
             'has_pos' => $enable_pos ? 1 : 0,
-            'pos_enabled_at' => $enable_pos ? date('c') : null,
-            'updated_at' => date('c')
+            'pos_enabled_at' => $enable_pos ? 'NOW()' : null,
+            'updated_at' => 'NOW()'
         ];
         
-        if ($enable_pos && !empty($_POST['pos_terminal_id'])) {
-            $updateData['pos_terminal_id'] = trim($_POST['pos_terminal_id']);
+        $sql = "UPDATE stores SET has_pos = ?, updated_at = NOW()";
+        $params = [$enable_pos ? 1 : 0];
+        
+        if ($enable_pos) {
+            $sql .= ", pos_enabled_at = NOW()";
+            if (!empty($_POST['pos_terminal_id'])) {
+                $sql .= ", pos_terminal_id = ?";
+                $params[] = trim($_POST['pos_terminal_id']);
+            }
+        } else {
+            $sql .= ", pos_enabled_at = NULL";
         }
         
-        $result = $db->update('stores', $store_id, $updateData);
+        $sql .= " WHERE id = ?";
+        $params[] = $store_id;
+        
+        $result = $sqlDb->execute($sql, $params);
         
         if ($result) {
             $messages[] = [
@@ -287,40 +287,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['toggle_pos'])) {
     }
 }
 
-// OPTIMIZED: Get all stores from SQL (avoid Firebase reads)
+// OPTIMIZED: Get all stores from PostgreSQL (fast query)
 $allStores = [];
-$sqlDb = getSQLDB();
 try {
-    if ($sqlDb) {
-        $storeRows = $sqlDb->fetchAll("SELECT * FROM stores WHERE active = 1 ORDER BY name ASC");
-        foreach ($storeRows as $s) {
-            $allStores[] = [
-                'id' => $s['id'] ?? '',
-                'name' => $s['name'] ?? '',
-                'has_pos' => isset($s['has_pos']) ? intval($s['has_pos']) : 0,
-                'pos_terminal_id' => $s['pos_terminal_id'] ?? '',
-                'pos_type' => $s['pos_type'] ?? 'quick_service',
-                'pos_enabled_at' => $s['pos_enabled_at'] ?? null
-            ];
-        }
+    $sqlDb = SQLDatabase::getInstance();
+    $storeRows = $sqlDb->fetchAll("SELECT * FROM stores WHERE active = TRUE ORDER BY name ASC");
+    foreach ($storeRows as $s) {
+        $allStores[] = [
+            'id' => $s['id'] ?? '',
+            'name' => $s['name'] ?? '',
+            'has_pos' => isset($s['has_pos']) ? intval($s['has_pos']) : 0,
+            'pos_terminal_id' => $s['pos_terminal_id'] ?? '',
+            'pos_type' => $s['pos_type'] ?? 'quick_service',
+            'pos_enabled_at' => $s['pos_enabled_at'] ?? null
+        ];
     }
 } catch (Exception $e) {
     error_log("SQL store load failed: " . $e->getMessage());
     $messages[] = ['type' => 'error', 'text' => 'Failed to load stores: ' . $e->getMessage()];
 }
 
-// OPTIMIZED: Get POS-enabled stores with stats from SQL (ONE query per stat type)
+// OPTIMIZED: Get POS-enabled stores with stats from PostgreSQL (ONE query per stat type)
 $posStores = [];
 $posStoreIds = array_filter(array_map(function($s) {
     return $s['has_pos'] == 1 ? $s['id'] : null;
 }, $allStores));
 
-if (!empty($posStoreIds) && $sqlDb) {
+if (!empty($posStoreIds)) {
     try {
+        $sqlDb = SQLDatabase::getInstance();
         // Get product counts per store in ONE query
         $productStatsQuery = "SELECT store_id, COUNT(*) as product_count, SUM(quantity) as total_stock 
                              FROM products 
-                             WHERE active = 1 AND store_id IN (" . implode(',', array_map('intval', $posStoreIds)) . ") 
+                             WHERE active = TRUE AND store_id IN (" . implode(',', array_map('intval', $posStoreIds)) . ") 
                              GROUP BY store_id";
         $productStats = $sqlDb->fetchAll($productStatsQuery);
         $productStatsByStore = [];
@@ -354,28 +353,27 @@ if (!empty($posStoreIds) && $sqlDb) {
     }
 }
 
-// OPTIMIZED: Get recent sales from SQL (POS now saves to SQL)
+// OPTIMIZED: Get recent sales from PostgreSQL (POS now saves to PostgreSQL)
 $recentSales = [];
 try {
-    if ($sqlDb) {
-        $recentSales = $sqlDb->fetchAll(
-            "SELECT s.*, st.name as store_name 
-             FROM sales s 
-             LEFT JOIN stores st ON s.store_id = st.id 
-             ORDER BY s.created_at DESC 
-             LIMIT 10"
-        );
-        
-        // Handle items - JSON string in SQL
-        foreach ($recentSales as &$sale) {
-            $items = $sale['items'] ?? '[]';
-            if (is_string($items)) {
-                $items = json_decode($items, true) ?? [];
-            }
-            $sale['item_count'] = is_array($items) ? count($items) : 0;
+    $sqlDb = SQLDatabase::getInstance();
+    $recentSales = $sqlDb->fetchAll(
+        "SELECT s.*, st.name as store_name 
+         FROM sales s 
+         LEFT JOIN stores st ON s.store_id = st.id 
+         ORDER BY s.created_at DESC 
+         LIMIT 10"
+    );
+    
+    // Handle items - JSON string in SQL
+    foreach ($recentSales as &$sale) {
+        $items = $sale['items'] ?? '[]';
+        if (is_string($items)) {
+            $items = json_decode($items, true) ?? [];
         }
-        unset($sale);
+        $sale['item_count'] = is_array($items) ? count($items) : 0;
     }
+    unset($sale);
 } catch (Exception $e) {
     error_log("Error loading sales: " . $e->getMessage());
 }
@@ -385,103 +383,55 @@ $allAvailableProducts = [];
 try {
     // NEW ARCHITECTURE: Load ONLY main products (store_id = NULL)
     // These are the central inventory products that can be assigned to stores
-    $sqlDb = getSQLDB();
-    if ($sqlDb) {
-        try {
-            // Only get main products (no store_id)
-            $sqlProducts = $sqlDb->fetchAll("
-                SELECT 
-                    id, name, sku, category, quantity,
-                    price, selling_price, store_id
-                FROM products 
-                WHERE active = 1 
-                  AND store_id IS NULL
-                ORDER BY name 
-                LIMIT 500
-            ");
-            
-            foreach ($sqlProducts as $p) {
-                $sku = $p['sku'] ?? '';
-                
-                // FILTER: Skip products with Firebase-generated random IDs in SKU
-                if (preg_match('/-S[a-zA-Z0-9]{20,}/', $sku)) {
-                    error_log("Filtering out Firebase duplicate SKU: $sku");
-                    continue;
-                }
-                
-                // FILTER: Skip products with excessively long SKUs (likely corrupted)
-                if (strlen($sku) > 50) {
-                    error_log("Filtering out long SKU: $sku");
-                    continue;
-                }
-                
-                // FILTER: Skip if base SKU ends with -S# pattern (store variants)
-                if (preg_match('/-S\d+$/', $sku)) {
-                    error_log("Filtering out store variant SKU: $sku");
-                    continue;
-                }
-                
-                // FILTER: Skip UNIQ-* products that have store suffix in middle (malformed)
-                // Example: UNIQ-BUT-S9-302 should be filtered (S9 in the middle)
-                if (preg_match('/^UNIQ-[A-Z]+-S\d+/', $sku)) {
-                    error_log("Filtering out UNIQ store variant: $sku");
-                    continue;
-                }
-                
-                $allAvailableProducts[] = [
-                    'id' => $p['id'] ?? '',
-                    'name' => $p['name'] ?? '',
-                    'sku' => $sku,
-                    'quantity' => $p['quantity'] ?? 0,
-                    'price' => $p['price'] ?? $p['selling_price'] ?? 0,
-                    'category' => $p['category'] ?? 'Uncategorized',
-                    'store_id' => null // Always null for main products
-                ];
-            }
-        } catch (Exception $e) {
-            error_log("SQL product load failed, trying Firebase: " . $e->getMessage());
-        }
-    }
+    $sqlDb = SQLDatabase::getInstance();
+    $sqlProducts = $sqlDb->fetchAll("
+        SELECT 
+            id, name, sku, category, quantity,
+            price, selling_price, store_id
+        FROM products 
+        WHERE active = TRUE 
+          AND store_id IS NULL
+        ORDER BY name 
+        LIMIT 500
+    ");
     
-    // If no SQL products, fallback to Firebase (with optimization) 
-    // Only load main products (store_id = null)
-    if (empty($allAvailableProducts)) {
-        $productDocs = $db->readAll('products', [], null, 500);
+    foreach ($sqlProducts as $p) {
+        $sku = $p['sku'] ?? '';
         
-        foreach ($productDocs as $product) {
-            $sku = $product['sku'] ?? '';
-            $storeId = $product['store_id'] ?? null;
-            
-            // Only include main products (no store_id)
-            if ($storeId !== null) {
-                continue;
-            }
-            
-            // FILTER: Skip products with Firebase-generated random IDs in SKU
-            if (preg_match('/-S[a-zA-Z0-9]{20,}/', $sku)) {
-                continue;
-            }
-            
-            // FILTER: Skip products with excessively long SKUs
-            if (strlen($sku) > 50) {
-                continue;
-            }
-            
-            // FILTER: Skip store variants
-            if (preg_match('/-S\d+$/', $sku)) {
-                continue;
-            }
-            
-            $allAvailableProducts[] = [
-                'id' => $product['id'] ?? '',
-                'name' => $product['name'] ?? '',
-                'sku' => $sku,
-                'quantity' => $product['quantity'] ?? 0,
-                'price' => $product['price'] ?? 0,
-                'category' => $product['category'] ?? 'Uncategorized',
-                'store_id' => null
-            ];
+        // FILTER: Skip products with Firebase-generated random IDs in SKU
+        if (preg_match('/-S[a-zA-Z0-9]{20,}/', $sku)) {
+            error_log("Filtering out Firebase duplicate SKU: $sku");
+            continue;
         }
+        
+        // FILTER: Skip products with excessively long SKUs (likely corrupted)
+        if (strlen($sku) > 50) {
+            error_log("Filtering out long SKU: $sku");
+            continue;
+        }
+        
+        // FILTER: Skip if base SKU ends with -S# pattern (store variants)
+        if (preg_match('/-S\d+$/', $sku)) {
+            error_log("Filtering out store variant SKU: $sku");
+            continue;
+        }
+        
+        // FILTER: Skip UNIQ-* products that have store suffix in middle (malformed)
+        // Example: UNIQ-BUT-S9-302 should be filtered (S9 in the middle)
+        if (preg_match('/^UNIQ-[A-Z]+-S\d+/', $sku)) {
+            error_log("Filtering out UNIQ store variant: $sku");
+            continue;
+        }
+        
+        $allAvailableProducts[] = [
+            'id' => $p['id'] ?? '',
+            'name' => $p['name'] ?? '',
+            'sku' => $sku,
+            'quantity' => $p['quantity'] ?? 0,
+            'price' => $p['price'] ?? $p['selling_price'] ?? 0,
+            'category' => $p['category'] ?? 'Uncategorized',
+            'store_id' => null // Always null for main products
+        ];
     }
     
     // Sort by name
@@ -497,14 +447,15 @@ try {
 $lowStockProducts = [];
 $outOfStockProducts = [];
 
-if (!empty($posStoreIds) && $sqlDb) {
+if (!empty($posStoreIds)) {
     try {
+        $sqlDb = SQLDatabase::getInstance();
         // Get all low/out of stock in ONE query
         $alertProducts = $sqlDb->fetchAll(
             "SELECT p.*, s.name as store_name 
              FROM products p
              LEFT JOIN stores s ON p.store_id = s.id
-             WHERE p.active = 1 
+             WHERE p.active = TRUE 
              AND p.store_id IN (" . implode(',', array_map('intval', $posStoreIds)) . ")
              AND (p.quantity = 0 OR p.quantity <= p.reorder_level)
              AND p.reorder_level > 0

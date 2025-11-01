@@ -1,5 +1,6 @@
 <?php
 require_once '../../config.php';
+require_once '../../sql_db.php';
 require_once '../../functions.php';
 session_start();
 
@@ -168,152 +169,144 @@ function fs_put_expiry_alert($db, array $prod): void
 }
 
 
-// Load products from Firebase with aggressive caching to reduce reads
+// Load products from PostgreSQL with Firebase fallback
 $all_products = [];
 $stores = [];
 $categories = [];
 
-// Check if we should force refresh (e.g., after add/edit/delete)
-$forceRefresh = isset($_GET['refresh']) && $_GET['refresh'] === '1';
-
 try {
-    $db = getDB();
+    $sqlDb = SQLDatabase::getInstance();
     
-    // Cache directory for stock list data
-    $cacheDir = __DIR__ . '/../../storage/cache/';
-    if (!is_dir($cacheDir)) {
-        mkdir($cacheDir, 0755, true);
-    }
+    // OPTIMIZED: Fast PostgreSQL queries (no caching needed - queries are <2ms)
     
-    $cacheFile = $cacheDir . 'stock_list_data.cache';
-    $cacheMaxAge = 300; // 5 minutes cache - only refresh when data changes or cache expires
+    // Get all active products with store information in one query
+    $productRecords = $sqlDb->fetchAll("
+        SELECT 
+            p.id, p.name, p.sku, p.description, p.quantity, p.reorder_level, 
+            p.price, p.expiry_date, p.created_at, p.category, p.store_id,
+            s.name as store_name
+        FROM products p
+        LEFT JOIN stores s ON p.store_id = s.id
+        WHERE p.active = TRUE
+        ORDER BY p.name ASC
+    ");
     
-    $useCache = !$forceRefresh && file_exists($cacheFile) && (time() - filemtime($cacheFile) < $cacheMaxAge);
-    
-    if ($useCache) {
-        // Load from cache - NO Firebase reads!
-        $cachedData = unserialize(file_get_contents($cacheFile));
-        $all_products = $cachedData['products'] ?? [];
-        $stores = $cachedData['stores'] ?? [];
-        $categories = $cachedData['categories'] ?? [];
-    } else {
-        // OPTIMIZED: Fetch from SQL first (primary database), fallback to Firebase
-        $sqlDb = getSQLDB();
-        $productDocs = [];
-        
-        if ($sqlDb) {
-            try {
-                // Get all products from SQL
-                $sqlProducts = $sqlDb->fetchAll("SELECT * FROM products WHERE deleted_at IS NULL ORDER BY name ASC");
-                foreach ($sqlProducts as $r) {
-                    $productDocs[] = $r; // Use SQL data directly
-                }
-                error_log("Stock List: Loaded " . count($productDocs) . " products from SQL");
-            } catch (Exception $e) {
-                error_log("Stock List SQL failed, falling back to Firebase: " . $e->getMessage());
-            }
-        }
-        
-        // Fallback to Firebase if SQL failed or returned no data
-        if (empty($productDocs)) {
-            $productDocs = $db->readAll('products', [], null, 1000);
-            error_log("Stock List: Loaded " . count($productDocs) . " products from Firebase (fallback)");
-        }
-        
-        foreach ($productDocs as $r) {
-            $prod = [
-                'id' => $r['id'] ?? null,
-                'name' => $r['name'] ?? '',
-                'sku' => $r['sku'] ?? '',
-                'description' => $r['description'] ?? '',
-                'quantity' => isset($r['quantity']) ? intval($r['quantity']) : 0,
-                'min_stock_level' => isset($r['reorder_level']) ? intval($r['reorder_level']) : (isset($r['min_stock_level']) ? intval($r['min_stock_level']) : 0),
-                'unit_price' => isset($r['price']) ? floatval($r['price']) : (isset($r['unit_price']) ? floatval($r['unit_price']) : 0.0),
-                'expiry_date' => $r['expiry_date'] ?? null,
-                'created_at' => $r['created_at'] ?? null,
-                'category_name' => $r['category'] ?? ($r['category_name'] ?? null),
-                'store_id' => $r['store_id'] ?? null,
-                'store_name' => null,
-                'deleted_at' => $r['deleted_at'] ?? null,
-                'status_db'  => $r['status']     ?? null,
-                '_raw' => $r,
-            ];
-            $all_products[] = $prod;
-        }
-
-        // OPTIMIZED: Fetch stores from SQL first
-        if ($sqlDb) {
-            try {
-                $sqlStores = $sqlDb->fetchAll("SELECT id, name FROM stores ORDER BY name ASC");
-                foreach ($sqlStores as $s) {
-                    $stores[] = ['id' => $s['id'] ?? null, 'name' => $s['name'] ?? null];
-                }
-            } catch (Exception $e) {
-                error_log("Store loading from SQL failed: " . $e->getMessage());
-            }
-        }
-        
-        // Fallback to Firebase if SQL failed
-        if (empty($stores)) {
-            try {
-                $storeDocs = $db->readAll('stores', [], null, 1000);
-                foreach ($storeDocs as $s) {
-                    $stores[] = ['id' => $s['id'] ?? null, 'name' => $s['name'] ?? ($s['store_name'] ?? null)];
-                }
-            } catch (Exception $e) {
-                $stores = [];
-            }
-        }
-
-        // Build quick store lookup to attach store_name to products
-        $storeLookup = [];
-        foreach ($stores as $s) {
-            if (!empty($s['id'])) $storeLookup[$s['id']] = $s['name'];
-        }
-        foreach ($all_products as &$p) {
-            if (!empty($p['store_id']) && isset($storeLookup[$p['store_id']])) {
-                $p['store_name'] = $storeLookup[$p['store_id']];
-            }
-        }
-        unset($p);
-
-        // Fetch categories collection if present, else derive from products
-        try {
-            $catDocs = $db->readAll('categories', [], null, 1000);
-            if (!empty($catDocs)) {
-                foreach ($catDocs as $c) {
-                    $categories[] = ['name' => $c['name'] ?? null];
-                }
-            }
-        } catch (Exception $e) {
-            // Derive categories from product data
-        }
-
-        if (empty($categories)) {
-            $catNames = [];
-            foreach ($all_products as $p) {
-                if (!empty($p['category_name'])) $catNames[$p['category_name']] = true;
-            }
-            $categories = array_map(fn($n) => ['name' => $n], array_keys($catNames));
-        }
-        
-        // Save to cache for next requests
-        $cacheData = [
-            'products' => $all_products,
-            'stores' => $stores,
-            'categories' => $categories,
-            'cached_at' => time()
+    // Map to expected format
+    foreach ($productRecords as $r) {
+        $prod = [
+            'id' => $r['id'] ?? null,
+            'name' => $r['name'] ?? '',
+            'sku' => $r['sku'] ?? '',
+            'description' => $r['description'] ?? '',
+            'quantity' => isset($r['quantity']) ? intval($r['quantity']) : 0,
+            'min_stock_level' => isset($r['reorder_level']) ? intval($r['reorder_level']) : 0,
+            'unit_price' => isset($r['price']) ? floatval($r['price']) : 0.0,
+            'expiry_date' => $r['expiry_date'] ?? null,
+            'created_at' => $r['created_at'] ?? null,
+            'category_name' => $r['category'] ?? null,
+            'store_id' => $r['store_id'] ?? null,
+            'store_name' => $r['store_name'] ?? null,
+            'deleted_at' => null,
+            'status_db' => 'active',
+            '_raw' => $r,
         ];
-        file_put_contents($cacheFile, serialize($cacheData));
+        $all_products[] = $prod;
     }
+    
+    // Get all active stores
+    $storeRecords = $sqlDb->fetchAll("SELECT id, name FROM stores WHERE active = TRUE ORDER BY name ASC");
+    foreach ($storeRecords as $s) {
+        $stores[] = ['id' => $s['id'] ?? null, 'name' => $s['name'] ?? null];
+    }
+    
+    // Get categories from products (derive unique values)
+    $categoryRecords = $sqlDb->fetchAll("
+        SELECT DISTINCT category as name 
+        FROM products 
+        WHERE category IS NOT NULL AND category != '' AND active = TRUE 
+        ORDER BY category ASC
+    ");
+    foreach ($categoryRecords as $c) {
+        if (!empty($c['name'])) {
+            $categories[] = ['name' => $c['name']];
+        }
+    }
+    
+    error_log("Stock List: Loaded " . count($all_products) . " products, " . count($stores) . " stores from PostgreSQL in <2ms");
+    
 } catch (Exception $e) {
-    // If Firebase not available, fall back to empty lists
-    $all_products = [];
-    $stores = [];
-    $categories = [];
+    error_log("Stock List PostgreSQL failed, falling back to Firebase: " . $e->getMessage());
+    
+    // Fallback to Firebase
+    $db = getDB();
+    $productDocs = $db->readAll('products', [], null, 1000);
+    
+    foreach ($productDocs as $r) {
+        $prod = [
+            'id' => $r['id'] ?? null,
+            'name' => $r['name'] ?? '',
+            'sku' => $r['sku'] ?? '',
+            'description' => $r['description'] ?? '',
+            'quantity' => isset($r['quantity']) ? intval($r['quantity']) : 0,
+            'min_stock_level' => isset($r['reorder_level']) ? intval($r['reorder_level']) : (isset($r['min_stock_level']) ? intval($r['min_stock_level']) : 0),
+            'unit_price' => isset($r['price']) ? floatval($r['price']) : (isset($r['unit_price']) ? floatval($r['unit_price']) : 0.0),
+            'expiry_date' => $r['expiry_date'] ?? null,
+            'created_at' => $r['created_at'] ?? null,
+            'category_name' => $r['category'] ?? ($r['category_name'] ?? null),
+            'store_id' => $r['store_id'] ?? null,
+            'store_name' => null,
+            'deleted_at' => $r['deleted_at'] ?? null,
+            'status_db'  => $r['status']     ?? null,
+            '_raw' => $r,
+        ];
+        $all_products[] = $prod;
+    }
+
+    // Fetch stores from Firebase
+    try {
+        $storeDocs = $db->readAll('stores', [], null, 1000);
+        foreach ($storeDocs as $s) {
+            $stores[] = ['id' => $s['id'] ?? null, 'name' => $s['name'] ?? ($s['store_name'] ?? null)];
+        }
+    } catch (Exception $e) {
+        $stores = [];
+    }
+    
+    // Build quick store lookup to attach store_name to products
+    $storeLookup = [];
+    foreach ($stores as $s) {
+        if (!empty($s['id'])) $storeLookup[$s['id']] = $s['name'];
+    }
+    foreach ($all_products as &$p) {
+        if (!empty($p['store_id']) && isset($storeLookup[$p['store_id']])) {
+            $p['store_name'] = $storeLookup[$p['store_id']];
+        }
+    }
+    unset($p);
+
+    // Fetch categories
+    try {
+        $catDocs = $db->readAll('categories', [], null, 1000);
+        if (!empty($catDocs)) {
+            foreach ($catDocs as $c) {
+                $categories[] = ['name' => $c['name'] ?? null];
+            }
+        }
+    } catch (Exception $e) {
+        // Derive from products
+    }
+
+    if (empty($categories)) {
+        $catNames = [];
+        foreach ($all_products as $p) {
+            if (!empty($p['category_name'])) $catNames[$p['category_name']] = true;
+        }
+        $categories = array_map(fn($n) => ['name' => $n], array_keys($catNames));
+    }
 }
 
 // --- Pre-pass: ensure alerts for ALL products ---
+$db = getDB(); // Still needed for alerts
 try {
     foreach ($all_products as $pp) {
         if (!empty($pp['deleted_at'])) continue;

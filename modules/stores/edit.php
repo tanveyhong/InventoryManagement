@@ -2,6 +2,7 @@
 // Edit Store Page
 require_once '../../config.php';
 require_once '../../db.php';
+require_once '../../sql_db.php';
 require_once '../../functions.php';
 require_once '../../activity_logger.php';
 
@@ -19,16 +20,22 @@ if (!currentUserHasPermission('can_edit_stores')) {
     exit;
 }
 
-$db = getDB();
+$db = getDB(); // Firebase fallback
+$sqlDb = SQLDatabase::getInstance(); // PostgreSQL - PRIMARY
 $store_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
 $errors = [];
 $success = false;
 
-// Get store data
-$store = $db->fetch("SELECT * FROM stores WHERE id = ? AND active = 1", [$store_id]);
-
-if (!$store) {
-    addNotification('Store not found', 'error');
+// Get store data from PostgreSQL
+try {
+    $store = $sqlDb->fetch("SELECT * FROM stores WHERE id = ? AND active = TRUE", [$store_id]);
+    if (!$store) {
+        addNotification('Store not found', 'error');
+        header('Location: list.php');
+        exit;
+    }
+} catch (Exception $e) {
+    addNotification('Database error: ' . $e->getMessage(), 'error');
     header('Location: list.php');
     exit;
 }
@@ -89,7 +96,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $phone, $email, $manager_name, $description, $has_pos, $store_id
             ];
             
-            $result = $db->query($sql, $params);
+            $result = $sqlDb->execute($sql, $params);
             
             if ($result) {
                 // Log the activity

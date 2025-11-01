@@ -231,7 +231,9 @@ function getTotalProducts()
 {
     try {
         $sql_db = getSQLDB();
-        $result = $sql_db->fetch("SELECT COUNT(*) as count FROM products WHERE active = 1");
+        $db_type = defined('DB_TYPE') ? DB_TYPE : 'sqlite';
+        $active_value = ($db_type === 'pgsql') ? 'TRUE' : '1';
+        $result = $sql_db->fetch("SELECT COUNT(*) as count FROM products WHERE active = $active_value");
         return $result['count'] ?? 0;
     } catch (Exception $e) {
         error_log("Error in getTotalProducts: " . $e->getMessage());
@@ -243,7 +245,9 @@ function getLowStockCount()
 {
     try {
         $sql_db = getSQLDB();
-        $result = $sql_db->fetch("SELECT COUNT(*) as count FROM products WHERE quantity <= reorder_level AND active = 1");
+        $db_type = defined('DB_TYPE') ? DB_TYPE : 'sqlite';
+        $active_value = ($db_type === 'pgsql') ? 'TRUE' : '1';
+        $result = $sql_db->fetch("SELECT COUNT(*) as count FROM products WHERE quantity <= reorder_level AND active = $active_value");
         return $result['count'] ?? 0;
     } catch (Exception $e) {
         error_log("Error in getLowStockCount: " . $e->getMessage());
@@ -255,7 +259,9 @@ function getTotalStores()
 {
     try {
         $sql_db = getSQLDB();
-        $result = $sql_db->fetch("SELECT COUNT(*) as count FROM stores WHERE active = 1");
+        $db_type = defined('DB_TYPE') ? DB_TYPE : 'sqlite';
+        $active_value = ($db_type === 'pgsql') ? 'TRUE' : '1';
+        $result = $sql_db->fetch("SELECT COUNT(*) as count FROM stores WHERE active = $active_value");
         return $result['count'] ?? 0;
     } catch (Exception $e) {
         error_log("Error in getTotalStores: " . $e->getMessage());
@@ -268,12 +274,138 @@ function getTodaysSales()
     try {
         $sql_db = getSQLDB();
         $today = date('Y-m-d');
-        $result = $sql_db->fetch("SELECT COALESCE(SUM(total), 0) as total FROM sales WHERE DATE(created_at) = ?", [$today]);
+        $result = $sql_db->fetch("SELECT COALESCE(SUM(CAST(total_amount AS DECIMAL)), 0) as total FROM sales WHERE DATE(created_at) = ?", [$today]);
         return floatval($result['total'] ?? 0);
     } catch (Exception $e) {
         error_log("Error in getTodaysSales: " . $e->getMessage());
-        // Return a demo value for now
-        return rand(1000, 5000);
+        return 0;
+    }
+}
+
+// Optimized: Get all dashboard stats in a single query to reduce database round trips
+function getAllDashboardStats()
+{
+    try {
+        $sql_db = getSQLDB();
+        $today = date('Y-m-d');
+        $db_type = defined('DB_TYPE') ? DB_TYPE : 'sqlite';
+        
+        // Boolean value differs between SQLite (1) and PostgreSQL (TRUE)
+        $active_value = ($db_type === 'pgsql') ? 'TRUE' : '1';
+        
+        // Single optimized query for all stats
+        $query = "
+            SELECT 
+                (SELECT COUNT(*) FROM products WHERE active = $active_value) as total_products,
+                (SELECT COUNT(*) FROM products WHERE quantity <= reorder_level AND active = $active_value) as low_stock,
+                (SELECT COUNT(*) FROM stores WHERE active = $active_value) as total_stores,
+                COALESCE((SELECT SUM(CAST(total_amount AS DECIMAL)) FROM sales WHERE DATE(created_at) = ?), 0) as todays_sales
+        ";
+        
+        $result = $sql_db->fetch($query, [$today]);
+        
+        return [
+            'total_products' => intval($result['total_products'] ?? 0),
+            'low_stock' => intval($result['low_stock'] ?? 0),
+            'total_stores' => intval($result['total_stores'] ?? 0),
+            'todays_sales' => floatval($result['todays_sales'] ?? 0),
+            'notifications' => getNotifications()
+        ];
+    } catch (Exception $e) {
+        error_log("Error in getAllDashboardStats: " . $e->getMessage());
+        return [
+            'total_products' => 0,
+            'low_stock' => 0,
+            'total_stores' => 0,
+            'todays_sales' => 0,
+            'notifications' => []
+        ];
+    }
+}
+
+// Get last 7 days sales data for chart
+function getWeeklySalesData()
+{
+    try {
+        $sql_db = getSQLDB();
+        $db_type = defined('DB_TYPE') ? DB_TYPE : 'sqlite';
+        
+        // Get sales for last 7 days with day names (database-specific queries)
+        if ($db_type === 'pgsql') {
+            // PostgreSQL version
+            $query = "
+                SELECT 
+                    DATE(created_at) as sale_date,
+                    TO_CHAR(created_at, 'Dy') as day_name,
+                    COALESCE(SUM(CAST(total_amount AS DECIMAL)), 0) as total_sales
+                FROM sales 
+                WHERE created_at >= CURRENT_DATE - INTERVAL '7 days'
+                GROUP BY DATE(created_at), TO_CHAR(created_at, 'Dy')
+                ORDER BY sale_date ASC
+            ";
+        } else {
+            // SQLite version
+            $query = "
+                SELECT 
+                    DATE(created_at) as sale_date,
+                    CASE strftime('%w', created_at)
+                        WHEN '0' THEN 'Sun'
+                        WHEN '1' THEN 'Mon'
+                        WHEN '2' THEN 'Tue'
+                        WHEN '3' THEN 'Wed'
+                        WHEN '4' THEN 'Thu'
+                        WHEN '5' THEN 'Fri'
+                        WHEN '6' THEN 'Sat'
+                    END as day_name,
+                    COALESCE(SUM(total_amount), 0) as total_sales
+                FROM sales 
+                WHERE created_at >= date('now', '-7 days')
+                GROUP BY DATE(created_at)
+                ORDER BY sale_date ASC
+            ";
+        }
+        
+        $results = $sql_db->fetchAll($query);
+        
+        // Fill in missing days with zero sales
+        $sales_data = [];
+        for ($i = 6; $i >= 0; $i--) {
+            $date = date('Y-m-d', strtotime("-$i days"));
+            $day_name = date('D', strtotime("-$i days"));
+            
+            $found = false;
+            foreach ($results as $row) {
+                if ($row['sale_date'] === $date) {
+                    $sales_data[] = [
+                        'day' => $day_name,
+                        'sales' => floatval($row['total_sales'])
+                    ];
+                    $found = true;
+                    break;
+                }
+            }
+            
+            if (!$found) {
+                $sales_data[] = [
+                    'day' => $day_name,
+                    'sales' => 0
+                ];
+            }
+        }
+        
+        return $sales_data;
+    } catch (Exception $e) {
+        error_log("Error in getWeeklySalesData: " . $e->getMessage());
+        // Return dummy data for 7 days
+        return [
+            ['day' => 'Mon', 'sales' => 0],
+            ['day' => 'Tue', 'sales' => 0],
+            ['day' => 'Wed', 'sales' => 0],
+            ['day' => 'Thu', 'sales' => 0],
+            ['day' => 'Fri', 'sales' => 0],
+            ['day' => 'Sat', 'sales' => 0],
+            ['day' => 'Sun', 'sales' => 0]
+        ];
     }
 }
 
@@ -820,9 +952,34 @@ function hasPermission($userId, $permission) {
         return false;
     }
     
+    // Cache user data in session to avoid repeated database calls
+    static $userCache = [];
+    
     try {
-        $db = getDB();
-        $user = $db->read('users', $userId);
+        // Check cache first
+        if (isset($userCache[$userId])) {
+            $user = $userCache[$userId];
+        } else {
+            // Try PostgreSQL first (fast)
+            try {
+                require_once __DIR__ . '/sql_db.php';
+                $sqlDb = SQLDatabase::getInstance();
+                $user = $sqlDb->fetch("SELECT * FROM users WHERE id = ? OR firebase_id = ?", [$userId, $userId]);
+                
+                if (!$user) {
+                    // Fallback to Firebase
+                    $db = getDB();
+                    $user = $db->read('users', $userId);
+                }
+            } catch (Exception $e) {
+                // Fallback to Firebase
+                $db = getDB();
+                $user = $db->read('users', $userId);
+            }
+            
+            // Cache the result
+            $userCache[$userId] = $user;
+        }
         
         if (!$user || empty($user['role'])) {
             return false;
