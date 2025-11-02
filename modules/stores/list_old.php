@@ -1333,37 +1333,20 @@ $page_title = 'Store Management - Inventory System';
             </div>
             
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-top: 20px;">
-                <!-- Activity Manager Card -->
-                <a href="../users/profile/activity_manager.php" style="text-decoration: none; color: inherit;">
+                <!-- User Management Card -->
+                <a href="../users/management.php" style="text-decoration: none; color: inherit;">
                     <div class="info-card" style="cursor: pointer; transition: transform 0.2s, box-shadow 0.2s;">
                         <div style="display: flex; align-items: center; gap: 15px;">
                             <div style="width: 50px; height: 50px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
-                                <i class="fas fa-history" style="font-size: 24px; color: white;"></i>
+                                <i class="fas fa-users-cog" style="font-size: 24px; color: white;"></i>
                             </div>
                             <div>
-                                <h4 style="margin: 0 0 5px 0;">Activity Manager</h4>
-                                <p style="margin: 0; font-size: 14px; color: #666;">Track and manage all user activities</p>
+                                <h4 style="margin: 0 0 5px 0;">User Management</h4>
+                                <p style="margin: 0; font-size: 14px; color: #666;">Manage users, activities, and permissions</p>
                             </div>
                         </div>
                     </div>
                 </a>
-                
-                <!-- Permissions Manager Card -->
-                <?php if ($userRole === 'admin'): ?>
-                <a href="../users/profile/permissions_manager.php" style="text-decoration: none; color: inherit;">
-                    <div class="info-card" style="cursor: pointer; transition: transform 0.2s, box-shadow 0.2s;">
-                        <div style="display: flex; align-items: center; gap: 15px;">
-                            <div style="width: 50px; height: 50px; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
-                                <i class="fas fa-shield-alt" style="font-size: 24px; color: white;"></i>
-                            </div>
-                            <div>
-                                <h4 style="margin: 0 0 5px 0;">Permissions Manager</h4>
-                                <p style="margin: 0; font-size: 14px; color: #666;">Manage roles and user permissions</p>
-                            </div>
-                        </div>
-                    </div>
-                </a>
-                <?php endif; ?>
                 
                 <!-- Stores Manager Card -->
                 <a href="../users/profile/stores_manager.php" style="text-decoration: none; color: inherit;">

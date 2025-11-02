@@ -49,15 +49,54 @@ if (!$currentUser) {
 
 $userRole = $currentUser['role'] ?? 'user';
 
-// Only admin and manager can perform operations
-if (!in_array($userRole, ['admin', 'manager'])) {
+// Get the action to determine required permission
+$action = $_GET['action'] ?? $_POST['action'] ?? '';
+
+// Check permissions based on action
+$permissionDenied = false;
+switch ($action) {
+    case 'create':
+    case 'add':
+        if (!currentUserHasPermission('can_add_stores')) {
+            $permissionDenied = true;
+            $requiredPermission = 'can_add_stores';
+        }
+        break;
+    case 'update':
+    case 'edit':
+        if (!currentUserHasPermission('can_edit_stores')) {
+            $permissionDenied = true;
+            $requiredPermission = 'can_edit_stores';
+        }
+        break;
+    case 'delete':
+    case 'remove':
+        if (!currentUserHasPermission('can_delete_stores')) {
+            $permissionDenied = true;
+            $requiredPermission = 'can_delete_stores';
+        }
+        break;
+    case 'get':
+    case 'list':
+    case 'view':
+    default:
+        if (!currentUserHasPermission('can_view_stores')) {
+            $permissionDenied = true;
+            $requiredPermission = 'can_view_stores';
+        }
+        break;
+}
+
+if ($permissionDenied) {
     http_response_code(403);
-    echo json_encode(['success' => false, 'message' => 'Insufficient permissions. Required role: admin or manager, Current role: ' . $userRole]);
+    echo json_encode([
+        'success' => false, 
+        'message' => 'Insufficient permissions. Required: ' . ($requiredPermission ?? 'store permissions')
+    ]);
     exit;
 }
 
 // $db is already initialized above
-$action = $_GET['action'] ?? $_POST['action'] ?? '';
 
 try {
     switch ($action) {

@@ -29,20 +29,37 @@ $sqlDb = SQLDatabase::getInstance();
 $message = '';
 $messageType = '';
 
+// Get current user info
+$userId = $_SESSION['user_id'] ?? null;
+$currentUser = $sqlDb->fetch("SELECT * FROM users WHERE id = ? OR firebase_id = ?", [$userId, $userId]);
+$isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
+$isManager = (strtolower($currentUser['role'] ?? '') === 'manager');
+
 // Pagination and search parameters
 $page = isset($_GET['page']) ? max(1, intval($_GET['page'])) : 1;
 $per_page = 20;
 $search = sanitizeInput($_GET['search'] ?? '');
 $offset = ($page - 1) * $per_page;
 
-// Build WHERE clause for search
-$where = "WHERE s.active = TRUE";
-$params = [];
+// Build WHERE clause - admins/managers see all stores, others see only their assigned stores
+if ($isAdmin || $isManager) {
+    $where = "WHERE s.active = TRUE";
+    $storeAccessJoin = "";
+} else {
+    // Regular users only see stores they have access to
+    $where = "WHERE s.active = TRUE AND s.id IN (SELECT store_id FROM user_store_access WHERE user_id = ?)";
+    $storeAccessJoin = "";
+    $params[] = $currentUser['id'];
+}
+
+// Original params array for search
+$baseParams = $params ?? [];
+$params = $baseParams;
 
 if (!empty($search)) {
     $where .= " AND (s.name ILIKE ? OR s.address ILIKE ? OR s.phone ILIKE ? OR s.city ILIKE ?)";
     $searchPattern = "%$search%";
-    $params = [$searchPattern, $searchPattern, $searchPattern, $searchPattern];
+    $params = array_merge($params, [$searchPattern, $searchPattern, $searchPattern, $searchPattern]);
 }
 
 try {

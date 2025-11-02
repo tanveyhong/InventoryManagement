@@ -5,7 +5,6 @@
  */
 require_once '../../config.php';
 require_once '../../sql_db.php';
-require_once '../../auth_postgresql.php';
 require_once '../../functions.php';
 
 session_start();

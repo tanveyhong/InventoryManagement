@@ -23,6 +23,15 @@ if (!isLoggedIn()) {
     exit;
 }
 
+// Check permission to add/edit stores (geocoding is for store management)
+if (!currentUserHasPermission('can_add_stores') && !currentUserHasPermission('can_edit_stores')) {
+    echo json_encode([
+        'success' => false,
+        'error' => 'Permission denied'
+    ]);
+    exit;
+}
+
 // Get request method
 $method = $_SERVER['REQUEST_METHOD'];
 

@@ -705,47 +705,154 @@ $page_title = 'Stock-POS Integration - Inventory System';
             </div>
         </div>
 
-        <!-- POS Management Section -->
+        <!-- Combined POS Store Management -->
+        <h2 style="margin-bottom: 15px; display: flex; align-items: center; gap: 10px;">
+            <i class="fas fa-store"></i> POS Store Management 
+            <span style="font-size: 14px; font-weight: 400; color: #6b7280; margin-left: 10px;">
+                (<?php echo count($posStores); ?> enabled / <?php echo count($allStores); ?> total)
+            </span>
+        </h2>
+        
         <?php if (currentUserHasPermission('can_manage_stores')): ?>
-        <div style="margin-bottom: 30px;">
-            <h2 style="margin-bottom: 15px; display: flex; align-items: center; gap: 10px;">
-                <i class="fas fa-cog"></i> POS System Management
-            </h2>
-            <div class="integration-card" style="background: #f9fafb; border-left-color: #6366f1;">
-                <p style="margin-bottom: 15px; color: #4b5563;">
-                    💡 <strong>Note:</strong> POS systems require hardware (cash registers, barcode scanners, receipt printers). 
-                    Not all stores have POS equipment. Enable POS only for stores with the necessary hardware.
-                </p>
-                
-                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px;">
-                    <?php foreach ($allStores as $store): ?>
-                        <div class="integration-card" style="margin: 0; border: 2px solid <?php echo $store['has_pos'] ? '#10b981' : '#e5e7eb'; ?>;">
-                            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 15px;">
-                                <div>
-                                    <h3 style="margin: 0 0 5px 0; font-size: 16px;"><?php echo htmlspecialchars($store['name']); ?></h3>
-                                    <span style="font-size: 12px; padding: 4px 8px; border-radius: 4px; background: <?php echo $store['has_pos'] ? '#d1fae5' : '#f3f4f6'; ?>; color: <?php echo $store['has_pos'] ? '#065f46' : '#6b7280'; ?>;">
-                                        <?php echo $store['has_pos'] ? '✓ POS Enabled' : '○ POS Disabled'; ?>
-                                    </span>
-                                </div>
-                                <button onclick="togglePOSModal('<?php echo $store['id']; ?>', '<?php echo htmlspecialchars($store['name']); ?>', <?php echo $store['has_pos']; ?>, '<?php echo htmlspecialchars($store['pos_terminal_id']); ?>')" 
-                                        class="btn btn-sm" style="background: #6366f1; color: white; padding: 6px 12px;">
-                                    <i class="fas fa-edit"></i>
-                                </button>
+        <div class="integration-card" style="background: #f9fafb; border-left-color: #6366f1; margin-bottom: 20px;">
+            <p style="margin-bottom: 0; color: #4b5563; display: flex; align-items: start; gap: 8px;">
+                <i class="fas fa-info-circle" style="color: #6366f1; margin-top: 2px;"></i>
+                <span>
+                    <strong>POS System Requirements:</strong> Cash registers, barcode scanners, receipt printers. 
+                    Enable POS only for stores with the necessary hardware.
+                    <?php if (currentUserHasPermission('can_manage_stores')): ?>
+                    Click <strong>Configure</strong> to enable/disable POS for each store.
+                    <?php endif; ?>
+                </span>
+            </p>
+        </div>
+        <?php endif; ?>
+        
+        <?php if (empty($allStores)): ?>
+            <div class="integration-card" style="text-align: center; padding: 40px;">
+                <i class="fas fa-store-slash" style="font-size: 48px; color: #9ca3af; margin-bottom: 15px;"></i>
+                <h3 style="color: #6b7280;">No Stores Found</h3>
+                <p style="color: #9ca3af; margin-bottom: 20px;">Create stores first to enable POS functionality</p>
+                <a href="../stores/add.php" class="btn btn-primary">
+                    <i class="fas fa-plus-circle"></i> Add Store
+                </a>
+            </div>
+        <?php else: ?>
+        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 15px; margin-bottom: 30px;">
+            <?php foreach ($allStores as $store): 
+                $isEnabled = $store['has_pos'] == 1;
+                $storeData = null;
+                // Get store stats if POS is enabled
+                if ($isEnabled) {
+                    foreach ($posStores as $ps) {
+                        if ($ps['id'] == $store['id']) {
+                            $storeData = $ps;
+                            break;
+                        }
+                    }
+                }
+            ?>
+                <div class="integration-card <?php echo $isEnabled ? 'success' : ''; ?>" 
+                     style="margin: 0; border: 2px solid <?php echo $isEnabled ? '#10b981' : '#e5e7eb'; ?>; <?php echo $isEnabled ? 'background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);' : ''; ?>">
+                    
+                    <!-- Store Header -->
+                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid <?php echo $isEnabled ? '#86efac' : '#e5e7eb'; ?>;">
+                        <div style="flex: 1;">
+                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                                <h3 style="margin: 0; font-size: 17px; color: #1f2937;">
+                                    <?php echo htmlspecialchars($store['name']); ?>
+                                </h3>
                             </div>
-                            <?php if ($store['has_pos']): ?>
-                                <div style="font-size: 13px; color: #6b7280; margin-top: 10px;">
-                                    <?php if ($store['pos_terminal_id']): ?>
-                                        <div>Terminal ID: <strong><?php echo htmlspecialchars($store['pos_terminal_id']); ?></strong></div>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 12px; padding: 4px 10px; border-radius: 12px; font-weight: 600; background: <?php echo $isEnabled ? '#d1fae5' : '#f3f4f6'; ?>; color: <?php echo $isEnabled ? '#065f46' : '#6b7280'; ?>;">
+                                    <?php if ($isEnabled): ?>
+                                        <i class="fas fa-check-circle"></i> POS Active
+                                    <?php else: ?>
+                                        <i class="fas fa-circle"></i> POS Disabled
                                     <?php endif; ?>
-                                    <?php if ($store['pos_enabled_at']): ?>
-                                        <div>Enabled: <?php echo date('M j, Y', strtotime($store['pos_enabled_at'])); ?></div>
-                                    <?php endif; ?>
+                                </span>
+                            </div>
+                        </div>
+                        
+                        <?php if (currentUserHasPermission('can_manage_stores')): ?>
+                        <button onclick="togglePOSModal('<?php echo $store['id']; ?>', '<?php echo htmlspecialchars($store['name']); ?>', <?php echo $store['has_pos']; ?>, '<?php echo htmlspecialchars($store['pos_terminal_id']); ?>')" 
+                                class="btn btn-sm" 
+                                style="background: <?php echo $isEnabled ? '#059669' : '#6366f1'; ?>; color: white; padding: 8px 14px; white-space: nowrap;">
+                            <i class="fas fa-cog"></i> Configure
+                        </button>
+                        <?php endif; ?>
+                    </div>
+                    
+                    <?php if ($isEnabled && $storeData): ?>
+                        <!-- POS Stats -->
+                        <div class="stats-grid" style="grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 15px;">
+                            <div style="text-align: center; padding: 10px; background: rgba(255,255,255,0.7); border-radius: 8px;">
+                                <div style="font-size: 22px; font-weight: 700; color: #4f46e5;">
+                                    <?php echo number_format((int)($storeData['product_count'] ?? 0)); ?>
+                                </div>
+                                <div style="font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px;">Products</div>
+                            </div>
+                            <div style="text-align: center; padding: 10px; background: rgba(255,255,255,0.7); border-radius: 8px;">
+                                <div style="font-size: 22px; font-weight: 700; color: #10b981;">
+                                    <?php echo number_format((int)($storeData['total_stock'] ?? 0)); ?>
+                                </div>
+                                <div style="font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px;">Stock</div>
+                            </div>
+                            <div style="text-align: center; padding: 10px; background: rgba(255,255,255,0.7); border-radius: 8px;">
+                                <div style="font-size: 22px; font-weight: 700; color: #f59e0b;">
+                                    <?php echo number_format((int)($storeData['total_sales'] ?? 0)); ?>
+                                </div>
+                                <div style="font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px;">Sales</div>
+                            </div>
+                        </div>
+                        
+                        <!-- POS Info -->
+                        <?php if ($store['pos_terminal_id'] || $store['pos_enabled_at']): ?>
+                        <div style="font-size: 12px; color: #6b7280; padding: 10px; background: rgba(255,255,255,0.5); border-radius: 6px; margin-bottom: 15px;">
+                            <?php if ($store['pos_terminal_id']): ?>
+                                <div style="margin-bottom: 4px;">
+                                    <i class="fas fa-desktop" style="width: 16px;"></i> 
+                                    <strong>Terminal:</strong> <?php echo htmlspecialchars($store['pos_terminal_id']); ?>
+                                </div>
+                            <?php endif; ?>
+                            <?php if ($store['pos_enabled_at']): ?>
+                                <div>
+                                    <i class="fas fa-clock" style="width: 16px;"></i> 
+                                    <strong>Enabled:</strong> <?php echo date('M j, Y', strtotime($store['pos_enabled_at'])); ?>
                                 </div>
                             <?php endif; ?>
                         </div>
-                    <?php endforeach; ?>
+                        <?php endif; ?>
+                        
+                        <!-- Quick Actions -->
+                        <div class="quick-actions" style="display: flex; gap: 8px;">
+                            <a href="terminal.php?store_id=<?php echo htmlspecialchars($store['id']); ?>" 
+                               class="btn btn-sm" 
+                               style="flex: 1; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 10px; text-align: center;">
+                                <i class="fas fa-cash-register"></i> Open POS
+                            </a>
+                            <a href="../stock/list.php?store=<?php echo htmlspecialchars($store['id']); ?>" 
+                               class="btn btn-sm btn-secondary" 
+                               style="flex: 1; padding: 10px; text-align: center;">
+                                <i class="fas fa-boxes"></i> Stock
+                            </a>
+                        </div>
+                    <?php else: ?>
+                        <!-- Disabled State Info -->
+                        <div style="text-align: center; padding: 20px; color: #9ca3af;">
+                            <i class="fas fa-power-off" style="font-size: 32px; margin-bottom: 8px; opacity: 0.5;"></i>
+                            <p style="margin: 0; font-size: 13px;">
+                                POS system is disabled for this store
+                            </p>
+                            <?php if (currentUserHasPermission('can_manage_stores')): ?>
+                            <p style="margin: 8px 0 0 0; font-size: 12px; color: #6b7280;">
+                                Click <strong>Configure</strong> to enable
+                            </p>
+                            <?php endif; ?>
+                        </div>
+                    <?php endif; ?>
                 </div>
-            </div>
+            <?php endforeach; ?>
         </div>
         <?php endif; ?>
 
@@ -859,61 +966,7 @@ $page_title = 'Stock-POS Integration - Inventory System';
         </div>
         <?php endif; ?>
 
-        <!-- POS Stores Overview -->
-        <h2 style="margin-bottom: 15px; display: flex; align-items: center; gap: 10px;">
-            <i class="fas fa-store"></i> Active POS Stores (<?php echo count($posStores); ?>)
-        </h2>
-        <?php if (empty($posStores)): ?>
-            <div class="integration-card" style="text-align: center; padding: 40px;">
-                <i class="fas fa-info-circle" style="font-size: 48px; color: #9ca3af; margin-bottom: 15px;"></i>
-                <h3 style="color: #6b7280;">No POS-enabled stores</h3>
-                <p style="color: #9ca3af; margin-bottom: 20px;">Enable POS for stores in the management section above</p>
-            </div>
-        <?php else: ?>
-        <div class="integration-grid">
-            <?php foreach ($posStores as $store): ?>
-            <div class="integration-card success">
-                <div class="card-header">
-                    <div class="card-icon success">
-                        <i class="fas fa-store"></i>
-                    </div>
-                    <div>
-                        <div class="card-title"><?php echo htmlspecialchars($store['name']); ?></div>
-                        <small style="color: #6b7280;">POS Enabled</small>
-                    </div>
-                </div>
-                <div class="stats-grid" style="grid-template-columns: repeat(3, 1fr); gap: 10px;">
-                    <div style="text-align: center;">
-                        <div style="font-size: 24px; font-weight: 700; color: #4f46e5;">
-                            <?php echo number_format((int)($store['product_count'] ?? 0)); ?>
-                        </div>
-                        <div style="font-size: 12px; color: #6b7280;">Products</div>
-                    </div>
-                    <div style="text-align: center;">
-                        <div style="font-size: 24px; font-weight: 700; color: #10b981;">
-                            <?php echo number_format((int)($store['total_stock'] ?? 0)); ?>
-                        </div>
-                        <div style="font-size: 12px; color: #6b7280;">Stock</div>
-                    </div>
-                    <div style="text-align: center;">
-                        <div style="font-size: 24px; font-weight: 700; color: #f59e0b;">
-                            <?php echo number_format((int)($store['total_sales'] ?? 0)); ?>
-                        </div>
-                        <div style="font-size: 12px; color: #6b7280;">Sales</div>
-                    </div>
-                </div>
-                <div class="quick-actions">
-                    <a href="terminal.php?store_id=<?php echo htmlspecialchars($store['id']); ?>" class="btn btn-sm" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
-                        <i class="fas fa-cash-register"></i> Open POS
-                    </a>
-                    <a href="../stock/list.php?store=<?php echo htmlspecialchars($store['id']); ?>" class="btn btn-sm btn-secondary">
-                        <i class="fas fa-boxes"></i> View Stock
-                    </a>
-                </div>
-            </div>
-            <?php endforeach; ?>
-        </div>
-        <?php endif; ?>
+
 
         <!-- Alerts Grid -->
         <div class="integration-grid">

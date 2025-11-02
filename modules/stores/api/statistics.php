@@ -23,6 +23,15 @@ if (!isLoggedIn()) {
     exit;
 }
 
+// Check permission to view stores
+if (!currentUserHasPermission('can_view_stores') && !currentUserHasPermission('can_view_reports')) {
+    echo json_encode([
+        'success' => false,
+        'error' => 'Permission denied'
+    ]);
+    exit;
+}
+
 try {
     $db = getDB();
     $all_stores = $db->readAll('stores', [['active', '==', 1]]);

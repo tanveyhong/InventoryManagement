@@ -62,12 +62,13 @@ $pageTitle = 'User Management';
         }
 
         .page-header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+            background: rgba(255, 255, 255, 0.98);
+            color: #2d3748;
             padding: 30px;
             border-radius: 16px;
             margin-bottom: 30px;
-            box-shadow: 0 4px 20px rgba(102, 126, 234, 0.3);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            border: 1px solid #e2e8f0;
         }
 
         .page-header h1 {
@@ -76,6 +77,7 @@ $pageTitle = 'User Management';
             display: flex;
             align-items: center;
             gap: 15px;
+            color: #2d3748;
         }
 
         .page-header p {
@@ -83,6 +85,7 @@ $pageTitle = 'User Management';
             opacity: 1;
             font-size: 16px;
             font-weight: 500;
+            color: #718096;
         }
 
         .tabs-container {
@@ -2127,7 +2130,8 @@ $pageTitle = 'User Management';
             const container = document.getElementById('store-access-container');
             
             try {
-                const response = await fetch('profile/api.php?action=get_all_users');
+                // Exclude admins from the list since they have access to all stores by default
+                const response = await fetch('profile/api.php?action=get_all_users&exclude_admins=true');
                 const data = await response.json();
                 
                 if (!data.success) throw new Error(data.error || 'Failed to load users');
@@ -2147,6 +2151,13 @@ $pageTitle = 'User Management';
                             <button onclick="refreshStoreAccess()" class="btn" style="background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3); padding: 10px 16px;" title="Refresh store access">
                                 <i class="fas fa-sync-alt"></i> Refresh
                             </button>
+                        </div>
+                    </div>
+                    
+                    <div style="background: #f0f9ff; border: 1px solid #0ea5e9; border-radius: 8px; padding: 12px 16px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
+                        <i class="fas fa-info-circle" style="color: #0ea5e9; font-size: 18px;"></i>
+                        <div style="flex: 1; font-size: 14px; color: #374151;">
+                            <strong>Note:</strong> Administrators and managers have access to all stores by default and are not listed here. Store access restrictions apply only to regular users and cashiers.
                         </div>
                     </div>
                     

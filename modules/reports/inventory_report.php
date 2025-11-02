@@ -13,6 +13,12 @@ if (!isset($_SESSION['user_id'])) {
   exit;
 }
 
+// Check permission to view reports
+if (!hasPermission($_SESSION['user_id'], 'can_view_reports')) {
+    http_response_code(403);
+    die('Access denied. You do not have permission to view reports.');
+}
+
 function h($s)
 {
   return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');

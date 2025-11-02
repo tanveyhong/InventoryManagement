@@ -35,16 +35,36 @@ $dataSource = 'postgresql';
 try {
     $sqlDb = SQLDatabase::getInstance();
     
-    // Fetch all active stores with location data - optimized query
-    $storeRecords = $sqlDb->fetchAll("
-        SELECT 
-            id, name, code, address, city, state, zip_code, phone, email, 
-            manager, manager_name, description, latitude, longitude, region_id, 
-            store_type, status, operating_hours, active, created_at, updated_at
-        FROM stores 
-        WHERE active = TRUE 
-        ORDER BY name ASC
-    ");
+    // Get current user info for store access filtering
+    $userId = $_SESSION['user_id'] ?? null;
+    $currentUser = $sqlDb->fetch("SELECT * FROM users WHERE id = ? OR firebase_id = ?", [$userId, $userId]);
+    $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
+    $isManager = (strtolower($currentUser['role'] ?? '') === 'manager');
+    
+    // Build query based on user role - admins/managers see all stores
+    if ($isAdmin || $isManager) {
+        $storeRecords = $sqlDb->fetchAll("
+            SELECT 
+                id, name, code, address, city, state, zip_code, phone, email, 
+                manager, manager_name, description, latitude, longitude, region_id, 
+                store_type, status, operating_hours, active, created_at, updated_at
+            FROM stores 
+            WHERE active = TRUE 
+            ORDER BY name ASC
+        ");
+    } else {
+        // Regular users only see their assigned stores
+        $storeRecords = $sqlDb->fetchAll("
+            SELECT 
+                s.id, s.name, s.code, s.address, s.city, s.state, s.zip_code, s.phone, s.email, 
+                s.manager, s.manager_name, s.description, s.latitude, s.longitude, s.region_id, 
+                s.store_type, s.status, s.operating_hours, s.active, s.created_at, s.updated_at
+            FROM stores s
+            INNER JOIN user_store_access usa ON s.id = usa.store_id
+            WHERE s.active = TRUE AND usa.user_id = ?
+            ORDER BY s.name ASC
+        ", [$currentUser['id']]);
+    }
     
     // Fetch all active regions
     $regionRecords = $sqlDb->fetchAll("

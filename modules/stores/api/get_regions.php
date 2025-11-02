@@ -22,6 +22,13 @@ if (!isLoggedIn()) {
     exit;
 }
 
+// Check permission to view stores
+if (!currentUserHasPermission('can_view_stores')) {
+    http_response_code(403);
+    echo json_encode(['success' => false, 'message' => 'Permission denied']);
+    exit;
+}
+
 try {
     $db = getDB();
     

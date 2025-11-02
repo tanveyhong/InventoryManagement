@@ -954,27 +954,20 @@ function hasPermission($userId, $permission) {
     
     // Cache user data in session to avoid repeated database calls
     static $userCache = [];
+    static $permissionCache = [];
     
     try {
         // Check cache first
         if (isset($userCache[$userId])) {
             $user = $userCache[$userId];
         } else {
-            // Try PostgreSQL first (fast)
-            try {
-                require_once __DIR__ . '/sql_db.php';
-                $sqlDb = SQLDatabase::getInstance();
-                $user = $sqlDb->fetch("SELECT * FROM users WHERE id = ? OR firebase_id = ?", [$userId, $userId]);
-                
-                if (!$user) {
-                    // Fallback to Firebase
-                    $db = getDB();
-                    $user = $db->read('users', $userId);
-                }
-            } catch (Exception $e) {
-                // Fallback to Firebase
-                $db = getDB();
-                $user = $db->read('users', $userId);
+            // Get user from PostgreSQL
+            require_once __DIR__ . '/sql_db.php';
+            $sqlDb = SQLDatabase::getInstance();
+            $user = $sqlDb->fetch("SELECT * FROM users WHERE id = ? OR firebase_id = ?", [$userId, $userId]);
+            
+            if (!$user) {
+                return false;
             }
             
             // Cache the result
@@ -986,11 +979,6 @@ function hasPermission($userId, $permission) {
         }
         
         $role = strtolower($user['role']);
-        
-        // Admin has all permissions
-        if ($role === 'admin') {
-            return true;
-        }
         
         // Map old permission names to new can_* field names
         $permissionMap = [
@@ -1010,23 +998,37 @@ function hasPermission($userId, $permission) {
             $permissionKey = $permissionMap[$permission];
         }
         
-        // Check if permission field exists and is true
-        if (isset($user[$permissionKey])) {
-            return (bool)$user[$permissionKey];
+        // Check user_permissions table (with value column)
+        $cacheKey = $userId . '_' . $permissionKey;
+        if (!isset($permissionCache[$cacheKey])) {
+            $sqlDb = SQLDatabase::getInstance();
+            $permRecord = $sqlDb->fetch(
+                "SELECT value FROM user_permissions WHERE user_id = ? AND permission = ?",
+                [$user['id'], $permissionKey]
+            );
+            
+            if ($permRecord !== false) {
+                // Explicit grant/revoke found - use that value
+                $permissionCache[$cacheKey] = (bool)$permRecord['value'];
+            } else {
+                // No record - use role-based default
+                $rolePermissions = [
+                    'manager' => ['can_view_reports', 'can_manage_inventory', 'can_manage_stores'],
+                    'user' => ['can_view_reports']
+                ];
+                
+                if ($role === 'admin') {
+                    // Admin has all permissions by default
+                    $permissionCache[$cacheKey] = true;
+                } elseif (isset($rolePermissions[$role]) && in_array($permissionKey, $rolePermissions[$role])) {
+                    $permissionCache[$cacheKey] = true;
+                } else {
+                    $permissionCache[$cacheKey] = false;
+                }
+            }
         }
         
-        // Fallback: Check role-based permissions for backward compatibility
-        $rolePermissions = [
-            'admin' => ['can_view_reports', 'can_manage_inventory', 'can_manage_users', 'can_manage_stores', 'can_configure_system'],
-            'manager' => ['can_view_reports', 'can_manage_inventory', 'can_manage_stores'],
-            'user' => ['can_view_reports']
-        ];
-        
-        if (isset($rolePermissions[$role]) && in_array($permissionKey, $rolePermissions[$role])) {
-            return true;
-        }
-        
-        return false;
+        return $permissionCache[$cacheKey];
     } catch (Exception $e) {
         error_log('hasPermission error: ' . $e->getMessage());
         return false;

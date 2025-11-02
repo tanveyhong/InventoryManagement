@@ -5,8 +5,25 @@
 
 header('Content-Type: application/json');
 
-require_once '../../config.php';
-require_once '../../firebase_rest_client.php';
+require_once '../../../config.php';
+require_once '../../../functions.php';
+require_once '../../../firebase_rest_client.php';
+
+session_start();
+
+// Check authentication
+if (!isLoggedIn()) {
+    http_response_code(401);
+    echo json_encode(['error' => 'Unauthorized']);
+    exit;
+}
+
+// Check permission
+if (!currentUserHasPermission('can_view_stores')) {
+    http_response_code(403);
+    echo json_encode(['error' => 'Permission denied']);
+    exit;
+}
 
 try {
     $client = new FirebaseRestClient();

@@ -131,6 +131,9 @@ if (strpos($currentPath, 'modules/users/profile/') !== false) {
                         <a href="<?php echo $baseUrl . 'modules/reports/inventory_report.php'; ?>">
                             <i class="fas fa-boxes"></i> Inventory Reports
                         </a>
+                        <a href="<?php echo $baseUrl . 'modules/forecasting/index.php'; ?>">
+                            <i class="fas fa-chart-area"></i> Demand Forecast
+                        </a>
                     </div>
                 </div>
                 <?php endif; ?>
