@@ -1,0 +1,46 @@
+# Configuration files with secrets
+config.php
+config_local.php
+config_supabase.php
+
+# Environment files
+.env
+.env.local
+
+# Database files
+storage/database.sqlite
+*.db
+
+# Cache and temporary files
+storage/cache/*
+!storage/cache/.gitkeep
+storage/logs/*
+!storage/logs/.gitkeep
+
+# Migration/test scripts with credentials
+migrate_to_supabase.php
+test_supabase.php
+fix_users_supabase.php
+check_users_structure.php
+export_to_supabase.php
+supabase_migration_*.sql
+
+# Vendor dependencies
+vendor/
+node_modules/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Backup files
+*.backup
+*.bak
+*_backup.php
