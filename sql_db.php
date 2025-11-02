@@ -25,7 +25,7 @@ class SQLDatabase {
                 $this->upgradeDatabase();
                 
             } elseif (DB_DRIVER === 'pgsql' || DB_TYPE === 'pgsql') {
-                // PostgreSQL configuration
+                // PostgreSQL configuration (supports Supabase and local)
                 $host = defined('PG_HOST') ? PG_HOST : 'localhost';
                 $port = defined('PG_PORT') ? PG_PORT : 5432;
                 $database = defined('PG_DATABASE') ? PG_DATABASE : 'inventory_system';
@@ -34,11 +34,16 @@ class SQLDatabase {
                 
                 $dsn = "pgsql:host={$host};port={$port};dbname={$database}";
                 
+                // Add SSL mode for cloud databases (Supabase, AWS RDS, etc.)
+                if (defined('PG_SSL_MODE') && PG_SSL_MODE) {
+                    $dsn .= ";sslmode=" . PG_SSL_MODE;
+                }
+                
                 $options = [
                     PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
                     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
                     PDO::ATTR_EMULATE_PREPARES   => false,
-                    PDO::ATTR_PERSISTENT         => false,
+                    PDO::ATTR_PERSISTENT         => false, // Don't use persistent for cloud
                 ];
                 
                 $this->pdo = new PDO($dsn, $username, $password, $options);

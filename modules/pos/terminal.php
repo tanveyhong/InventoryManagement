@@ -1,50 +1,54 @@
 <?php
 /**
- * POS Terminal - Firebase Integration
- * Uses the same products collection as Stock Management
- * Sales automatically deduct from stock quantities
+ * POS Terminal - PostgreSQL Version
+ * Shows only products assigned to the selected store
  */
 require_once '../../config.php';
+require_once '../../sql_db.php';
+require_once '../../auth_postgresql.php';
 require_once '../../functions.php';
-require_once '../../getDB.php';
 
 session_start();
 
 // Check if user is logged in
-if (!isset($_SESSION['user_id'])) {
-    header('Location: ../users/login.php');
+if (!isLoggedIn()) {
+    header('Location: ../users/login.php?redirect=' . urlencode($_SERVER['REQUEST_URI']));
     exit;
 }
 
-// Check POS permission
-if (!currentUserHasPermission('can_use_pos')) {
-    $_SESSION['error'] = 'You do not have permission to use POS';
-    header('Location: ../../index.php');
-    exit;
-}
-
-$db = getDB();
+$sqlDb = SQLDatabase::getInstance();
 $errors = [];
 $success_message = '';
 
-// Get user's store (if assigned)
-$user_store_id = $_SESSION['store_id'] ?? null;
-$store_info = null;
+// Get store ID from URL parameter or session
+$user_store_id = $_GET['store_id'] ?? $_SESSION['pos_store_id'] ?? null;
 
-if ($user_store_id) {
-    try {
-        $store_info = $db->read('stores', $user_store_id);
-        
-        // Check if POS is enabled for this store
-        if (empty($store_info['has_pos']) || $store_info['has_pos'] != 1) {
-            $_SESSION['error'] = 'POS is not enabled for your store. Please contact administrator.';
-            header('Location: ../../index.php');
-            exit;
-        }
-    } catch (Exception $e) {
-        error_log("Error fetching store info: " . $e->getMessage());
-    }
+if (!$user_store_id) {
+    die("Error: No store selected. Please select a store from the <a href='stock_pos_integration.php'>POS Integration</a> page.");
 }
+
+// Store in session for future requests
+$_SESSION['pos_store_id'] = $user_store_id;
+
+// Get store information
+$store_info = $sqlDb->fetch("SELECT * FROM stores WHERE id = ?", [$user_store_id]);
+
+if (!$store_info) {
+    die("Error: Store not found.");
+}
+
+// Check if POS is enabled for this store
+if (empty($store_info['has_pos']) || $store_info['has_pos'] != true) {
+    $_SESSION['error'] = 'POS is not enabled for this store. Please contact administrator.';
+    header('Location: stock_pos_integration.php');
+    exit;
+}
+
+error_log("=== POS TERMINAL INITIALIZED ===");
+error_log("Store ID: $user_store_id");
+error_log("Store Name: {$store_info['name']}");
+error_log("User ID: " . $_SESSION['user_id']);
+
 
 // Handle AJAX requests
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
@@ -53,130 +57,73 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     try {
         switch ($_POST['action']) {
             case 'load_products':
-                // Load products with caching (5 minutes)
-                $cacheFile = __DIR__ . '/../../storage/cache/pos_products.cache';
-                $cacheMaxAge = 300; // 5 minutes
+                error_log("=== LOADING PRODUCTS FOR STORE $user_store_id ===");
                 
-                $useCache = file_exists($cacheFile) && (time() - filemtime($cacheFile) < $cacheMaxAge);
+                // Load products assigned to THIS store only
+                $sql = "SELECT id, name, sku, barcode, category, price, selling_price, quantity, store_id
+                        FROM products 
+                        WHERE active = true
+                        AND quantity > 0
+                        AND store_id = ?
+                        ORDER BY name 
+                        LIMIT 500";
                 
-                if ($useCache) {
-                    $products = unserialize(file_get_contents($cacheFile));
-                } else {
-                    $products = [];
+                $productDocs = $sqlDb->fetchAll($sql, [$user_store_id]);
+                
+                error_log("Found " . count($productDocs) . " products for store $user_store_id");
+                
+                $products = [];
+                foreach ($productDocs as $p) {
+                    $price = isset($p['selling_price']) && $p['selling_price'] > 0 
+                           ? floatval($p['selling_price']) 
+                           : floatval($p['price'] ?? 0);
                     
-                    // FIXED: Try SQL database first (more reliable and where batch-added products are)
-                    $sqlDb = getSQLDB();
-                    if ($sqlDb) {
-                        try {
-                            $sql = "SELECT id, name, sku, barcode, category, price, selling_price, quantity 
-                                    FROM products 
-                                    WHERE active = 1 
-                                    AND quantity > 0";
-                            
-                            $params = [];
-                            
-                            // CRITICAL: Filter by store - must have store_id
-                            if ($user_store_id) {
-                                $sql .= " AND store_id = ?";
-                                $params[] = $user_store_id;
-                                error_log("POS filtering products for store ID: $user_store_id");
-                            } else {
-                                // If no store assigned, don't show any products
-                                error_log("POS WARNING: No store_id found for user, showing no products");
-                                $products = [];
-                            }
-                            
-                            if ($user_store_id) {
-                                $sql .= " ORDER BY name LIMIT 500";
-                                
-                                $productDocs = $sqlDb->fetchAll($sql, $params);
-                                
-                                foreach ($productDocs as $p) {
-                                    $sku = $p['sku'] ?? '';
-                                    $qty = intval($p['quantity'] ?? 0);
-                                    
-                                    // Skip products with invalid/Firebase-generated SKUs (contains random IDs)
-                                    if (strlen($sku) > 50 || preg_match('/[a-zA-Z0-9]{20,}/', $sku)) {
-                                        error_log("Skipping product with invalid SKU: $sku");
-                                        continue;
-                                    }
-                                    
-                                    // Skip products with 0 price (incomplete data)
-                                    $price = isset($p['selling_price']) && $p['selling_price'] > 0 
-                                           ? floatval($p['selling_price']) 
-                                           : floatval($p['price'] ?? 0);
-                                    
-                                    if ($price <= 0) {
-                                        error_log("Skipping product with 0 price: {$p['name']}");
-                                        continue;
-                                    }
-                                    
-                                    $products[] = [
-                                        'id' => $p['id'] ?? '',
-                                        'name' => $p['name'] ?? '',
-                                        'sku' => $sku,
-                                        'price' => $price,
-                                        'quantity' => $qty,
-                                        'category' => $p['category'] ?? 'Uncategorized',
-                                        'barcode' => $p['barcode'] ?? '',
-                                        'image' => $p['image'] ?? null
-                                    ];
-                                }
-                            }
-                            
-                            error_log("POS loaded " . count($products) . " products from SQL for store: $user_store_id");
-                        } catch (Exception $e) {
-                            error_log("SQL product load failed: " . $e->getMessage());
-                        }
+                    if ($price <= 0) {
+                        continue; // Skip products with 0 price
                     }
                     
-                    // Fallback to Firebase if SQL failed or no products
-                    if (empty($products)) {
-                        try {
-                            $filters = [['active', '==', 1]];
-                            if ($user_store_id) {
-                                $filters[] = ['store_id', '==', $user_store_id];
-                            }
-                            
-                            $productDocs = $db->readAll('products', $filters, null, 500);
-                            
-                            foreach ($productDocs as $p) {
-                                $products[] = [
-                                    'id' => $p['id'] ?? '',
-                                    'name' => $p['name'] ?? '',
-                                    'sku' => $p['sku'] ?? '',
-                                    'price' => isset($p['price']) ? floatval($p['price']) : 0,
-                                    'quantity' => intval($p['quantity'] ?? 0),
-                                    'category' => $p['category'] ?? 'Uncategorized',
-                                    'barcode' => $p['barcode'] ?? '',
-                                    'image' => $p['image'] ?? null
-                                ];
-                            }
-                            
-                            error_log("POS loaded " . count($products) . " products from Firebase for store: $user_store_id");
-                        } catch (Exception $e) {
-                            error_log("Firebase product load failed: " . $e->getMessage());
-                        }
-                    }
-                    
-                    // Cache for next requests
-                    if (!is_dir(dirname($cacheFile))) {
-                        mkdir(dirname($cacheFile), 0755, true);
-                    }
-                    file_put_contents($cacheFile, serialize($products));
+                    $products[] = [
+                        'id' => $p['id'],
+                        'name' => $p['name'],
+                        'sku' => $p['sku'] ?? '',
+                        'price' => $price,
+                        'quantity' => intval($p['quantity'] ?? 0),
+                        'category' => $p['category'] ?? 'Uncategorized',
+                        'barcode' => $p['barcode'] ?? '',
+                        'store_id' => $p['store_id']
+                    ];
                 }
                 
-                echo json_encode(['success' => true, 'products' => $products]);
+                echo json_encode([
+                    'success' => true, 
+                    'products' => $products,
+                    'debug' => [
+                        'store_id' => $user_store_id,
+                        'count' => count($products),
+                        'sql' => $sql
+                    ]
+                ]);
                 exit;
                 
             case 'process_sale':
+                error_log("============================================");
+                error_log("=== PROCESS SALE STARTED ===");
+                error_log("============================================");
+                
                 $items = json_decode($_POST['items'] ?? '[]', true);
                 $customer_name = trim($_POST['customer_name'] ?? 'Walk-in Customer');
                 $payment_method = $_POST['payment_method'] ?? 'cash';
                 $amount_paid = floatval($_POST['amount_paid'] ?? 0);
                 $notes = trim($_POST['notes'] ?? '');
                 
+                error_log("Items count: " . count($items));
+                error_log("Customer: $customer_name");
+                error_log("Payment method: $payment_method");
+                error_log("Amount paid: $amount_paid");
+                error_log("Items JSON: " . json_encode($items));
+                
                 if (empty($items)) {
+                    error_log("✗ ERROR: No items in cart");
                     throw new Exception('No items in cart');
                 }
                 
@@ -186,11 +133,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 
                 // Validate all items first - check SQL database first for accuracy
                 $sqlDb = getSQLDB();
+                error_log("SQL Database instance: " . ($sqlDb ? "OK" : "NULL"));
                 
                 foreach ($items as $item) {
                     $product_id = $item['product_id'] ?? '';
                     $quantity = intval($item['quantity'] ?? 0);
                     $price = floatval($item['price'] ?? 0);
+                    
+                    error_log("Processing item - Product ID: $product_id, Qty: $quantity, Price: $price");
                     
                     if (empty($product_id) || $quantity <= 0) {
                         throw new Exception('Invalid item in cart');
@@ -273,10 +223,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 ];
                 
                 // DUAL-SAVE: Save to SQL first (primary database)
+                error_log("=== SAVING SALE TO DATABASE ===");
                 if ($sqlDb) {
+                    error_log("SQL Database available: YES");
                     try {
                         // FIX: Determine actual store ID (not 'main')
                         $actual_store_id = null;
+                        error_log("Determining store ID...");
+                        error_log("user_store_id from session: " . ($user_store_id ?? 'NULL'));
                         
                         // Try to get from user session
                         if ($user_store_id && is_numeric($user_store_id)) {
@@ -298,7 +252,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         
                         // If still no store, use the first POS-enabled store as fallback
                         if (!$actual_store_id) {
-                            $firstPosStore = $sqlDb->fetch("SELECT id FROM stores WHERE has_pos = 1 ORDER BY id ASC LIMIT 1");
+                            $firstPosStore = $sqlDb->fetch("SELECT id FROM stores WHERE pos_enabled = true ORDER BY id ASC LIMIT 1");
                             if ($firstPosStore) {
                                 $actual_store_id = intval($firstPosStore['id']);
                                 error_log("Using first POS store as fallback: $actual_store_id");
@@ -311,7 +265,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                             error_log("WARNING: No valid store found, using ID 1");
                         }
                         
-                        // Match existing sales table structure
+                        error_log("Final store ID for sale: $actual_store_id");
+                        error_log("Sale number: $sale_number");
+                        error_log("User ID from session: " . ($_SESSION['user_id'] ?? 'NULL'));
+                        
+                        // FIX: Handle Firebase user ID (string) vs PostgreSQL user ID (integer)
+                        $user_id_for_sale = null;
+                        if (isset($_SESSION['user_id'])) {
+                            // Check if it's a Firebase ID (20+ char alphanumeric string)
+                            if (is_string($_SESSION['user_id']) && preg_match('/^[a-zA-Z0-9]{20,}$/', $_SESSION['user_id'])) {
+                                error_log("⚠️ Firebase user ID detected: {$_SESSION['user_id']} - setting user_id to NULL");
+                                $user_id_for_sale = null; // Will be NULL in database
+                            } else {
+                                // It's a valid integer or can be converted
+                                $user_id_for_sale = intval($_SESSION['user_id']);
+                                error_log("✓ Using integer user ID: $user_id_for_sale");
+                            }
+                        }
+                        
+                        error_log("Attempting to insert sale record...");
+                        
+                        // Insert sale record and get the ID
                         $sqlDb->execute(
                             "INSERT INTO sales (sale_number, store_id, user_id, customer_name, 
                                                subtotal, tax_amount, total_amount, payment_method, 
@@ -319,24 +293,74 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                             [
                                 $sale_number,
-                                $actual_store_id,  // Use actual numeric store ID
-                                $_SESSION['user_id'],
+                                $actual_store_id,
+                                $user_id_for_sale,  // Use sanitized user ID (null if Firebase ID)
                                 $customer_name,
                                 $subtotal,
                                 $tax,
                                 $total,
                                 $payment_method,
                                 'completed',
-                                $notes . "\n\nItems: " . json_encode($items, JSON_PRETTY_PRINT),
+                                $notes,
                                 date('Y-m-d H:i:s'),
                                 date('Y-m-d H:i:s')
                             ]
                         );
-                        error_log("✓ Sale saved to SQL: $sale_number");
+                        
+                        error_log("✓ Sale INSERT executed successfully");
+                        
+                        // Get the inserted sale ID
+                        $sale_id_sql = $sqlDb->fetch("SELECT id FROM sales WHERE sale_number = ?", [$sale_number]);
+                        $sale_id_db = $sale_id_sql ? $sale_id_sql['id'] : null;
+                        
+                        error_log("Sale ID retrieved: " . ($sale_id_db ?? 'NULL'));
+                        
+                        // Insert individual sale items if sale was created successfully
+                        if ($sale_id_db) {
+                            error_log("📦 INSERTING SALE ITEMS: " . count($items) . " items for sale ID $sale_id_db");
+                            $item_insert_success = 0;
+                            $item_insert_fail = 0;
+                            
+                            foreach ($items as $index => $item) {
+                                try {
+                                    error_log("Item #$index: {$item['name']} - Product ID: {$item['product_id']}, Qty: {$item['quantity']}, Price: {$item['price']}");
+                                    
+                                    $sqlDb->execute(
+                                        "INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, subtotal, created_at) 
+                                         VALUES (?, ?, ?, ?, ?, ?)",
+                                        [
+                                            $sale_id_db,
+                                            $item['product_id'],
+                                            $item['quantity'],
+                                            $item['price'],
+                                            $item['quantity'] * $item['price'],
+                                            date('Y-m-d H:i:s')
+                                        ]
+                                    );
+                                    $item_insert_success++;
+                                    error_log("✓ Item #$index saved successfully");
+                                } catch (Exception $e) {
+                                    $item_insert_fail++;
+                                    error_log("✗ Item #$index FAILED: " . $e->getMessage());
+                                }
+                            }
+                            error_log("✓ Sale items result: $item_insert_success success, $item_insert_fail failed");
+                        } else {
+                            error_log("✗ WARNING: Could not retrieve sale ID after insert");
+                        }
+                        
+                        error_log("✓ Sale saved to SQL: $sale_number (Store ID: $actual_store_id)");
                     } catch (Exception $e) {
-                        error_log("✗ SQL sale save failed: " . $e->getMessage());
+                        $errorMsg = "✗ SQL sale save failed: " . $e->getMessage();
+                        error_log($errorMsg);
+                        error_log("Stack trace: " . $e->getTraceAsString());
+                        // Store error to return to frontend
+                        $sqlError = $errorMsg;
                         // Don't throw - continue to Firebase
                     }
+                } else {
+                    error_log("✗ SQL Database not available!");
+                    $sqlError = "SQL Database not available";
                 }
                 
                 // DUAL-SAVE: Also save to Firebase (secondary/sync database)
@@ -375,6 +399,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                             $updateSql = "UPDATE products SET quantity = ?, updated_at = ? WHERE id = ?";
                             $sqlDb->execute($updateSql, [$update['new_qty'], date('Y-m-d H:i:s'), $update['id']]);
                             error_log("SQL: Deducted {$update['sold_qty']} from product {$update['id']}");
+                            
+                            // Record stock movement in PostgreSQL
+                            try {
+                                $sqlDb->execute(
+                                    "INSERT INTO stock_movements (product_id, store_id, movement_type, quantity, 
+                                                                  reference, notes, user_id, created_at) 
+                                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                                    [
+                                        $update['id'],
+                                        $actual_store_id ?? $user_store_id,
+                                        'sale',
+                                        -$update['sold_qty'],  // Negative for deduction
+                                        $sale_number,
+                                        "POS Sale - {$update['name']} x{$update['sold_qty']} @ RM{$update['price']} (Stock: {$update['old_qty']} → {$update['new_qty']})",
+                                        $user_id_for_sale,  // Use sanitized user ID
+                                        date('Y-m-d H:i:s')
+                                    ]
+                                );
+                                error_log("✓ Stock movement recorded for product {$update['id']}");
+                            } catch (Exception $e) {
+                                error_log("✗ Stock movement logging failed: " . $e->getMessage());
+                            }
                             
                             // CASCADING UPDATE: If this is a store variant, update main product total
                             $productInfo = $sqlDb->fetch("SELECT sku, store_id FROM products WHERE id = ?", [$update['id']]);
@@ -480,7 +526,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     }
                 }
                 
-                echo json_encode([
+                $response = [
                     'success' => true,
                     'sale_number' => $sale_number,
                     'subtotal' => $subtotal,
@@ -488,7 +534,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     'total' => $total,
                     'change' => $change,
                     'items_sold' => count($items)
-                ]);
+                ];
+                
+                // Add SQL error if there was one
+                if (isset($sqlError)) {
+                    $response['sql_error'] = $sqlError;
+                    $response['warning'] = 'Sale saved to Firebase but SQL save failed';
+                }
+                
+                echo json_encode($response);
                 exit;
                 
             default:
@@ -985,6 +1039,9 @@ $page_title = 'POS Terminal - Inventory System';
         // Load products from server
         async function loadProducts() {
             try {
+                console.log('=== LOADING PRODUCTS ===');
+                console.log('Store ID: <?php echo $user_store_id; ?>');
+                
                 const formData = new FormData();
                 formData.append('action', 'load_products');
                 
@@ -995,8 +1052,22 @@ $page_title = 'POS Terminal - Inventory System';
                 
                 const data = await response.json();
                 
+                console.log('Products loaded:', data);
+                
+                if (data.debug) {
+                    console.log('=== DEBUG INFO ===');
+                    console.log('Store ID:', data.debug.store_id);
+                    console.log('Products count:', data.debug.count);
+                    console.log('SQL:', data.debug.sql);
+                }
+                
                 if (data.success) {
                     products = data.products;
+                    console.log('Total products:', products.length);
+                    if (products.length > 0) {
+                        console.log('First product:', products[0]);
+                        console.log('Sample store_ids:', products.slice(0, 5).map(p => p.store_id));
+                    }
                     renderCategories();
                     renderProducts();
                 } else {
@@ -1072,28 +1143,53 @@ $page_title = 'POS Terminal - Inventory System';
         
         // Add product to cart
         function addToCart(productId) {
-            const product = products.find(p => p.id === productId);
-            if (!product || product.quantity <= 0) return;
+            console.log('=== ADD TO CART ===');
+            console.log('Product ID:', productId, 'Type:', typeof productId);
+            console.log('Available products:', products.length);
             
-            const existingItem = cart.find(item => item.product_id === productId);
+            // Convert to number for comparison (since onclick passes string)
+            const numericId = typeof productId === 'string' ? parseInt(productId) : productId;
+            console.log('Numeric ID:', numericId);
+            
+            const product = products.find(p => p.id == productId); // Use == for type coercion
+            console.log('Found product:', product);
+            
+            if (!product) {
+                console.error('Product not found!');
+                console.log('Available product IDs:', products.map(p => p.id));
+                alert('Product not found');
+                return;
+            }
+            
+            if (product.quantity <= 0) {
+                console.error('No stock available');
+                alert('No stock available');
+                return;
+            }
+            
+            const existingItem = cart.find(item => item.product_id == productId); // Use == for type coercion
             
             if (existingItem) {
                 if (existingItem.quantity < product.quantity) {
                     existingItem.quantity++;
+                    console.log('Increased quantity to:', existingItem.quantity);
                 } else {
                     alert('Cannot add more than available stock');
                     return;
                 }
             } else {
-                cart.push({
-                    product_id: productId,
+                const newItem = {
+                    product_id: numericId,
                     name: product.name,
                     price: product.price,
                     quantity: 1,
                     max_quantity: product.quantity
-                });
+                };
+                cart.push(newItem);
+                console.log('Added new item to cart:', newItem);
             }
             
+            console.log('Cart now has', cart.length, 'items');
             renderCart();
         }
         
@@ -1171,17 +1267,52 @@ $page_title = 'POS Terminal - Inventory System';
         
         // Process checkout
         async function checkout() {
-            if (cart.length === 0) return;
+            console.log('=== CHECKOUT INITIATED ===');
             
-            const total = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0) * 1.06;
-            const amountPaid = parseFloat(prompt('Enter amount paid (Total: RM ' + total.toFixed(2) + '):', total.toFixed(2)));
-            
-            if (isNaN(amountPaid) || amountPaid < total) {
-                alert('Invalid payment amount');
+            if (cart.length === 0) {
+                console.log('Cart is empty');
                 return;
             }
             
+            const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+            const tax = subtotal * 0.06; // 6% tax
+            const total = subtotal + tax;
+            
+            console.log('Subtotal:', subtotal);
+            console.log('Tax:', tax);
+            console.log('Total:', total);
+            console.log('Payment Method:', selectedPaymentMethod);
+            
+            // For cash, ask for amount paid
+            let amountPaid = total;
+            
+            if (selectedPaymentMethod === 'cash') {
+                const promptResult = prompt('Enter amount paid (Total: RM ' + total.toFixed(2) + '):', total.toFixed(2));
+                console.log('Prompt result:', promptResult);
+                
+                if (promptResult === null) {
+                    console.log('Payment cancelled');
+                    return; // User cancelled
+                }
+                
+                amountPaid = parseFloat(promptResult);
+                console.log('Amount paid:', amountPaid);
+                
+                if (isNaN(amountPaid)) {
+                    console.error('Invalid number:', promptResult);
+                    alert('Invalid payment amount - please enter a number');
+                    return;
+                }
+                
+                if (amountPaid < total) {
+                    console.error('Insufficient payment:', amountPaid, '<', total);
+                    alert('Insufficient payment. Total is RM ' + total.toFixed(2));
+                    return;
+                }
+            }
+            
             const customerName = document.getElementById('customerName').value || 'Walk-in Customer';
+            console.log('Customer:', customerName);
             
             try {
                 document.getElementById('checkoutBtn').disabled = true;
@@ -1194,12 +1325,37 @@ $page_title = 'POS Terminal - Inventory System';
                 formData.append('payment_method', selectedPaymentMethod);
                 formData.append('amount_paid', amountPaid);
                 
+                console.log('Sending sale data...');
+                console.log('Cart items:', cart);
+                console.log('Payment details:', {
+                    customer: customerName,
+                    method: selectedPaymentMethod,
+                    amountPaid: amountPaid,
+                    total: total
+                });
+                
                 const response = await fetch(window.location.href, {
                     method: 'POST',
                     body: formData
                 });
                 
-                const data = await response.json();
+                console.log('Response status:', response.status);
+                console.log('Response OK:', response.ok);
+                
+                const responseText = await response.text();
+                console.log('Raw response:', responseText);
+                
+                let data;
+                try {
+                    data = JSON.parse(responseText);
+                } catch (e) {
+                    console.error('Failed to parse JSON response:', e);
+                    console.error('Response was:', responseText);
+                    alert('Error: Invalid response from server');
+                    return;
+                }
+                
+                console.log('Parsed sale response:', data);
                 
                 if (data.success) {
                     const change = data.change;
