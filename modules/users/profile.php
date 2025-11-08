@@ -299,6 +299,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             display: flex;
             align-items: center;
             gap: 30px;
+            flex-wrap: wrap;
+            overflow: visible;
         }
         
         .profile-avatar {
@@ -344,6 +346,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         .profile-info {
             flex-grow: 1;
+            min-width: 250px;
+            overflow: visible;
         }
         
         .profile-name {
@@ -351,6 +355,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             font-weight: 700;
             color: #2d3748;
             margin-bottom: 5px;
+            overflow-wrap: break-word;
+            word-break: break-word;
         }
         
         .profile-role {
@@ -363,6 +369,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             display: flex;
             gap: 20px;
             flex-wrap: wrap;
+            overflow: visible;
         }
         
         .meta-item {
@@ -1049,7 +1056,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <?php if (!empty($user['profile_picture'])): ?>
                     <img src="<?= htmlspecialchars($user['profile_picture']) ?>" alt="Profile" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">
                 <?php else: ?>
-                    <?= strtoupper(substr($user['first_name'] ?? 'U', 0, 1)) . strtoupper(substr($user['last_name'] ?? 'U', 0, 1)) ?>
+                    <?php
+                    // Get initials from full_name or fallback to first/last name
+                    $fullName = $user['full_name'] ?? ($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? '');
+                    $nameParts = array_filter(explode(' ', trim($fullName)));
+                    $initials = 'N1';
+                    if (count($nameParts) >= 2) {
+                        $initials = strtoupper(substr($nameParts[0], 0, 1) . substr($nameParts[count($nameParts)-1], 0, 1));
+                    } elseif (count($nameParts) === 1) {
+                        $initials = strtoupper(substr($nameParts[0], 0, 2));
+                    }
+                    echo $initials;
+                    ?>
                 <?php endif; ?>
                 <input type="file" id="avatarUpload" accept="image/*" style="display: none;">
                 <button class="avatar-upload-btn" onclick="document.getElementById('avatarUpload').click()" title="Change profile picture">
@@ -1057,7 +1075,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </button>
             </div>
             <div class="profile-info">
-                <h1 class="profile-name"><?= htmlspecialchars(($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? '')) ?></h1>
+                <h1 class="profile-name"><?= htmlspecialchars($user['full_name'] ?? ($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? '')) ?></h1>
                 <div class="profile-role"><?= htmlspecialchars($role['role_name'] ?? 'User') ?></div>
                 <div class="profile-meta">
                     <div class="meta-item">

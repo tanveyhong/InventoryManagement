@@ -9,11 +9,12 @@ if (!function_exists('currentUserHasPermission')) {
     // Determine the relative path to root based on current location
     $currentPath = $_SERVER['PHP_SELF'];
     if (strpos($currentPath, 'modules/users/profile/') !== false) {
-        require_once __DIR__ . '/../functions.php';
+        require_once __DIR__ . '/../../functions.php';
     } elseif (strpos($currentPath, 'modules/') !== false) {
         require_once __DIR__ . '/../functions.php';
     } else {
-        require_once __DIR__ . '/functions.php';
+        // Called from root level
+        require_once __DIR__ . '/../functions.php';
     }
 }
 
@@ -796,21 +797,43 @@ body {
     
     .navbar-menu {
         margin: 0 1rem;
+        gap: 0.25rem;
+    }
+    
+    .nav-item span {
+        font-size: 0.85rem;
     }
 }
 
 @media (max-width: 768px) {
     .navbar-menu {
-        display: none;
+        display: flex; /* Keep visible but adjust layout */
+        flex-wrap: wrap;
+        margin: 0 0.5rem;
+        gap: 0.25rem;
+    }
+    
+    .nav-item {
+        padding: 8px 12px;
+        font-size: 0.8rem;
+    }
+    
+    .nav-item span {
+        display: none; /* Hide text labels on small screens */
+    }
+    
+    .nav-item i {
+        font-size: 1.1rem;
     }
     
     .mobile-menu-toggle {
-        display: flex;
+        display: none; /* Not needed since menu is visible */
     }
     
     .navbar-container {
-        padding: 0 1rem;
+        padding: 0 0.5rem;
         height: 60px;
+        flex-wrap: wrap;
     }
     
     .brand-name {
@@ -818,7 +841,7 @@ body {
     }
     
     .brand-subtitle {
-        font-size: 0.75rem;
+        display: none;
     }
     
     /* Connection status on mobile */

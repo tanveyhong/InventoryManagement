@@ -1,153 +1,260 @@
-# 🏪 Hybrid Inventory Management System
+# 🏪 Inventory Management System
 
-## Architecture Overview
-
-This system implements a **hybrid database architecture** combining the best of both worlds:
-
-- **Local SQLite Database** - For fast, offline-capable POS operations
-- **Central PostgreSQL/MySQL Server** - For centralized management, analytics, and multi-store coordination
-- **Redis Cache** - For real-time synchronization and pub/sub messaging
+A modern, full-featured inventory management system with multi-store support, role-based permissions, and cloud database integration.
 
 ## 🌟 Key Features
 
-### ✅ **Offline POS Capability**
-- Full point-of-sale operations work without internet connection
-- Local SQLite database stores all transactions
-- Automatic sync when connection is restored
-- No downtime during network outages
+### 🔐 **User Management & Permissions**
+- Role-based access control (Admin, Manager, Cashier, User)
+- Granular permissions system (view, add, edit, delete)
+- Store-specific access control for users
+- Activity logging and audit trails
 
-### 🔄 **Intelligent Synchronization**
-- Automatic background sync between local and central databases
-- Conflict resolution with configurable strategies
-- Queue-based sync with retry mechanisms
-- Real-time status monitoring
+### 🏬 **Multi-Store Management**
+- Manage multiple store locations
+- Interactive store map with geolocation
+- Regional analytics dashboard
+- Store-specific inventory tracking
+- Performance monitoring per location
 
-### 🏬 **Multi-Store Ready**
-- Each store/terminal has its own local database
-- Central server aggregates data from all locations
-- Store-specific configurations and permissions
-- Cross-store inventory visibility
-
-### 📱 **Modern POS Interface**
-- Touch-friendly interface optimized for tablets
+### 📦 **Inventory Management**
+- Real-time stock tracking
+- Product categorization
 - Barcode scanning support
-- Real-time inventory checking
-- Customer management
-- Multiple payment methods
+- Stock audit history
+- Low stock alerts
+- Expiry date tracking
 
-## 🗂️ Directory Structure
+### 💰 **Point of Sale (POS)**
+- Touch-friendly POS interface
+- Real-time inventory checking
+- Multiple payment methods
+- Receipt generation
+- Sales reporting
+
+### 📊 **Reports & Analytics**
+- Sales reports
+- Inventory reports
+- Demand forecasting
+- Regional performance analytics
+- Custom date range filtering
+
+### �️ **Store Mapping**
+- Interactive Leaflet map
+- Geocoding support
+- Store location visualization
+- Regional grouping
+- Performance heatmap
+
+## 🚀 Quick Start
+
+### Prerequisites
+- PHP 7.4 or higher
+- PostgreSQL (or use Supabase cloud database)
+- Composer (for dependencies)
+
+### Installation
+
+1. **Clone the repository**
+```bash
+git clone https://github.com/tanveyhong/InventoryManagement.git
+cd InventoryManagement
+```
+
+2. **Install dependencies**
+```bash
+composer install
+```
+
+3. **Configure database**
+- Copy `config.example.php` to `config.php`
+- Update database credentials in `config.php`
+
+4. **Run database migrations**
+```bash
+# Import the schema
+psql -U your_username -d your_database -f docs/postgresql_schema.sql
+```
+
+5. **Start the development server**
+```bash
+php -S localhost:8080
+```
+
+6. **Access the system**
+Open your browser and navigate to:
+```
+http://localhost:8080
+```
+
+### Default Login Credentials
+- **Username**: admin
+- **Password**: (set during initial setup)
+
+## 🗂️ Project Structure
 
 ```
 InventorySystem/
-├── 📁 assets/
-│   ├── 📁 css/
-│   │   └── style.css          # Main stylesheet
-│   └── 📁 js/
-│       └── main.js           # JavaScript functionality
-├── 📁 database/
-│   ├── inventory.db          # Local SQLite database
-│   ├── setup.php            # Database initialization
-│   ├── explore.php          # CLI database explorer
-│   └── web_explorer.php     # Web database explorer
 ├── 📁 modules/
-│   ├── 📁 stock/
-│   │   ├── list.php         # Product listing
-│   │   ├── add.php          # Add new products
-│   │   ├── view.php         # Product details
-│   │   └── delete.php       # Delete products
-│   └── 📁 users/
-│       └── login.php        # User authentication
-├── 📁 data/                 # Sync queue and temp files
-├── 📁 logs/                 # System and sync logs
-├── index.php               # Main dashboard
-├── pos_terminal.php        # Point of Sale interface
-├── sync_dashboard.php      # Hybrid database manager
-├── hybrid_config.php       # Configuration file
-├── hybrid_db.php          # Database abstraction layer
-├── sync_manager.php       # Synchronization engine
-├── config.php             # Database configuration
-├── db.php                 # Database connection
-└── functions.php          # Helper functions
+│   ├── 📁 stock/           # Inventory management
+│   ├── 📁 stores/          # Store management
+│   ├── 📁 users/           # User management
+│   ├── 📁 pos/             # Point of Sale
+│   ├── 📁 reports/         # Reporting system
+│   ├── 📁 alerts/          # Alert system
+│   └── 📁 forecasting/     # Demand forecasting
+├── 📁 includes/
+│   ├── dashboard_header.php  # Navigation header
+│   └── permission_helpers.php # Permission utilities
+├── 📁 assets/
+│   ├── 📁 css/            # Stylesheets
+│   └── 📁 js/             # JavaScript files
+├── 📁 docs/               # Documentation
+├── index.php              # Main dashboard
+├── config.php             # Configuration
+├── functions.php          # Helper functions
+├── sql_db.php            # Database class
+└── README.md             # This file
 ```
 
-## ⚙️ Configuration
+## 🔧 Configuration
 
-### Environment Detection
-The system automatically detects the environment:
+### Database Configuration (config.php)
+
+**For Supabase (Cloud PostgreSQL):**
 ```php
-define('ENVIRONMENT', 'development'); // development, staging, production
-define('CURRENT_MODE', 'hybrid');     // local, central, hybrid
+define('PG_HOST', 'db.your-project.supabase.co');
+define('PG_PORT', '5432');
+define('PG_DATABASE', 'postgres');
+define('PG_USERNAME', 'postgres');
+define('PG_PASSWORD', 'your-password');
+define('PG_SSL_MODE', 'require');
 ```
 
-### Store Configuration
+**For Local PostgreSQL:**
 ```php
-define('STORE_ID', 'STORE_001');           // Unique store identifier
-define('CENTRAL_AVAILABLE', true);         // Central server availability
-define('SYNC_ENABLED', true);             // Enable sync functionality
+define('PG_HOST', 'localhost');
+define('PG_PORT', '5432');
+define('PG_DATABASE', 'inventory_system');
+define('PG_USERNAME', 'postgres');
+define('PG_PASSWORD', 'your-password');
+define('PG_SSL_MODE', 'prefer');
 ```
 
-### Sync Settings
+## 📋 Database Schema
+
+### Core Tables
+- `users` - User accounts and authentication
+- `user_permissions` - Granular permission assignments
+- `user_store_access` - Store-specific user access
+- `stores` - Store locations and information
+- `products` - Inventory items
+- `regions` - Geographic regions for stores
+- `categories` - Product categorization
+- `stock_movements` - Inventory transactions
+- `sales` - POS transactions
+- `activities` - User activity logs
+
+### Permission System
+The system uses a granular permission model:
+- `can_view_inventory`
+- `can_add_inventory`
+- `can_edit_inventory`
+- `can_delete_inventory`
+- `can_view_stores`
+- `can_add_stores`
+- `can_edit_stores`
+- `can_delete_stores`
+- `can_view_reports`
+- `can_use_pos`
+- `can_manage_pos`
+- `can_view_users`
+- `can_manage_users`
+- `can_configure_system`
+
+### Role Defaults
+- **Admin**: All permissions
+- **Manager**: All except system configuration
+- **Cashier**: POS operations and view permissions
+- **User**: View-only permissions
+
+## 🔐 Security Features
+
+- Password hashing with PHP password_hash()
+- Session-based authentication
+- CSRF protection
+- SQL injection prevention (parameterized queries)
+- Role-based access control
+- Activity logging
+- Store-level access isolation
+
+## 🛠️ Development
+
+### Running the Development Server
+```bash
+cd InventoryManagement
+php -S localhost:8080
+```
+
+Then open `http://localhost:8080` in your browser.
+
+### Database Migrations
+Schema files are located in `docs/`:
+- `postgresql_schema.sql` - Main database schema
+- `stores_enhanced_schema.sql` - Store management extensions
+
+### Debugging
+- PHP error logs: `logs/php_errors.log`
+- Activity logs: Database `activities` table
+- Enable debug mode in `config.php`:
 ```php
-define('AUTO_SYNC_ENABLED', true);         // Auto sync enabled
-define('AUTO_SYNC_INTERVAL', 300);         // Sync every 5 minutes
-define('SYNC_BATCH_SIZE', 100);           // Records per batch
-define('SYNC_QUEUE_MAX_SIZE', 1000);      // Maximum queue size
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
 ```
 
-## 🚀 Getting Started
+## 📦 Dependencies
 
-### 1. Installation
-```bash
-# Clone or download the project
-cd InventorySystem
+- **PHP Extensions**: PDO, PDO_PGSQL, JSON, MBString
+- **Frontend**: Font Awesome 6, Leaflet.js (for maps)
+- **Database**: PostgreSQL 12+
 
-# Install dependencies (if any)
-# composer install  # (if using Composer)
+## 🌍 Browser Support
 
-# Make directories writable
-chmod 755 database/ data/ logs/
-```
+- Chrome 90+
+- Firefox 88+
+- Safari 14+
+- Edge 90+
 
-### 2. Database Setup
-```bash
-# Initialize local SQLite database
-php database/setup.php
+## 📝 License
 
-# Or use the web interface
-http://localhost:8000/database/setup.php
-```
+This project is licensed under the MIT License.
 
-### 3. Start Development Server
-```bash
-php -S localhost:8000
-```
+## 👥 Contributing
 
-### 4. Access the System
-- **Main Dashboard**: http://localhost:8000/
-- **POS Terminal**: http://localhost:8000/pos_terminal.php
-- **Sync Manager**: http://localhost:8000/sync_dashboard.php
-- **Database Explorer**: http://localhost:8000/database/web_explorer.php
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
 
-### 5. Default Login
-- **Username**: admin
-- **Password**: admin123
+## 📞 Support
 
-## 🔧 Database Architecture
+For issues and questions:
+- Open an issue on GitHub
+- Contact: [Your contact information]
 
-### Local SQLite Database
-```sql
--- Core tables for local operations
-users           -- User accounts and roles
-stores          -- Store information
-categories      -- Product categories
-products        -- Inventory items
-stock_movements -- Inventory transactions
-transactions    -- POS sales
-transaction_items -- Sale line items
-```
+## 🚧 Roadmap
 
-### Central Database Schema
-The central PostgreSQL/MySQL database mirrors the local structure with additional fields:
+- [ ] Mobile app integration
+- [ ] API documentation
+- [ ] Advanced analytics dashboard
+- [ ] Multi-currency support
+- [ ] Integration with accounting software
+- [ ] Automated reordering system
+
+---
+
+**Note**: This system uses cloud PostgreSQL (Supabase) by default. No local PostgreSQL installation required!
 - `synced_at` - Last sync timestamp
 - `source_store` - Original store identifier
 - `sync_status` - Synchronization status
@@ -382,5 +489,6 @@ For support and questions:
 
 ---
 
-**Built with ❤️ for modern retail operations**#   I n v e n t o r y M a n a g e m e n t  
+**Built with ❤️ for modern retail operations**#   I n v e n t o r y M a n a g e m e n t 
+ 
  

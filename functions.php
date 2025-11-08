@@ -1008,8 +1008,17 @@ function hasPermission($userId, $permission) {
             );
             
             if ($permRecord !== false) {
-                // Explicit grant/revoke found - use that value
-                $permissionCache[$cacheKey] = (bool)$permRecord['value'];
+                // Explicit grant/revoke found - properly handle PostgreSQL boolean
+                // PostgreSQL returns 't' for true, 'f' for false
+                $value = $permRecord['value'];
+                if ($value === 't' || $value === true || $value === 1 || $value === '1') {
+                    $permissionCache[$cacheKey] = true;
+                } elseif ($value === 'f' || $value === false || $value === 0 || $value === '0') {
+                    $permissionCache[$cacheKey] = false;
+                } else {
+                    // Default to boolean conversion for other types
+                    $permissionCache[$cacheKey] = (bool)$value;
+                }
             } else {
                 // No record - use role-based default
                 $rolePermissions = [
