@@ -961,10 +961,10 @@ function hasPermission($userId, $permission) {
         if (isset($userCache[$userId])) {
             $user = $userCache[$userId];
         } else {
-            // Get user from PostgreSQL
+            // Get user from PostgreSQL (integer ID only)
             require_once __DIR__ . '/sql_db.php';
             $sqlDb = SQLDatabase::getInstance();
-            $user = $sqlDb->fetch("SELECT * FROM users WHERE id = ? OR firebase_id = ?", [$userId, $userId]);
+            $user = $sqlDb->fetch("SELECT * FROM users WHERE id = ? AND deleted_at IS NULL", [$userId]);
             
             if (!$user) {
                 return false;

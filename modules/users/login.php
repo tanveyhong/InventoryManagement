@@ -1,28 +1,27 @@
 <?php
-// User Login Page
+// PostgreSQL-Only Login System
 require_once '../../config.php';
-require_once '../../db.php';
+require_once '../../sql_db.php';
 require_once '../../functions.php';
 
 session_start();
 
 // Redirect if already logged in
-if (isLoggedIn()) {
+if (isset($_SESSION['user_id']) && !empty($_SESSION['user_id'])) {
     header('Location: ../../index.php');
     exit;
 }
 
 $errors = [];
-$login_probe = null;
-$login_found_user = null;
+$success = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $username = sanitizeInput($_POST['username'] ?? '');
+    $username = trim($_POST['username'] ?? '');
     $password = $_POST['password'] ?? '';
     $remember_me = isset($_POST['remember_me']);
     
     if (empty($username)) {
-        $errors[] = 'Username is required';
+        $errors[] = 'Username or email is required';
     }
     
     if (empty($password)) {
@@ -30,200 +29,275 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     
     if (empty($errors)) {
-    // Normalize lookup key to handle case/whitespace differences
-    $lookup = trim(strtolower($username));
-    $user = findUserByUsernameOrEmail($lookup);
-        
-        $auth_ok = false;
-        if ($user) {
-            // Try common hash fields: password_hash (modern), password (legacy), pass
-            $possible_hashes = [
-                'password_hash' => $user['password_hash'] ?? null,
-                'password' => $user['password'] ?? null,
-                'pass' => $user['pass'] ?? null
-            ];
-            foreach ($possible_hashes as $fieldName => $h) {
-                if (!empty($h) && verifyPassword($password, $h)) {
-                    $auth_ok = true;
-                    break;
-                }
-            }
-        }
-
-        if ($auth_ok) {
-            // Check if user is active
-            if (isset($user['is_active']) && $user['is_active'] == false) {
-                $errors[] = 'Your account has been deactivated. Please contact administrator.';
-            } else {
-                // Login successful
-                // Normalize session user id to Firestore document id when possible
-                $db = getDB();
-                $sessionUserId = $user['id'];
-
-                // If the returned id looks numeric (legacy SQL), try to find the Firestore doc by email
-                if (is_numeric($sessionUserId)) {
-                    try {
-                        $possible = $db->read('users', $sessionUserId);
-                        if ($possible && isset($possible['id'])) {
-                            $sessionUserId = $possible['id'];
-                        } else {
-                            // Try lookup by email
-                            $found = $db->readAll('users', [['email', '==', $user['email']]], null, 1);
-                            if (!empty($found) && isset($found[0]['id'])) {
-                                $sessionUserId = $found[0]['id'];
-                            }
-                        }
-                    } catch (Exception $e) {
-                        // ignore and keep original id
+        try {
+            $sqlDb = SQLDatabase::getInstance();
+            
+            // Find user by username or email (PostgreSQL only)
+            $user = $sqlDb->fetch(
+                "SELECT * FROM users WHERE (LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?)) AND deleted_at IS NULL",
+                [$username, $username]
+            );
+            
+            if ($user && password_verify($password, $user['password_hash'])) {
+                // Check if user is active
+                $status = strtolower($user['status'] ?? 'active');
+                if ($status === 'inactive' || $status === 'suspended' || $status === 'banned') {
+                    $errors[] = 'Your account has been deactivated. Please contact administrator.';
+                } else {
+                    // Login successful - use PostgreSQL integer ID
+                    $_SESSION['user_id'] = $user['id'];  // PostgreSQL integer ID
+                    $_SESSION['username'] = $user['username'];
+                    $_SESSION['email'] = $user['email'];
+                    $_SESSION['role'] = $user['role'] ?? 'user';
+                    $_SESSION['login_time'] = time();
+                    $_SESSION['notifications'] = [];
+                    
+                    // Update last login
+                    $sqlDb->execute(
+                        "UPDATE users SET last_login = NOW() WHERE id = ?",
+                        [$user['id']]
+                    );
+                    
+                    // Handle remember me
+                    if ($remember_me) {
+                        $token = bin2hex(random_bytes(32));
+                        $expires = date('Y-m-d H:i:s', strtotime('+30 days'));
+                        
+                        // Store remember token in PostgreSQL
+                        $sqlDb->execute(
+                            "UPDATE users SET remember_token = ?, remember_token_expires = ? WHERE id = ?",
+                            [$token, $expires, $user['id']]
+                        );
+                        
+                        // Set cookie
+                        setcookie('remember_token', $token, strtotime('+30 days'), '/', '', false, true);
+                        setcookie('user_id', $user['id'], strtotime('+30 days'), '/', '', false, true);
                     }
-                }
-
-                $_SESSION['user_id'] = $sessionUserId;
-                $_SESSION['username'] = $user['username'] ?? ($user['email'] ?? '');
-                $_SESSION['email'] = $user['email'] ?? '';
-                $_SESSION['role'] = $user['role'] ?? 'user';
-                $_SESSION['login_time'] = time();
-                
-                // Handle remember me
-                if ($remember_me) {
-                    $token = generateToken();
-                    $expires = date('c', strtotime('+30 days'));
                     
-                    // Store remember token in Firestore using normalized session id if available
-                    updateUserRememberToken($_SESSION['user_id'] ?? $user['id'], $token, $expires);
-                    
-                    // Set cookie
-                    setcookie('remember_token', $token, strtotime('+30 days'), '/', '', false, true);
+                    // Redirect to intended page or dashboard
+                    $redirect = $_GET['redirect'] ?? '../../index.php';
+                    header('Location: ' . $redirect);
+                    exit;
                 }
-                
-                // Redirect to intended page or dashboard
-                $redirect = $_GET['redirect'] ?? '../../index.php';
-                header('Location: ' . $redirect);
-                exit;
+            } else {
+                $errors[] = 'Invalid username or password';
             }
-        } else {
-            // Probe which hash fields exist and whether they matched (do not log passwords)
-            $probe = [];
-            if ($user) {
-                foreach (['password_hash','password','pass'] as $f) {
-                    $probe[$f] = isset($user[$f]) ? (verifyPassword($password, $user[$f]) ? 'match' : 'no-match') : 'missing';
-                }
-            }
-            // Save probe for on-page debug when in DEBUG_MODE
-            $login_probe = $probe;
-            $login_found_user = $user ? array_filter($user, function($k){ return $k !== 'password_hash' && $k !== 'password' && $k !== 'pass'; }, ARRAY_FILTER_USE_KEY) : null;
-
-            logError('Failed login attempt', ['username' => $username, 'found_user' => $user ? true : false, 'user_id' => $user['id'] ?? null, 'probe' => $probe]);
-            $errors[] = 'Invalid username or password';
+        } catch (Exception $e) {
+            $errors[] = 'Login failed: ' . $e->getMessage();
         }
     }
 }
 
 // Check for remember me cookie
-if (isset($_COOKIE['remember_token']) && !isLoggedIn()) {
-    $user = findUserByRememberToken($_COOKIE['remember_token']);
-    
-    if ($user) {
-        // Normalize session id to Firestore doc id if possible
-        $sessionUserId = $user['id'];
-        $db = getDB();
-        if (is_numeric($sessionUserId)) {
-            try {
-                $possible = $db->read('users', $sessionUserId);
-                if ($possible && isset($possible['id'])) {
-                    $sessionUserId = $possible['id'];
-                } else {
-                    $found = $db->readAll('users', [['email', '==', $user['email']]], null, 1);
-                    if (!empty($found) && isset($found[0]['id'])) {
-                        $sessionUserId = $found[0]['id'];
-                    }
-                }
-            } catch (Exception $e) {
-                // ignore
-            }
-        }
-
-        $_SESSION['user_id'] = $sessionUserId;
-        $_SESSION['username'] = $user['username'] ?? ($user['email'] ?? '');
-        $_SESSION['email'] = $user['email'] ?? '';
-        $_SESSION['role'] = $user['role'] ?? 'user';
-        $_SESSION['login_time'] = time();
+if (!isset($_SESSION['user_id']) && isset($_COOKIE['remember_token']) && isset($_COOKIE['user_id'])) {
+    try {
+        $sqlDb = SQLDatabase::getInstance();
+        $user = $sqlDb->fetch(
+            "SELECT * FROM users WHERE id = ? AND remember_token = ? AND remember_token_expires > NOW() AND deleted_at IS NULL",
+            [$_COOKIE['user_id'], $_COOKIE['remember_token']]
+        );
         
-        header('Location: ../../index.php');
-        exit;
+        if ($user) {
+            $_SESSION['user_id'] = $user['id'];
+            $_SESSION['username'] = $user['username'];
+            $_SESSION['email'] = $user['email'];
+            $_SESSION['role'] = $user['role'] ?? 'user';
+            $_SESSION['login_time'] = time();
+            $_SESSION['notifications'] = [];
+            
+            header('Location: ../../index.php');
+            exit;
+        }
+    } catch (Exception $e) {
+        // Invalid token, continue to login page
     }
 }
 
-$page_title = 'Login - Inventory System';
+$page_title = 'Login - Inventory Management System';
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo $page_title; ?></title>
+    <title><?php echo htmlspecialchars($page_title); ?></title>
     <link rel="stylesheet" href="../../assets/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        .login-container {
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            width: 100%;
+            max-width: 450px;
+        }
+        
+        .login-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .login-header h1 {
+            color: #2c3e50;
+            margin: 0 0 10px 0;
+            font-size: 2rem;
+        }
+        
+        .login-header p {
+            color: #7f8c8d;
+            margin: 0;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #2c3e50;
+            font-weight: 500;
+        }
+        
+        .form-group input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 1rem;
+            transition: all 0.3s;
+            box-sizing: border-box;
+        }
+        
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .checkbox-group input[type="checkbox"] {
+            width: auto;
+            margin-right: 8px;
+        }
+        
+        .checkbox-group label {
+            margin: 0;
+            color: #2c3e50;
+        }
+        
+        .btn-login {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .btn-login:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        .error-message {
+            background: #fee;
+            color: #c33;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid #c33;
+        }
+        
+        .success-message {
+            background: #efe;
+            color: #3c3;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid #3c3;
+        }
+        
+        .register-link {
+            text-align: center;
+            margin-top: 20px;
+            color: #7f8c8d;
+        }
+        
+        .register-link a {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        
+        .register-link a:hover {
+            text-decoration: underline;
+        }
+    </style>
 </head>
 <body>
-    <div class="auth-container">
-        <div class="auth-form">
-            <h2>Login to Inventory System</h2>
-            
-            <?php if (!empty($errors)): ?>
-                <div class="alert alert-error">
-                    <ul>
-                        <?php foreach ($errors as $error): ?>
-                            <li><?php echo htmlspecialchars($error); ?></li>
-                        <?php endforeach; ?>
-                    </ul>
-                </div>
-            <?php endif; ?>
-            
-            <?php 
-            $notifications = getNotifications();
-            foreach ($notifications as $notification): 
-            ?>
-                <div class="alert alert-<?php echo $notification['type']; ?>">
-                    <?php echo htmlspecialchars($notification['message']); ?>
-                </div>
-            <?php endforeach; ?>
-            
-            <form method="POST" action="">
-                <div class="form-group">
-                    <label for="username">Username or Email:</label>
-                    <input type="text" id="username" name="username" value="<?php echo htmlspecialchars($_POST['username'] ?? ''); ?>" required>
-                </div>
-                
-                <div class="form-group">
-                    <label for="password">Password:</label>
-                    <input type="password" id="password" name="password" required>
-                </div>
-                
-                <div class="form-group checkbox-group">
-                    <label>
-                        <input type="checkbox" name="remember_me" value="1">
-                        Remember me for 30 days
-                    </label>
-                </div>
-                
-                <div class="form-group">
-                    <button type="submit" class="btn btn-primary">Login</button>
-                </div>
-            </form>
-            
-            <div class="auth-links">
-                <p>Don't have an account? <a href="register.php">Register here</a></p>
-                <p><a href="#" onclick="alert('Password reset feature coming soon!')">Forgot Password?</a></p>
+    <div class="login-container">
+        <div class="login-header">
+            <h1><i class="fas fa-box"></i> Inventory Pro</h1>
+            <p>Management System</p>
+        </div>
+        
+        <?php if (!empty($errors)): ?>
+            <div class="error-message">
+                <?php foreach ($errors as $error): ?>
+                    <p><?php echo htmlspecialchars($error); ?></p>
+                <?php endforeach; ?>
             </div>
+        <?php endif; ?>
+        
+        <?php if (!empty($success)): ?>
+            <div class="success-message">
+                <p><?php echo htmlspecialchars($success); ?></p>
+            </div>
+        <?php endif; ?>
+        
+        <form method="POST" action="">
+            <div class="form-group">
+                <label for="username">Username or Email</label>
+                <input type="text" id="username" name="username" value="<?php echo htmlspecialchars($_POST['username'] ?? ''); ?>" required autofocus>
+            </div>
+            
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required>
+            </div>
+            
+            <div class="checkbox-group">
+                <input type="checkbox" id="remember_me" name="remember_me">
+                <label for="remember_me">Remember me</label>
+            </div>
+            
+            <button type="submit" class="btn-login">
+                <i class="fas fa-sign-in-alt"></i> Login
+            </button>
+        </form>
+        
+        <div class="register-link">
+            Don't have an account? <a href="register.php">Register here</a>
         </div>
     </div>
-    <?php if (defined('DEBUG_MODE') && DEBUG_MODE && !empty($login_probe)): ?>
-        <div style="position:fixed; right:10px; bottom:10px; background:#fff; border:1px solid #ccc; padding:10px; max-width:320px; font-size:12px; z-index:9999;">
-            <strong>Login debug</strong>
-            <div><em>probe:</em> <?php echo htmlspecialchars(json_encode($login_probe)); ?></div>
-            <div><em>found_user:</em> <?php echo htmlspecialchars(json_encode($login_found_user)); ?></div>
-        </div>
-    <?php endif; ?>
 </body>
 </html>

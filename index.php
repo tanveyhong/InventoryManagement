@@ -6,8 +6,31 @@ require_once 'sql_db.php';
 
 session_start();
 
-// Check if user is logged in
-if (!isset($_SESSION['user_id'])) {
+// Check if user is logged in with PostgreSQL integer ID
+if (!isset($_SESSION['user_id']) || !is_numeric($_SESSION['user_id'])) {
+    // Invalid or Firebase session - clear and redirect to login
+    session_destroy();
+    header('Location: modules/users/login.php');
+    exit;
+}
+
+// Verify user exists in PostgreSQL
+try {
+    $sqlDb = SQLDatabase::getInstance();
+    $currentUser = $sqlDb->fetch("SELECT id, username, email, role FROM users WHERE id = ? AND deleted_at IS NULL", [$_SESSION['user_id']]);
+    if (!$currentUser) {
+        // User not found - invalid session
+        session_destroy();
+        header('Location: modules/users/login.php');
+        exit;
+    }
+    // Update session with latest user data
+    $_SESSION['username'] = $currentUser['username'];
+    $_SESSION['email'] = $currentUser['email'];
+    $_SESSION['role'] = $currentUser['role'];
+} catch (Exception $e) {
+    // Database error - redirect to login
+    session_destroy();
     header('Location: modules/users/login.php');
     exit;
 }

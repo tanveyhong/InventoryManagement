@@ -1,20 +1,26 @@
 <?php
-// User Logout
+// User Logout - PostgreSQL Only
 require_once '../../config.php';
-require_once '../../db.php';
-require_once '../../functions.php';
+require_once '../../sql_db.php';
 
 session_start();
 
 // Clear remember me cookie if exists
-if (isset($_COOKIE['remember_token'])) {
-    // Clear token from database
-    if (isLoggedIn()) {
-        clearUserRememberToken($_SESSION['user_id']);
+if (isset($_COOKIE['remember_token']) && isset($_SESSION['user_id'])) {
+    try {
+        // Clear token from PostgreSQL database
+        $sqlDb = SQLDatabase::getInstance();
+        $sqlDb->execute(
+            "UPDATE users SET remember_token = NULL, remember_token_expires = NULL WHERE id = ?",
+            [$_SESSION['user_id']]
+        );
+    } catch (Exception $e) {
+        // Ignore errors during logout
     }
     
-    // Clear cookie
+    // Clear cookies
     setcookie('remember_token', '', time() - 3600, '/', '', false, true);
+    setcookie('user_id', '', time() - 3600, '/', '', false, true);
 }
 
 // Destroy session
