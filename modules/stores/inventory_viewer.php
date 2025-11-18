@@ -1,10 +1,13 @@
 <?php
-// Enhanced Store Inventory Viewer with Real-time Updates
+// Store Inventory Viewer - PostgreSQL Optimized
+ob_start('ob_gzhandler');
+
 require_once '../../config.php';
 require_once '../../db.php';
+require_once '../../sql_db.php';
 require_once '../../functions.php';
 
-// Start session if not already started
+// Start session
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
@@ -15,177 +18,129 @@ if (!isLoggedIn()) {
     exit;
 }
 
-// Require permission to view store inventory
-if (!currentUserHasPermission('can_view_stores') && !currentUserHasPermission('can_view_inventory')) {
-    $_SESSION['error'] = 'You do not have permission to view store inventory';
-    header('Location: ../../index.php');
-    exit;
-}
+$sqlDb = SQLDatabase::getInstance();
 
-$sql_db = getSQLDB();
+// Get store ID
 $store_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
 
 if (!$store_id) {
+    $_SESSION['error'] = 'Store ID is required';
     header('Location: list.php');
     exit;
 }
 
-// Get store information with enhanced details
-$store = $sql_db->fetch("SELECT s.*, r.name as region_name, r.code as region_code,
-                                sp.total_sales, sp.avg_rating, sp.last_updated as performance_updated
-                         FROM stores s 
-                         LEFT JOIN regions r ON s.region_id = r.id 
-                         LEFT JOIN store_performance sp ON sp.store_id = s.id
-                         WHERE s.id = ? AND s.active = 1", [$store_id]);
-
-if (!$store) {
-    addNotification('Store not found or inactive', 'error');
-    header('Location: list.php');
-    exit;
+// Get store info
+try {
+    $store = $sqlDb->fetch("SELECT s.*, r.name as region_name 
+                            FROM stores s 
+                            LEFT JOIN regions r ON s.region_id = r.id 
+                            WHERE s.id = ? AND s.active = TRUE", [$store_id]);
+    
+    if (!$store) {
+        $_SESSION['error'] = 'Store not found';
+        header('Location: list.php');
+        exit;
+    }
+} catch (Exception $e) {
+    die("Database error: " . $e->getMessage());
 }
 
-// Get filtering and pagination parameters
+// Filtering and pagination
+$page = isset($_GET['page']) ? max(1, intval($_GET['page'])) : 1;
+$per_page = 25;
+$search = sanitizeInput($_GET['search'] ?? '');
 $category = sanitizeInput($_GET['category'] ?? '');
 $status = sanitizeInput($_GET['status'] ?? '');
-$search = sanitizeInput($_GET['search'] ?? '');
 $sort = sanitizeInput($_GET['sort'] ?? 'name');
 $order = sanitizeInput($_GET['order'] ?? 'asc');
-$page = max(1, intval($_GET['page'] ?? 1));
-$per_page = intval($_GET['per_page'] ?? 25);
+$offset = ($page - 1) * $per_page;
 
-// Enhanced search and filtering
-$where_conditions = ['p.store_id = ?', 'p.active = 1'];
+// Build WHERE clause
+$where = "WHERE p.store_id = ? AND p.active = TRUE";
 $params = [$store_id];
 
+if (!empty($search)) {
+    $where .= " AND (p.name ILIKE ? OR p.sku ILIKE ? OR p.barcode ILIKE ?)";
+    $searchPattern = "%$search%";
+    $params[] = $searchPattern;
+    $params[] = $searchPattern;
+    $params[] = $searchPattern;
+}
+
 if (!empty($category)) {
-    $where_conditions[] = 'p.category = ?';
+    $where .= " AND p.category = ?";
     $params[] = $category;
 }
 
 if (!empty($status)) {
     if ($status === 'low_stock') {
-        $where_conditions[] = 'p.quantity <= p.reorder_level';
+        $where .= " AND p.quantity <= p.reorder_level AND p.quantity > 0";
     } elseif ($status === 'out_of_stock') {
-        $where_conditions[] = 'p.quantity = 0';
+        $where .= " AND p.quantity = 0";
     } elseif ($status === 'expired') {
-        $where_conditions[] = 'p.expiry_date <= CURRENT_DATE';
+        $where .= " AND p.expiry_date < CURRENT_DATE";
     } elseif ($status === 'expiring_soon') {
-        $where_conditions[] = 'p.expiry_date BETWEEN CURRENT_DATE AND DATE_ADD(CURRENT_DATE, INTERVAL 30 DAY)';
+        $where .= " AND p.expiry_date BETWEEN CURRENT_DATE AND (CURRENT_DATE + INTERVAL '30 days')";
     }
 }
 
-if (!empty($search)) {
-    $where_conditions[] = '(p.name LIKE ? OR p.sku LIKE ? OR p.barcode LIKE ? OR p.description LIKE ?)';
-    $search_param = '%' . $search . '%';
-    $params = array_merge($params, [$search_param, $search_param, $search_param, $search_param]);
-}
-
-// Build the WHERE clause
-$where_clause = 'WHERE ' . implode(' AND ', $where_conditions);
-
-// Get total count for pagination
-$count_query = "SELECT COUNT(*) as total FROM products p {$where_clause}";
-$total_result = $sql_db->fetch($count_query, $params);
-$total_products = $total_result['total'] ?? 0;
-
-// Calculate pagination
-$pagination = paginate($page, $per_page, $total_products);
-
-// Build the main query with enhanced data
-$valid_sorts = ['name', 'sku', 'category', 'quantity', 'price', 'created_at', 'updated_at', 'expiry_date'];
-$sort = in_array($sort, $valid_sorts) ? $sort : 'name';
-$order = in_array(strtolower($order), ['asc', 'desc']) ? strtolower($order) : 'asc';
-
-$query = "SELECT p.*, 
-                 CASE 
-                     WHEN p.quantity = 0 THEN 'out_of_stock'
-                     WHEN p.quantity <= p.reorder_level THEN 'low_stock'
-                     WHEN p.expiry_date < CURRENT_DATE THEN 'expired'
-                     WHEN p.expiry_date <= DATE_ADD(CURRENT_DATE, INTERVAL 30 DAY) THEN 'expiring_soon'
-                     ELSE 'in_stock'
-                 END as stock_status,
-                 DATEDIFF(p.expiry_date, CURRENT_DATE) as days_to_expiry
-          FROM products p 
-          {$where_clause}
-          ORDER BY p.{$sort} {$order}
-          LIMIT {$pagination['per_page']} OFFSET {$pagination['offset']}";
-
-$products = $sql_db->fetchAll($query, $params);
-
-// Get categories for filtering
-$categories = $sql_db->fetchAll("SELECT DISTINCT category FROM products WHERE store_id = ? AND active = 1 AND category IS NOT NULL ORDER BY category", [$store_id]);
-
-// Get inventory summary statistics
-$summary_stats = $sql_db->fetch("
-    SELECT 
-        COUNT(*) as total_products,
-        SUM(quantity) as total_quantity,
-        SUM(quantity * price) as total_value,
-        SUM(CASE WHEN quantity = 0 THEN 1 ELSE 0 END) as out_of_stock_count,
-        SUM(CASE WHEN quantity <= reorder_level THEN 1 ELSE 0 END) as low_stock_count,
-        SUM(CASE WHEN expiry_date < CURRENT_DATE THEN 1 ELSE 0 END) as expired_count,
-        SUM(CASE WHEN expiry_date BETWEEN CURRENT_DATE AND DATE_ADD(CURRENT_DATE, INTERVAL 30 DAY) THEN 1 ELSE 0 END) as expiring_soon_count
-    FROM products 
-    WHERE store_id = ? AND active = 1
-", [$store_id]);
-
-$summary_stats = $summary_stats ?: [
-    'total_products' => 0, 'total_quantity' => 0, 'total_value' => 0,
-    'out_of_stock_count' => 0, 'low_stock_count' => 0, 'expired_count' => 0, 'expiring_soon_count' => 0
-];
-
-// Validate sort column
-$allowed_sorts = ['name', 'sku', 'category', 'quantity', 'cost_price', 'selling_price', 'expiry_date', 'created_at'];
+// Validate sort
+$allowed_sorts = ['name', 'sku', 'category', 'quantity', 'price', 'created_at'];
 if (!in_array($sort, $allowed_sorts)) {
     $sort = 'name';
 }
-$order = ($order === 'desc') ? 'desc' : 'asc';
+$order = ($order === 'desc') ? 'DESC' : 'ASC';
 
-// Get total count
-$count_sql = "SELECT COUNT(*) as total FROM products p $where_clause";
-$total_records = $db->fetch($count_sql, $params)['total'] ?? 0;
+try {
+    // Get total count
+    $countSql = "SELECT COUNT(*) as total FROM products p $where";
+    $countResult = $sqlDb->fetch($countSql, $params);
+    $total_records = $countResult['total'] ?? 0;
+    
+    // Get products
+    $sql = "SELECT p.*,
+                   CASE 
+                       WHEN p.quantity = 0 THEN 'out_of_stock'
+                       WHEN p.quantity <= p.reorder_level THEN 'low_stock'
+                       WHEN p.expiry_date < CURRENT_DATE THEN 'expired'
+                       WHEN p.expiry_date BETWEEN CURRENT_DATE AND (CURRENT_DATE + INTERVAL '30 days') THEN 'expiring_soon'
+                       ELSE 'in_stock'
+                   END as stock_status
+            FROM products p
+            $where
+            ORDER BY p.$sort $order
+            LIMIT ? OFFSET ?";
+    
+    $queryParams = array_merge($params, [$per_page, $offset]);
+    $products = $sqlDb->fetchAll($sql, $queryParams);
+    
+    // Get categories for filter
+    $categories = $sqlDb->fetchAll("SELECT DISTINCT category FROM products WHERE store_id = ? AND active = TRUE AND category IS NOT NULL ORDER BY category", [$store_id]);
+    
+    // Get summary stats
+    $summary = $sqlDb->fetch("SELECT 
+                                COUNT(*) as total_products,
+                                COALESCE(SUM(quantity), 0) as total_quantity,
+                                COALESCE(SUM(quantity * CAST(price AS NUMERIC)), 0) as total_value,
+                                COUNT(CASE WHEN quantity = 0 THEN 1 END) as out_of_stock,
+                                COUNT(CASE WHEN quantity <= reorder_level AND quantity > 0 THEN 1 END) as low_stock,
+                                COUNT(CASE WHEN expiry_date < CURRENT_DATE THEN 1 END) as expired,
+                                COUNT(CASE WHEN expiry_date BETWEEN CURRENT_DATE AND (CURRENT_DATE + INTERVAL '30 days') THEN 1 END) as expiring_soon
+                            FROM products 
+                            WHERE store_id = ? AND active = TRUE", [$store_id]);
+    
+} catch (Exception $e) {
+    error_log('Error fetching products: ' . $e->getMessage());
+    $products = [];
+    $total_records = 0;
+    $categories = [];
+    $summary = ['total_products' => 0, 'total_quantity' => 0, 'total_value' => 0, 'out_of_stock' => 0, 'low_stock' => 0, 'expired' => 0, 'expiring_soon' => 0];
+}
 
 // Calculate pagination
-$pagination = paginate($page, $per_page, $total_records);
+$total_pages = ceil($total_records / $per_page);
 
-// Get products
-$sql = "SELECT p.*, 
-               CASE 
-                   WHEN p.quantity = 0 THEN 'out_of_stock'
-                   WHEN p.quantity <= p.reorder_level THEN 'low_stock'
-                   WHEN p.expiry_date < CURDATE() THEN 'expired'
-                   WHEN p.expiry_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY) THEN 'expiring_soon'
-                   ELSE 'in_stock'
-               END as stock_status,
-               (p.quantity * p.selling_price) as total_value
-        FROM products p
-        $where_clause
-        ORDER BY p.$sort $order
-        LIMIT {$pagination['per_page']} OFFSET {$pagination['offset']}";
-
-$products = $db->fetchAll($sql, $params);
-
-// Get categories for filter
-$categories_sql = "SELECT DISTINCT category FROM products WHERE store_id = ? AND active = 1 ORDER BY category";
-$categories = $db->fetchAll($categories_sql, [$store_id]);
-
-// Get inventory summary
-$summary_sql = "SELECT 
-                    COUNT(*) as total_products,
-                    SUM(quantity) as total_quantity,
-                    SUM(quantity * cost_price) as total_cost_value,
-                    SUM(quantity * selling_price) as total_selling_value,
-                    COUNT(DISTINCT category) as categories_count,
-                    COUNT(CASE WHEN quantity = 0 THEN 1 END) as out_of_stock,
-                    COUNT(CASE WHEN quantity <= reorder_level AND quantity > 0 THEN 1 END) as low_stock,
-                    COUNT(CASE WHEN expiry_date < CURDATE() THEN 1 END) as expired,
-                    COUNT(CASE WHEN expiry_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY) THEN 1 END) as expiring_soon
-                FROM products 
-                WHERE store_id = ? AND active = 1";
-
-$summary = $db->fetch($summary_sql, [$store_id]);
-
-$page_title = "Store Inventory - {$store['name']} - Inventory System";
+$page_title = "Inventory - {$store['name']} - Inventory System";
 ?>
 
 <!DOCTYPE html>
@@ -193,452 +148,542 @@ $page_title = "Store Inventory - {$store['name']} - Inventory System";
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo $page_title; ?></title>
+    <title><?php echo htmlspecialchars($page_title); ?></title>
     <link rel="stylesheet" href="../../assets/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    
     <style>
-        .store-header {
-            background: #f8f9fa;
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            margin: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
             padding: 20px;
-            border-radius: 8px;
+        }
+        
+        .header {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 25px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+        
+        .header h1 {
+            margin: 0 0 5px 0;
+            color: #667eea;
+            font-size: 28px;
+        }
+        
+        .header .subtitle {
+            color: #666;
+            font-size: 14px;
             margin-bottom: 20px;
         }
         
-        .inventory-summary {
+        .back-btn {
+            display: inline-block;
+            padding: 8px 15px;
+            background: #667eea;
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            font-size: 14px;
+            margin-bottom: 15px;
+            transition: all 0.3s ease;
+        }
+        
+        .back-btn:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+        }
+        
+        .stats-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 15px;
-            margin: 20px 0;
+            margin-top: 20px;
         }
         
-        .summary-card {
+        .stat-card {
             background: white;
-            border: 1px solid #ddd;
-            border-radius: 8px;
             padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
             text-align: center;
+            transition: transform 0.3s ease;
         }
         
-        .summary-number {
-            font-size: 2em;
+        .stat-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+        }
+        
+        .stat-card .icon {
+            font-size: 36px;
+            margin-bottom: 10px;
+            color: #667eea;
+        }
+        
+        .stat-card .value {
+            font-size: 32px;
             font-weight: bold;
+            color: #333;
             margin-bottom: 5px;
         }
         
-        .summary-label {
+        .stat-card .label {
+            font-size: 14px;
             color: #666;
-            font-size: 0.9em;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
         
-        .status-in_stock { color: #28a745; }
-        .status-low_stock { color: #ffc107; }
-        .status-out_of_stock { color: #dc3545; }
-        .status-expired { color: #dc3545; background: #f8d7da; }
-        .status-expiring_soon { color: #fd7e14; }
+        .stat-card.warning .icon { color: #f39c12; }
+        .stat-card.danger .icon { color: #e74c3c; }
+        .stat-card.success .icon { color: #27ae60; }
         
-        .filter-section {
-            background: #f8f9fa;
-            padding: 15px;
-            border-radius: 8px;
+        .filters {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
             margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
         }
         
-        .filters-row {
+        .filter-form {
             display: grid;
-            grid-template-columns: 1fr 200px 200px 150px 100px;
-            gap: 10px;
+            grid-template-columns: 2fr 1fr 1fr 1fr auto;
+            gap: 15px;
             align-items: end;
         }
         
-        .product-table {
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .form-group label {
+            font-size: 13px;
+            color: #666;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+        
+        .form-group input,
+        .form-group select {
+            padding: 10px 12px;
+            border: 2px solid #e1e4e8;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        
+        .products-table-container {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+            overflow-x: auto;
+        }
+        
+        .products-table {
             width: 100%;
             border-collapse: collapse;
-            background: white;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
         
-        .product-table th,
-        .product-table td {
+        .products-table thead {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .products-table th,
+        .products-table td {
             padding: 12px;
             text-align: left;
-            border-bottom: 1px solid #ddd;
+            border-bottom: 1px solid #e1e4e8;
         }
         
-        .product-table th {
-            background: #f8f9fa;
+        .products-table th {
             font-weight: 600;
-            position: sticky;
-            top: 0;
-            z-index: 10;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
         
-        .product-table tr:hover {
+        .products-table tbody tr {
+            transition: background 0.2s;
+        }
+        
+        .products-table tbody tr:hover {
             background: #f8f9fa;
         }
         
-        .sortable {
-            cursor: pointer;
-            user-select: none;
-            position: relative;
-        }
-        
-        .sortable:hover {
-            background: #e9ecef;
-        }
-        
-        .sort-icon {
-            margin-left: 5px;
-            opacity: 0.5;
-        }
-        
-        .sort-active {
-            opacity: 1;
-        }
-        
-        .stock-badge {
-            padding: 3px 8px;
-            border-radius: 12px;
-            font-size: 11px;
-            font-weight: bold;
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
             text-transform: uppercase;
         }
         
-        .badge-in_stock {
+        .status-badge.in-stock {
             background: #d4edda;
             color: #155724;
         }
         
-        .badge-low_stock {
+        .status-badge.low-stock {
             background: #fff3cd;
             color: #856404;
         }
         
-        .badge-out_of_stock {
+        .status-badge.out-of-stock {
             background: #f8d7da;
             color: #721c24;
         }
         
-        .badge-expired {
-            background: #f5c6cb;
+        .status-badge.expired {
+            background: #f8d7da;
             color: #721c24;
         }
         
-        .badge-expiring_soon {
-            background: #ffeaa7;
-            color: #b8860b;
+        .status-badge.expiring-soon {
+            background: #fff3cd;
+            color: #856404;
         }
         
-        .quick-actions {
-            display: flex;
-            gap: 10px;
-            margin: 20px 0;
-        }
-        
-        .export-section {
-            margin: 20px 0;
-            padding: 15px;
+        .pagination {
             background: white;
-            border: 1px solid #ddd;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .pagination-info {
+            color: #6b7280;
+            font-size: 14px;
+        }
+        
+        .pagination-links {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .pagination-links a,
+        .pagination-links span {
+            padding: 8px 12px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 600;
+        }
+        
+        .pagination-links a {
+            background: #f3f4f6;
+            color: #667eea;
+        }
+        
+        .pagination-links a:hover {
+            background: #667eea;
+            color: white;
+        }
+        
+        .pagination-links .current {
+            background: #667eea;
+            color: white;
+        }
+        
+        .message {
+            padding: 15px 20px;
             border-radius: 8px;
+            margin-bottom: 20px;
+            font-weight: 500;
+        }
+        
+        .message.success {
+            background: #d1fae5;
+            color: #065f46;
+            border-left: 4px solid #10b981;
+        }
+        
+        .message.error {
+            background: #fee2e2;
+            color: #991b1b;
+            border-left: 4px solid #ef4444;
+        }
+        
+        .no-products {
+            background: white;
+            border-radius: 12px;
+            padding: 60px 20px;
+            text-align: center;
+            color: #6b7280;
+        }
+        
+        .no-products i {
+            font-size: 48px;
+            color: #d1d5db;
+            margin-bottom: 20px;
+        }
+        
+        @media (max-width: 768px) {
+            .filter-form {
+                grid-template-columns: 1fr;
+            }
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
         }
     </style>
 </head>
 <body>
+    <?php include '../../includes/dashboard_header.php'; ?>
+    
     <div class="container">
-        <header>
-            <h1>Store Inventory Viewer</h1>
-            <nav>
-                <ul>
-                    <li><a href="../../index.php">Dashboard</a></li>
-                    <li><a href="../stock/list.php">Stock</a></li>
-                    <li><a href="list.php">Stores</a></li>
-                    <li><a href="map.php">Store Map</a></li>
-                    <li><a href="../users/logout.php">Logout</a></li>
-                </ul>
-            </nav>
-        </header>
-
-        <main>
-            <!-- Store Information Header -->
-            <div class="store-header">
-                <div style="display: flex; justify-content: space-between; align-items: start;">
-                    <div>
-                        <h2><?php echo htmlspecialchars($store['name']); ?></h2>
-                        <p><strong>Code:</strong> <?php echo htmlspecialchars($store['code']); ?></p>
-                        <p><strong>Address:</strong> <?php echo htmlspecialchars($store['address'] . ', ' . $store['city'] . ', ' . $store['state']); ?></p>
-                        <p><strong>Region:</strong> <?php echo htmlspecialchars($store['region_name'] ?? 'N/A'); ?></p>
-                        <p><strong>Type:</strong> <?php echo htmlspecialchars(ucfirst($store['store_type'])); ?></p>
-                    </div>
-                    <div class="page-actions">
-                        <a href="profile.php?id=<?php echo $store_id; ?>" class="btn btn-secondary">Store Profile</a>
-                        <a href="edit.php?id=<?php echo $store_id; ?>" class="btn btn-outline">Edit Store</a>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Inventory Summary -->
-            <div class="inventory-summary">
-                <div class="summary-card">
-                    <div class="summary-number status-in_stock"><?php echo number_format($summary['total_products'] ?? 0); ?></div>
-                    <div class="summary-label">Total Products</div>
-                </div>
-                <div class="summary-card">
-                    <div class="summary-number"><?php echo number_format($summary['total_quantity'] ?? 0); ?></div>
-                    <div class="summary-label">Total Quantity</div>
-                </div>
-                <div class="summary-card">
-                    <div class="summary-number">$<?php echo number_format($summary['total_cost_value'] ?? 0, 2); ?></div>
-                    <div class="summary-label">Cost Value</div>
-                </div>
-                <div class="summary-card">
-                    <div class="summary-number">$<?php echo number_format($summary['total_selling_value'] ?? 0, 2); ?></div>
-                    <div class="summary-label">Selling Value</div>
-                </div>
-                <div class="summary-card">
-                    <div class="summary-number status-low_stock"><?php echo number_format($summary['low_stock'] ?? 0); ?></div>
-                    <div class="summary-label">Low Stock</div>
-                </div>
-                <div class="summary-card">
-                    <div class="summary-number status-out_of_stock"><?php echo number_format($summary['out_of_stock'] ?? 0); ?></div>
-                    <div class="summary-label">Out of Stock</div>
-                </div>
-                <div class="summary-card">
-                    <div class="summary-number status-expired"><?php echo number_format($summary['expired'] ?? 0); ?></div>
-                    <div class="summary-label">Expired</div>
-                </div>
-                <div class="summary-card">
-                    <div class="summary-number status-expiring_soon"><?php echo number_format($summary['expiring_soon'] ?? 0); ?></div>
-                    <div class="summary-label">Expiring Soon</div>
-                </div>
-            </div>
-
-            <!-- Quick Actions -->
-            <div class="quick-actions">
-                <a href="../stock/add.php?store_id=<?php echo $store_id; ?>" class="btn btn-primary">Add Product</a>
-                <a href="bulk_update.php?store_id=<?php echo $store_id; ?>" class="btn btn-secondary">Bulk Update</a>
-                <a href="stock_take.php?store_id=<?php echo $store_id; ?>" class="btn btn-outline">Stock Take</a>
-                <button onclick="exportInventory()" class="btn btn-outline">Export Data</button>
-            </div>
-
-            <!-- Filter Section -->
-            <div class="filter-section">
-                <form method="GET" action="">
-                    <input type="hidden" name="id" value="<?php echo $store_id; ?>">
-                    <div class="filters-row">
-                        <input type="text" name="search" placeholder="Search products..." 
-                               value="<?php echo htmlspecialchars($search); ?>" class="search-input">
-                        
-                        <select name="category">
-                            <option value="">All Categories</option>
-                            <?php foreach ($categories as $cat): ?>
-                                <option value="<?php echo htmlspecialchars($cat['category']); ?>" 
-                                        <?php echo ($category === $cat['category']) ? 'selected' : ''; ?>>
-                                    <?php echo htmlspecialchars($cat['category']); ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                        
-                        <select name="status">
-                            <option value="">All Status</option>
-                            <option value="in_stock" <?php echo ($status === 'in_stock') ? 'selected' : ''; ?>>In Stock</option>
-                            <option value="low_stock" <?php echo ($status === 'low_stock') ? 'selected' : ''; ?>>Low Stock</option>
-                            <option value="out_of_stock" <?php echo ($status === 'out_of_stock') ? 'selected' : ''; ?>>Out of Stock</option>
-                            <option value="expired" <?php echo ($status === 'expired') ? 'selected' : ''; ?>>Expired</option>
-                            <option value="expiring_soon" <?php echo ($status === 'expiring_soon') ? 'selected' : ''; ?>>Expiring Soon</option>
-                        </select>
-                        
-                        <select name="sort">
-                            <option value="name" <?php echo ($sort === 'name') ? 'selected' : ''; ?>>Name</option>
-                            <option value="sku" <?php echo ($sort === 'sku') ? 'selected' : ''; ?>>SKU</option>
-                            <option value="category" <?php echo ($sort === 'category') ? 'selected' : ''; ?>>Category</option>
-                            <option value="quantity" <?php echo ($sort === 'quantity') ? 'selected' : ''; ?>>Quantity</option>
-                            <option value="selling_price" <?php echo ($sort === 'selling_price') ? 'selected' : ''; ?>>Price</option>
-                            <option value="expiry_date" <?php echo ($sort === 'expiry_date') ? 'selected' : ''; ?>>Expiry</option>
-                        </select>
-                        
-                        <select name="order">
-                            <option value="asc" <?php echo ($order === 'asc') ? 'selected' : ''; ?>>↑ ASC</option>
-                            <option value="desc" <?php echo ($order === 'desc') ? 'selected' : ''; ?>>↓ DESC</option>
-                        </select>
-                    </div>
-                    
-                    <div style="margin-top: 10px;">
-                        <button type="submit" class="btn btn-primary">Apply Filters</button>
-                        <a href="inventory_viewer.php?id=<?php echo $store_id; ?>" class="btn btn-outline">Clear Filters</a>
-                        <span style="margin-left: 20px; color: #666;">
-                            Showing <?php echo number_format($pagination['showing_start']); ?>-<?php echo number_format($pagination['showing_end']); ?> 
-                            of <?php echo number_format($total_records); ?> products
-                        </span>
-                    </div>
-                </form>
-            </div>
-
-            <!-- Products Table -->
-            <?php if (empty($products)): ?>
-                <div class="no-data">
-                    <p>No products found with current filters.</p>
-                </div>
-            <?php else: ?>
-                <div style="overflow-x: auto;">
-                    <table class="product-table">
-                        <thead>
-                            <tr>
-                                <th>Product Details</th>
-                                <th>SKU</th>
-                                <th>Category</th>
-                                <th>Quantity</th>
-                                <th>Status</th>
-                                <th>Cost Price</th>
-                                <th>Selling Price</th>
-                                <th>Total Value</th>
-                                <th>Expiry Date</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($products as $product): ?>
-                                <tr>
-                                    <td>
-                                        <strong><?php echo htmlspecialchars($product['name']); ?></strong>
-                                        <?php if ($product['description']): ?>
-                                            <br><small style="color: #666;"><?php echo htmlspecialchars(substr($product['description'], 0, 50)) . (strlen($product['description']) > 50 ? '...' : ''); ?></small>
-                                        <?php endif; ?>
-                                        <?php if ($product['barcode']): ?>
-                                            <br><small style="color: #999;">Barcode: <?php echo htmlspecialchars($product['barcode']); ?></small>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td><?php echo htmlspecialchars($product['sku']); ?></td>
-                                    <td><?php echo htmlspecialchars($product['category']); ?></td>
-                                    <td>
-                                        <strong class="status-<?php echo $product['stock_status']; ?>">
-                                            <?php echo number_format($product['quantity']); ?>
-                                        </strong>
-                                        <?php if ($product['unit']): ?>
-                                            <br><small><?php echo htmlspecialchars($product['unit']); ?></small>
-                                        <?php endif; ?>
-                                        <?php if ($product['reorder_level'] > 0): ?>
-                                            <br><small style="color: #999;">Reorder: <?php echo number_format($product['reorder_level']); ?></small>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td>
-                                        <span class="stock-badge badge-<?php echo $product['stock_status']; ?>">
-                                            <?php 
-                                            switch($product['stock_status']) {
-                                                case 'in_stock': echo 'In Stock'; break;
-                                                case 'low_stock': echo 'Low Stock'; break;
-                                                case 'out_of_stock': echo 'Out of Stock'; break;
-                                                case 'expired': echo 'Expired'; break;
-                                                case 'expiring_soon': echo 'Expiring Soon'; break;
-                                            }
-                                            ?>
-                                        </span>
-                                    </td>
-                                    <td>$<?php echo number_format($product['cost_price'], 2); ?></td>
-                                    <td>$<?php echo number_format($product['selling_price'], 2); ?></td>
-                                    <td>$<?php echo number_format($product['total_value'], 2); ?></td>
-                                    <td>
-                                        <?php if ($product['expiry_date']): ?>
-                                            <?php 
-                                            $expiry_date = new DateTime($product['expiry_date']);
-                                            $now = new DateTime();
-                                            $diff = $now->diff($expiry_date);
-                                            ?>
-                                            <span class="status-<?php echo $product['stock_status']; ?>">
-                                                <?php echo $expiry_date->format('M j, Y'); ?>
-                                            </span>
-                                            <br><small style="color: #666;">
-                                                <?php
-                                                if ($expiry_date < $now) {
-                                                    echo 'Expired ' . $diff->days . ' days ago';
-                                                } else {
-                                                    echo 'Expires in ' . $diff->days . ' days';
-                                                }
-                                                ?>
-                                            </small>
-                                        <?php else: ?>
-                                            <span style="color: #999;">No expiry</span>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td>
-                                        <a href="../stock/view.php?id=<?php echo $product['id']; ?>" class="btn btn-sm btn-outline">View</a>
-                                        <a href="../stock/adjust.php?id=<?php echo $product['id']; ?>" class="btn btn-sm btn-secondary">Adjust</a>
-                                    </td>
-                                </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
-
-                <!-- Pagination -->
-                <?php if ($pagination['total_pages'] > 1): ?>
-                    <div class="pagination">
-                        <?php if ($pagination['current_page'] > 1): ?>
-                            <a href="?id=<?php echo $store_id; ?>&page=<?php echo ($pagination['current_page'] - 1); ?>&category=<?php echo urlencode($category); ?>&status=<?php echo urlencode($status); ?>&search=<?php echo urlencode($search); ?>&sort=<?php echo urlencode($sort); ?>&order=<?php echo urlencode($order); ?>" class="pagination-btn">← Previous</a>
-                        <?php endif; ?>
-                        
-                        <span class="pagination-info">
-                            Page <?php echo $pagination['current_page']; ?> of <?php echo $pagination['total_pages']; ?>
-                        </span>
-                        
-                        <?php if ($pagination['current_page'] < $pagination['total_pages']): ?>
-                            <a href="?id=<?php echo $store_id; ?>&page=<?php echo ($pagination['current_page'] + 1); ?>&category=<?php echo urlencode($category); ?>&status=<?php echo urlencode($status); ?>&search=<?php echo urlencode($search); ?>&sort=<?php echo urlencode($sort); ?>&order=<?php echo urlencode($order); ?>" class="pagination-btn">Next →</a>
-                        <?php endif; ?>
-                    </div>
+        <!-- Header -->
+        <div class="header">
+            <a href="list.php" class="back-btn">
+                <i class="fas fa-arrow-left"></i> Back to Stores
+            </a>
+            <h1><i class="fas fa-boxes"></i> <?php echo htmlspecialchars($store['name']); ?> - Inventory</h1>
+            <div class="subtitle">
+                <i class="fas fa-map-marker-alt"></i> <?php echo htmlspecialchars($store['address'] ?? 'N/A'); ?>, 
+                <?php echo htmlspecialchars($store['city'] ?? 'N/A'); ?>
+                <?php if (!empty($store['region_name'])): ?>
+                    · <i class="fas fa-map"></i> <?php echo htmlspecialchars($store['region_name']); ?>
                 <?php endif; ?>
-            <?php endif; ?>
-
-            <!-- Export Section -->
-            <div class="export-section">
-                <h3>Export Options</h3>
-                <p>Export the current filtered inventory data:</p>
-                <div style="margin-top: 10px;">
-                    <button onclick="exportToCsv()" class="btn btn-secondary">Export to CSV</button>
-                    <button onclick="exportToPdf()" class="btn btn-outline">Export to PDF</button>
-                    <button onclick="printInventory()" class="btn btn-outline">Print Report</button>
+            </div>
+            
+            <!-- Summary Statistics -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="icon"><i class="fas fa-box"></i></div>
+                    <div class="value"><?php echo number_format($summary['total_products']); ?></div>
+                    <div class="label">Total Products</div>
+                </div>
+                <div class="stat-card success">
+                    <div class="icon"><i class="fas fa-cubes"></i></div>
+                    <div class="value"><?php echo number_format($summary['total_quantity']); ?></div>
+                    <div class="label">Total Stock</div>
+                </div>
+                <div class="stat-card success">
+                    <div class="icon"><i class="fas fa-dollar-sign"></i></div>
+                    <div class="value">$<?php echo number_format($summary['total_value'], 2); ?></div>
+                    <div class="label">Total Value</div>
+                </div>
+                <div class="stat-card warning">
+                    <div class="icon"><i class="fas fa-exclamation-triangle"></i></div>
+                    <div class="value"><?php echo number_format($summary['low_stock']); ?></div>
+                    <div class="label">Low Stock</div>
+                </div>
+                <div class="stat-card danger">
+                    <div class="icon"><i class="fas fa-times-circle"></i></div>
+                    <div class="value"><?php echo number_format($summary['out_of_stock']); ?></div>
+                    <div class="label">Out of Stock</div>
+                </div>
+                <div class="stat-card danger">
+                    <div class="icon"><i class="fas fa-calendar-times"></i></div>
+                    <div class="value"><?php echo number_format($summary['expired'] + $summary['expiring_soon']); ?></div>
+                    <div class="label">Expired/Expiring</div>
                 </div>
             </div>
-        </main>
+        </div>
+        
+        <!-- Filters -->
+        <div class="filters">
+            <form class="filter-form" method="get" action="">
+                <input type="hidden" name="id" value="<?php echo $store_id; ?>">
+                
+                <div class="form-group">
+                    <label>Search</label>
+                    <input type="text" name="search" placeholder="Product name, SKU, or barcode..." 
+                           value="<?php echo htmlspecialchars($search); ?>">
+                </div>
+                
+                <div class="form-group">
+                    <label>Category</label>
+                    <select name="category">
+                        <option value="">All Categories</option>
+                        <?php foreach ($categories as $cat): ?>
+                            <option value="<?php echo htmlspecialchars($cat['category']); ?>" 
+                                    <?php echo $category === $cat['category'] ? 'selected' : ''; ?>>
+                                <?php echo htmlspecialchars($cat['category']); ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label>Status</label>
+                    <select name="status">
+                        <option value="">All Status</option>
+                        <option value="low_stock" <?php echo $status === 'low_stock' ? 'selected' : ''; ?>>Low Stock</option>
+                        <option value="out_of_stock" <?php echo $status === 'out_of_stock' ? 'selected' : ''; ?>>Out of Stock</option>
+                        <option value="expired" <?php echo $status === 'expired' ? 'selected' : ''; ?>>Expired</option>
+                        <option value="expiring_soon" <?php echo $status === 'expiring_soon' ? 'selected' : ''; ?>>Expiring Soon</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label>Sort By</label>
+                    <select name="sort">
+                        <option value="name" <?php echo $sort === 'name' ? 'selected' : ''; ?>>Product Name</option>
+                        <option value="sku" <?php echo $sort === 'sku' ? 'selected' : ''; ?>>SKU</option>
+                        <option value="category" <?php echo $sort === 'category' ? 'selected' : ''; ?>>Category</option>
+                        <option value="quantity" <?php echo $sort === 'quantity' ? 'selected' : ''; ?>>Quantity</option>
+                        <option value="price" <?php echo $sort === 'price' ? 'selected' : ''; ?>>Price</option>
+                        <option value="created_at" <?php echo $sort === 'created_at' ? 'selected' : ''; ?>>Date Added</option>
+                    </select>
+                </div>
+                
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-filter"></i> Apply
+                </button>
+            </form>
+        </div>
+        
+        <!-- Products Table -->
+        <?php if (!empty($products)): ?>
+        <div class="products-table-container">
+            <table class="products-table">
+                <thead>
+                    <tr>
+                        <th>SKU</th>
+                        <th>Product Name</th>
+                        <th>Category</th>
+                        <th>Quantity</th>
+                        <th>Price</th>
+                        <th>Status</th>
+                        <th>Expiry Date</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($products as $product): ?>
+                    <tr>
+                        <td><strong><?php echo htmlspecialchars($product['sku'] ?? 'N/A'); ?></strong></td>
+                        <td><?php echo htmlspecialchars($product['name']); ?></td>
+                        <td><?php echo htmlspecialchars($product['category'] ?? 'Uncategorized'); ?></td>
+                        <td><?php echo number_format($product['quantity']); ?></td>
+                        <td>$<?php echo number_format($product['price'], 2); ?></td>
+                        <td>
+                            <?php
+                            $status_class = str_replace('_', '-', $product['stock_status']);
+                            $status_text = ucwords(str_replace('_', ' ', $product['stock_status']));
+                            ?>
+                            <span class="status-badge <?php echo $status_class; ?>">
+                                <?php echo $status_text; ?>
+                            </span>
+                        </td>
+                        <td>
+                            <?php 
+                            if ($product['expiry_date']) {
+                                echo date('M d, Y', strtotime($product['expiry_date']));
+                            } else {
+                                echo '-';
+                            }
+                            ?>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Pagination -->
+        <?php if ($total_pages > 1): ?>
+        <div class="pagination">
+            <div class="pagination-info">
+                Showing <?php echo ($offset + 1); ?>-<?php echo min($offset + $per_page, $total_records); ?> 
+                of <?php echo number_format($total_records); ?> products
+            </div>
+            
+            <div class="pagination-links">
+                <?php if ($page > 1): ?>
+                <a href="?id=<?php echo $store_id; ?>&page=<?php echo ($page - 1); ?><?php echo $search ? '&search=' . urlencode($search) : ''; ?><?php echo $category ? '&category=' . urlencode($category) : ''; ?><?php echo $status ? '&status=' . urlencode($status) : ''; ?>&sort=<?php echo $sort; ?>&order=<?php echo $order; ?>">
+                    <i class="fas fa-chevron-left"></i> Previous
+                </a>
+                <?php endif; ?>
+                
+                <?php
+                // Show page numbers
+                $start_page = max(1, $page - 2);
+                $end_page = min($total_pages, $page + 2);
+                
+                for ($i = $start_page; $i <= $end_page; $i++):
+                ?>
+                    <?php if ($i == $page): ?>
+                    <span class="current"><?php echo $i; ?></span>
+                    <?php else: ?>
+                    <a href="?id=<?php echo $store_id; ?>&page=<?php echo $i; ?><?php echo $search ? '&search=' . urlencode($search) : ''; ?><?php echo $category ? '&category=' . urlencode($category) : ''; ?><?php echo $status ? '&status=' . urlencode($status) : ''; ?>&sort=<?php echo $sort; ?>&order=<?php echo $order; ?>">
+                        <?php echo $i; ?>
+                    </a>
+                    <?php endif; ?>
+                <?php endfor; ?>
+                
+                <?php if ($page < $total_pages): ?>
+                <a href="?id=<?php echo $store_id; ?>&page=<?php echo ($page + 1); ?><?php echo $search ? '&search=' . urlencode($search) : ''; ?><?php echo $category ? '&category=' . urlencode($category) : ''; ?><?php echo $status ? '&status=' . urlencode($status) : ''; ?>&sort=<?php echo $sort; ?>&order=<?php echo $order; ?>">
+                    Next <i class="fas fa-chevron-right"></i>
+                </a>
+                <?php endif; ?>
+            </div>
+        </div>
+        <?php endif; ?>
+        
+        <?php else: ?>
+        <div class="no-products">
+            <i class="fas fa-box-open"></i>
+            <h2>No Products Found</h2>
+            <p><?php echo $search || $category || $status ? 'No products match your filters.' : 'This store has no products yet.'; ?></p>
+            <br>
+            <a href="?id=<?php echo $store_id; ?>" class="btn btn-secondary">
+                <i class="fas fa-redo"></i> Clear Filters
+            </a>
+        </div>
+        <?php endif; ?>
     </div>
-
-    <script>
-        function exportInventory() {
-            exportToCsv();
-        }
-        
-        function exportToCsv() {
-            const params = new URLSearchParams(window.location.search);
-            params.set('export', 'csv');
-            window.open('api/export_inventory.php?' + params.toString(), '_blank');
-        }
-        
-        function exportToPdf() {
-            const params = new URLSearchParams(window.location.search);
-            params.set('export', 'pdf');
-            window.open('api/export_inventory.php?' + params.toString(), '_blank');
-        }
-        
-        function printInventory() {
-            window.print();
-        }
-        
-        // Real-time inventory updates
-        function refreshInventory() {
-            location.reload();
-        }
-        
-        // Auto-refresh every 5 minutes
-        setInterval(refreshInventory, 300000);
-        
-        // Add visual feedback for expired items
-        document.addEventListener('DOMContentLoaded', function() {
-            const expiredRows = document.querySelectorAll('.status-expired');
-            expiredRows.forEach(row => {
-                if (row.closest('tr')) {
-                    row.closest('tr').style.backgroundColor = '#fff5f5';
-                }
-            });
-        });
-    </script>
 </body>
 </html>

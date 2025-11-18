@@ -709,11 +709,18 @@ $page_title = 'Interactive Store Map - Inventory System';
             gap: 5px;
             font-weight: 600;
             transition: all 0.3s ease;
+            border: none;
+            cursor: pointer;
+            font-family: inherit;
         }
         
         .popup-btn:hover {
             transform: translateY(-2px);
             box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+        }
+        
+        .popup-actions button {
+            flex: 1;
         }
         
         .loading-overlay {
@@ -1163,8 +1170,8 @@ $page_title = 'Interactive Store Map - Inventory System';
                                 ${store.manager_name ? `<p><i class="fas fa-user"></i> Manager: ${store.manager_name}</p>` : ''}
                                 ${store.opening_hours && store.closing_hours ? `<p><i class="fas fa-clock"></i> ${store.opening_hours} - ${store.closing_hours}</p>` : ''}
                                 <div class="popup-actions">
-                                    <a href="profile.php?id=${store.id}" class="btn popup-btn"><i class="fas fa-eye"></i> View</a>
-                                    <a href="inventory_viewer.php?id=${store.id}" class="btn btn-secondary popup-btn"><i class="fas fa-boxes"></i> Inventory</a>
+                                    <button onclick="viewStore(${store.id})" class="btn popup-btn"><i class="fas fa-eye"></i> View</button>
+                                    <button onclick="viewInventory(${store.id})" class="btn btn-secondary popup-btn"><i class="fas fa-boxes"></i> Inventory</button>
                                 </div>
                             </div>
                         `;
@@ -1193,6 +1200,16 @@ $page_title = 'Interactive Store Map - Inventory System';
                     map.addLayer(markersLayer);
                 }
             }
+        }
+        
+        // View store profile
+        function viewStore(storeId) {
+            window.location.href = 'profile.php?id=' + storeId;
+        }
+        
+        // View store inventory
+        function viewInventory(storeId) {
+            window.location.href = 'inventory_viewer.php?id=' + storeId;
         }
         
         // Toggle clustering
@@ -1318,13 +1335,13 @@ $page_title = 'Interactive Store Map - Inventory System';
                     ${store.phone ? `<p><i class="fas fa-phone"></i> ${store.phone}</p>` : ''}
                     ${store.manager_name ? `<p><i class="fas fa-user"></i> ${store.manager_name}</p>` : ''}
                     ${store.opening_hours && store.closing_hours ? `<p><i class="fas fa-clock"></i> ${store.opening_hours} - ${store.closing_hours}</p>` : ''}
-                    <div style="margin-top: 15px; padding-top: 15px; border-top: 2px solid #f0f0f0; display: flex; gap: 8px;">
-                        <a href="profile.php?id=${store.id}" class="btn popup-btn" style="flex: 1; justify-content: center;">
+                    <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #e2e8f0; display: flex; gap: 6px;">
+                        <button onclick="viewStore(${store.id}); event.stopPropagation();" class="btn" style="flex: 1; justify-content: center; font-size: 12px; padding: 8px 10px;">
                             <i class="fas fa-eye"></i> View
-                        </a>
-                        <a href="edit.php?id=${store.id}" class="btn btn-outline popup-btn" style="flex: 1; justify-content: center;">
-                            <i class="fas fa-edit"></i> Edit
-                        </a>
+                        </button>
+                        <button onclick="viewInventory(${store.id}); event.stopPropagation();" class="btn btn-secondary" style="flex: 1; justify-content: center; font-size: 12px; padding: 8px 10px;">
+                            <i class="fas fa-boxes"></i> Inventory
+                        </button>
                     </div>
                 `;
                 

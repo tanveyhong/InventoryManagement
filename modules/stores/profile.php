@@ -1,10 +1,13 @@
 <?php
-// Enhanced Store Profile Manager with Advanced Analytics
+// Store Inventory Viewer - PostgreSQL Optimized
+ob_start('ob_gzhandler');
+
 require_once '../../config.php';
 require_once '../../db.php';
+require_once '../../sql_db.php';
 require_once '../../functions.php';
 
-// Start session if not already started
+// Start session
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
@@ -15,110 +18,91 @@ if (!isLoggedIn()) {
     exit;
 }
 
-// Require permission to view stores
-if (!currentUserHasPermission('can_view_stores') && !currentUserHasPermission('can_edit_stores')) {
-    $_SESSION['error'] = 'You do not have permission to view store profiles';
-    header('Location: ../../index.php');
-    exit;
-}
+$sqlDb = SQLDatabase::getInstance();
 
-$sql_db = getSQLDB();
+// Get store ID
 $store_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
 
 if (!$store_id) {
-    addNotification('Store ID required', 'error');
+    $_SESSION['error'] = 'Store ID is required';
     header('Location: list.php');
     exit;
 }
 
-// Get comprehensive store information
-$store = $sql_db->fetch("SELECT s.*, r.name as region_name, r.code as region_code, 
-                               r.regional_manager, r.manager_email as region_manager_email,
-                               sp.total_sales, sp.avg_rating, sp.customer_count, sp.last_updated as perf_updated
-                        FROM stores s 
-                        LEFT JOIN regions r ON s.region_id = r.id 
-                        LEFT JOIN store_performance sp ON sp.store_id = s.id
-                        WHERE s.id = ? AND s.active = 1", [$store_id]);
-
-if (!$store) {
-    addNotification('Store not found or inactive', 'error');
-    header('Location: list.php');
-    exit;
+// Get store info
+try {
+    $store = $sqlDb->fetch("SELECT s.*, r.name as region_name 
+                            FROM stores s 
+                            LEFT JOIN regions r ON s.region_id = r.id 
+                            WHERE s.id = ? AND s.active = TRUE", [$store_id]);
+    
+    if (!$store) {
+        $_SESSION['error'] = 'Store not found';
+        header('Location: list.php');
+        exit;
+    }
+} catch (Exception $e) {
+    die("Database error: " . $e->getMessage());
 }
 
-// Enhanced operating hours parsing
-$operating_hours = [];
-if (!empty($store['operating_hours'])) {
-    $operating_hours = json_decode($store['operating_hours'], true) ?: [];
-}
-
-// Get store staff with enhanced details
-$staff = $sql_db->fetchAll("SELECT ss.*, 
-                                   u.email, u.phone, u.created_at as user_created,
-                                   COUNT(sl.id) as shift_count
-                            FROM store_staff ss
-                            LEFT JOIN users u ON ss.user_id = u.id
-                            LEFT JOIN shift_logs sl ON sl.staff_id = ss.id AND sl.date >= DATE_SUB(CURRENT_DATE, INTERVAL 30 DAY)
-                            WHERE ss.store_id = ? AND ss.active = 1 
-                            GROUP BY ss.id
-                            ORDER BY ss.is_manager DESC, ss.name", [$store_id]);
-
-// Get performance metrics (last 90 days for trends)
-$performance_query = "SELECT DATE(metric_date) as date, 
-                            AVG(daily_sales) as daily_sales,
-                            AVG(customer_count) as customer_count,
-                            AVG(avg_transaction_value) as avg_transaction,
-                            AVG(staff_rating) as staff_rating
-                      FROM store_performance 
-                      WHERE store_id = ? AND metric_date >= DATE_SUB(CURRENT_DATE, INTERVAL 90 DAY)
-                      GROUP BY DATE(metric_date)
-                      ORDER BY date DESC";
-$performance = $sql_db->fetchAll($performance_query, [$store_id]);
-
-// Get inventory summary
-$inventory_summary = $sql_db->fetch("SELECT COUNT(*) as total_products,
-                                           SUM(quantity) as total_stock,
-                                           SUM(quantity * price) as inventory_value,
-                                           SUM(CASE WHEN quantity <= reorder_level THEN 1 ELSE 0 END) as low_stock_items,
-                                           SUM(CASE WHEN quantity = 0 THEN 1 ELSE 0 END) as out_of_stock_items
-                                    FROM products 
-                                    WHERE store_id = ? AND active = 1", [$store_id]);
-
-// Get recent alerts and notifications
-$recent_alerts = $sql_db->fetchAll("SELECT sa.*, p.name as product_name
-                                   FROM store_alerts sa
-                                   LEFT JOIN products p ON sa.product_id = p.id
-                                   WHERE sa.store_id = ? AND sa.is_resolved = 0
-                                   ORDER BY sa.created_at DESC LIMIT 20", [$store_id]);
-$alerts = $db->fetchAll("SELECT * FROM store_alerts 
-                         WHERE store_id = ? AND resolved = 0 
-                         ORDER BY severity DESC, created_at DESC LIMIT 10", [$store_id]);
-
-// Get inventory summary
-$inventory_summary = $db->fetch("SELECT 
+// Get profile data
+try {
+    // Get inventory summary
+    $inventory = $sqlDb->fetch("SELECT 
                                     COUNT(*) as total_products,
-                                    SUM(quantity) as total_quantity,
-                                    SUM(quantity * cost_price) as total_cost_value,
-                                    SUM(quantity * selling_price) as total_selling_value,
-                                    COUNT(DISTINCT category) as categories_count,
+                                    COALESCE(SUM(quantity), 0) as total_stock,
+                                    COALESCE(SUM(quantity * CAST(price AS NUMERIC)), 0) as inventory_value,
                                     COUNT(CASE WHEN quantity = 0 THEN 1 END) as out_of_stock,
                                     COUNT(CASE WHEN quantity <= reorder_level AND quantity > 0 THEN 1 END) as low_stock,
-                                    COUNT(CASE WHEN expiry_date < CURDATE() THEN 1 END) as expired,
-                                    AVG(quantity) as avg_quantity,
-                                    MAX(created_at) as last_product_added
+                                    COUNT(CASE WHEN expiry_date < CURRENT_DATE THEN 1 END) as expired,
+                                    COUNT(CASE WHEN expiry_date BETWEEN CURRENT_DATE AND (CURRENT_DATE + INTERVAL '30 days') THEN 1 END) as expiring_soon,
+                                    COUNT(DISTINCT category) as categories
                                 FROM products 
-                                WHERE store_id = ? AND active = 1", [$store_id]);
-
-// Calculate some performance metrics
-$avg_performance = [];
-if (!empty($performance)) {
-    $avg_performance = [
-        'avg_daily_sales' => array_sum(array_column($performance, 'daily_sales')) / count($performance),
-        'avg_transactions' => array_sum(array_column($performance, 'transaction_count')) / count($performance),
-        'avg_customers' => array_sum(array_column($performance, 'customer_count')) / count($performance),
-        'avg_profit_margin' => array_sum(array_column($performance, 'profit_margin')) / count($performance),
-        'total_sales_30d' => array_sum(array_column($performance, 'daily_sales'))
-    ];
+                                WHERE store_id = ? AND active = TRUE", [$store_id]);
+    
+    // Get recent products (last 10 added)
+    $recent_products = $sqlDb->fetchAll("SELECT id, name, sku, quantity, CAST(price AS NUMERIC) as price, category, created_at
+                                         FROM products 
+                                         WHERE store_id = ? AND active = TRUE 
+                                         ORDER BY created_at DESC 
+                                         LIMIT 10", [$store_id]);
+    
+    // Get low stock products
+    $low_stock_products = $sqlDb->fetchAll("SELECT id, name, sku, quantity, reorder_level
+                                            FROM products 
+                                            WHERE store_id = ? AND active = TRUE 
+                                            AND quantity <= reorder_level AND quantity > 0
+                                            ORDER BY quantity ASC 
+                                            LIMIT 10", [$store_id]);
+    
+    // Get recent sales (if sales table has data)
+    $recent_sales = $sqlDb->fetchAll("SELECT s.*, 
+                                      COUNT(si.id) as items_count,
+                                      COALESCE(SUM(CAST(si.subtotal AS NUMERIC)), 0) as total_amount
+                                      FROM sales s
+                                      LEFT JOIN sale_items si ON s.id = si.sale_id
+                                      WHERE s.store_id = ?
+                                      GROUP BY s.id
+                                      ORDER BY s.created_at DESC
+                                      LIMIT 10", [$store_id]);
+    
+    // Get sales summary (last 30 days)
+    $sales_summary = $sqlDb->fetch("SELECT 
+                                    COUNT(DISTINCT s.id) as total_transactions,
+                                    COALESCE(SUM(CAST(si.subtotal AS NUMERIC)), 0) as total_revenue,
+                                    COALESCE(AVG(CAST(si.subtotal AS NUMERIC)), 0) as avg_transaction
+                                    FROM sales s
+                                    LEFT JOIN sale_items si ON s.id = si.sale_id
+                                    WHERE s.store_id = ? 
+                                    AND s.created_at >= CURRENT_DATE - INTERVAL '30 days'", [$store_id]);
+    
+} catch (Exception $e) {
+    error_log('Error fetching store profile data: ' . $e->getMessage());
+    $inventory = ['total_products' => 0, 'total_stock' => 0, 'inventory_value' => 0, 'out_of_stock' => 0, 'low_stock' => 0, 'expired' => 0, 'expiring_soon' => 0, 'categories' => 0];
+    $recent_products = [];
+    $low_stock_products = [];
+    $recent_sales = [];
+    $sales_summary = ['total_transactions' => 0, 'total_revenue' => 0, 'avg_transaction' => 0];
 }
 
 $page_title = "Store Profile - {$store['name']} - Inventory System";
@@ -129,589 +113,553 @@ $page_title = "Store Profile - {$store['name']} - Inventory System";
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo $page_title; ?></title>
+    <title><?php echo htmlspecialchars($page_title); ?></title>
     <link rel="stylesheet" href="../../assets/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    
     <style>
-        .profile-container {
-            display: grid;
-            grid-template-columns: 1fr 350px;
-            gap: 20px;
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            margin: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
         
-        .profile-main {
-            display: flex;
-            flex-direction: column;
-            gap: 20px;
-        }
-        
-        .profile-sidebar {
-            display: flex;
-            flex-direction: column;
-            gap: 20px;
-        }
-        
-        .profile-card {
-            background: white;
-            border: 1px solid #ddd;
-            border-radius: 8px;
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
             padding: 20px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
         
-        .profile-header {
-            background: linear-gradient(135deg, #007bff, #0056b3);
-            color: white;
-            padding: 30px;
-            border-radius: 8px;
+        .header {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 25px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+        
+        .header h1 {
+            margin: 0 0 5px 0;
+            color: #667eea;
+            font-size: 28px;
+        }
+        
+        .header .subtitle {
+            color: #666;
+            font-size: 14px;
             margin-bottom: 20px;
         }
         
-        .store-avatar {
-            width: 80px;
-            height: 80px;
-            background: rgba(255,255,255,0.2);
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 2em;
-            font-weight: bold;
+        .back-btn {
+            display: inline-block;
+            padding: 8px 15px;
+            background: #667eea;
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            font-size: 14px;
             margin-bottom: 15px;
+            transition: all 0.3s ease;
         }
         
-        .store-details-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 15px;
-        }
-        
-        .detail-item {
-            display: flex;
-            flex-direction: column;
-            margin-bottom: 15px;
-        }
-        
-        .detail-label {
-            font-weight: 600;
-            color: #666;
-            font-size: 0.9em;
-            margin-bottom: 3px;
-        }
-        
-        .detail-value {
-            font-size: 1.1em;
-            color: #333;
+        .back-btn:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
         }
         
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 15px;
-            margin: 20px 0;
+            margin-top: 20px;
         }
         
-        .stat-item {
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
             text-align: center;
-            padding: 15px;
-            background: #f8f9fa;
-            border-radius: 8px;
+            transition: transform 0.3s ease;
         }
         
-        .stat-number {
-            font-size: 2em;
+        .stat-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+        }
+        
+        .stat-card .icon {
+            font-size: 36px;
+            margin-bottom: 10px;
+            color: #667eea;
+        }
+        
+        .stat-card .value {
+            font-size: 32px;
             font-weight: bold;
-            color: #007bff;
+            color: #333;
             margin-bottom: 5px;
         }
         
-        .stat-label {
+        .stat-card .label {
+            font-size: 14px;
             color: #666;
-            font-size: 0.9em;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
         
-        .operating-hours {
+        .stat-card.warning .icon { color: #f39c12; }
+        .stat-card.danger .icon { color: #e74c3c; }
+        .stat-card.success .icon { color: #27ae60; }
+        
+        .filters {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+        }
+        
+        .filter-form {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 10px;
+            grid-template-columns: 2fr 1fr 1fr 1fr auto;
+            gap: 15px;
+            align-items: end;
         }
         
-        .day-hours {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 8px 12px;
-            background: #f8f9fa;
-            border-radius: 4px;
-        }
-        
-        .day-name {
-            font-weight: 600;
-        }
-        
-        .hours-text {
-            color: #666;
-        }
-        
-        .staff-list {
+        .form-group {
             display: flex;
             flex-direction: column;
-            gap: 10px;
         }
         
-        .staff-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 12px;
-            background: #f8f9fa;
-            border-radius: 6px;
-        }
-        
-        .staff-info {
-            flex: 1;
-        }
-        
-        .staff-name {
-            font-weight: 600;
-            margin-bottom: 2px;
-        }
-        
-        .staff-position {
+        .form-group label {
+            font-size: 13px;
             color: #666;
-            font-size: 0.9em;
+            margin-bottom: 5px;
+            font-weight: 500;
         }
         
-        .staff-badge {
-            padding: 3px 8px;
+        .form-group input,
+        .form-group select {
+            padding: 10px 12px;
+            border: 2px solid #e1e4e8;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        
+        .products-table-container {
+            background: white;
             border-radius: 12px;
-            font-size: 11px;
-            font-weight: bold;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+            overflow-x: auto;
+        }
+        
+        .products-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        .products-table thead {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .products-table th,
+        .products-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #e1e4e8;
+        }
+        
+        .products-table th {
+            font-weight: 600;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .products-table tbody tr {
+            transition: background 0.2s;
+        }
+        
+        .products-table tbody tr:hover {
+            background: #f8f9fa;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
             text-transform: uppercase;
         }
         
-        .badge-manager {
+        .status-badge.in-stock {
             background: #d4edda;
             color: #155724;
         }
         
-        .badge-staff {
-            background: #e2e3e5;
-            color: #6c757d;
+        .status-badge.low-stock {
+            background: #fff3cd;
+            color: #856404;
         }
         
-        .alert-item {
+        .status-badge.out-of-stock {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .status-badge.expired {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .status-badge.expiring-soon {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .pagination {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
             display: flex;
-            align-items: start;
-            padding: 12px;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            margin-bottom: 10px;
-        }
-        
-        .alert-icon {
-            width: 20px;
-            height: 20px;
-            border-radius: 50%;
-            margin-right: 10px;
-            flex-shrink: 0;
-        }
-        
-        .alert-low { background: #ffc107; }
-        .alert-medium { background: #fd7e14; }
-        .alert-high { background: #dc3545; }
-        .alert-critical { background: #6f42c1; }
-        
-        .alert-content {
-            flex: 1;
-        }
-        
-        .alert-title {
-            font-weight: 600;
-            margin-bottom: 3px;
-        }
-        
-        .alert-message {
-            color: #666;
-            font-size: 0.9em;
-        }
-        
-        .alert-time {
-            color: #999;
-            font-size: 0.8em;
-            margin-top: 5px;
-        }
-        
-        .chart-container {
-            height: 200px;
-            background: #f8f9fa;
-            border-radius: 6px;
-            display: flex;
+            justify-content: space-between;
             align-items: center;
-            justify-content: center;
-            color: #666;
-            margin: 15px 0;
         }
         
-        .action-buttons {
+        .pagination-info {
+            color: #6b7280;
+            font-size: 14px;
+        }
+        
+        .pagination-links {
             display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-            margin-top: 20px;
+            gap: 8px;
         }
         
-        .quick-stats {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 15px;
+        .pagination-links a,
+        .pagination-links span {
+            padding: 8px 12px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 600;
         }
         
-        .status-indicator {
-            display: inline-block;
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            margin-right: 8px;
+        .pagination-links a {
+            background: #f3f4f6;
+            color: #667eea;
         }
         
-        .status-active { background: #28a745; }
-        .status-inactive { background: #dc3545; }
+        .pagination-links a:hover {
+            background: #667eea;
+            color: white;
+        }
+        
+        .pagination-links .current {
+            background: #667eea;
+            color: white;
+        }
+        
+        .message {
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-weight: 500;
+        }
+        
+        .message.success {
+            background: #d1fae5;
+            color: #065f46;
+            border-left: 4px solid #10b981;
+        }
+        
+        .message.error {
+            background: #fee2e2;
+            color: #991b1b;
+            border-left: 4px solid #ef4444;
+        }
+        
+        .no-products {
+            background: white;
+            border-radius: 12px;
+            padding: 60px 20px;
+            text-align: center;
+            color: #6b7280;
+        }
+        
+        .no-products i {
+            font-size: 48px;
+            color: #d1d5db;
+            margin-bottom: 20px;
+        }
         
         @media (max-width: 768px) {
-            .profile-container {
+            .filter-form {
                 grid-template-columns: 1fr;
+            }
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
             }
         }
     </style>
 </head>
 <body>
+    <?php include '../../includes/dashboard_header.php'; ?>
+    
     <div class="container">
-        <header>
-            <h1>Store Profile Manager</h1>
-            <nav>
-                <ul>
-                    <li><a href="../../index.php">Dashboard</a></li>
-                    <li><a href="../stock/list.php">Stock</a></li>
-                    <li><a href="list.php">Stores</a></li>
-                    <li><a href="map.php">Store Map</a></li>
-                    <li><a href="../users/logout.php">Logout</a></li>
-                </ul>
-            </nav>
-        </header>
-
-        <main>
-            <!-- Store Header -->
-            <div class="profile-header">
-                <div style="display: flex; align-items: center; gap: 20px;">
-                    <div class="store-avatar">
-                        <?php echo strtoupper(substr($store['name'], 0, 2)); ?>
-                    </div>
-                    <div style="flex: 1;">
-                        <h2 style="margin: 0; font-size: 2.5em;"><?php echo htmlspecialchars($store['name']); ?></h2>
-                        <p style="margin: 5px 0; opacity: 0.9;">
-                            <span class="status-indicator status-<?php echo $store['active'] ? 'active' : 'inactive'; ?>"></span>
-                            <?php echo htmlspecialchars($store['code']); ?> • 
-                            <?php echo htmlspecialchars(ucfirst($store['store_type'])); ?> Store • 
-                            <?php echo $store['active'] ? 'Active' : 'Inactive'; ?>
-                        </p>
-                        <p style="margin: 0; opacity: 0.8;">
-                            <?php echo htmlspecialchars($store['city'] . ', ' . $store['state']); ?> • 
-                            <?php echo htmlspecialchars($store['region_name'] ?? 'No Region'); ?>
-                        </p>
-                    </div>
-                    <div class="action-buttons">
-                        <a href="edit.php?id=<?php echo $store_id; ?>" class="btn btn-light">Edit Store</a>
-                        <a href="inventory_viewer.php?id=<?php echo $store_id; ?>" class="btn btn-light">View Inventory</a>
-                    </div>
+        <!-- Header -->
+        <div class="header">
+            <a href="list.php" class="back-btn">
+                <i class="fas fa-arrow-left"></i> Back to Stores
+            </a>
+            <h1><i class="fas fa-store"></i> <?php echo htmlspecialchars($store['name']); ?></h1>
+            <div class="subtitle">
+                <i class="fas fa-map-marker-alt"></i> <?php echo htmlspecialchars($store['address'] ?? 'N/A'); ?>, 
+                <?php echo htmlspecialchars($store['city'] ?? 'N/A'); ?>
+                <?php if (!empty($store['region_name'])): ?>
+                    · <i class="fas fa-map"></i> <?php echo htmlspecialchars($store['region_name']); ?>
+                <?php endif; ?>
+            </div>
+            
+            <!-- Inventory Statistics -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="icon"><i class="fas fa-box"></i></div>
+                    <div class="value"><?php echo number_format($inventory['total_products']); ?></div>
+                    <div class="label">Total Products</div>
+                </div>
+                <div class="stat-card success">
+                    <div class="icon"><i class="fas fa-cubes"></i></div>
+                    <div class="value"><?php echo number_format($inventory['total_stock']); ?></div>
+                    <div class="label">Total Stock</div>
+                </div>
+                <div class="stat-card success">
+                    <div class="icon"><i class="fas fa-dollar-sign"></i></div>
+                    <div class="value">$<?php echo number_format($inventory['inventory_value'], 2); ?></div>
+                    <div class="label">Inventory Value</div>
+                </div>
+                <div class="stat-card warning">
+                    <div class="icon"><i class="fas fa-exclamation-triangle"></i></div>
+                    <div class="value"><?php echo number_format($inventory['low_stock']); ?></div>
+                    <div class="label">Low Stock</div>
+                </div>
+                <div class="stat-card danger">
+                    <div class="icon"><i class="fas fa-times-circle"></i></div>
+                    <div class="value"><?php echo number_format($inventory['out_of_stock']); ?></div>
+                    <div class="label">Out of Stock</div>
+                </div>
+                <div class="stat-card">
+                    <div class="icon"><i class="fas fa-tags"></i></div>
+                    <div class="value"><?php echo number_format($inventory['categories']); ?></div>
+                    <div class="label">Categories</div>
                 </div>
             </div>
-
-            <div class="profile-container">
-                <!-- Main Content -->
-                <div class="profile-main">
-                    <!-- Store Details -->
-                    <div class="profile-card">
-                        <h3>Store Information</h3>
-                        <div class="store-details-grid">
-                            <div class="detail-item">
-                                <div class="detail-label">Full Address</div>
-                                <div class="detail-value">
-                                    <?php echo htmlspecialchars($store['address']); ?><br>
-                                    <?php echo htmlspecialchars($store['city'] . ', ' . $store['state'] . ' ' . $store['zip_code']); ?>
-                                </div>
-                            </div>
-                            
-                            <div class="detail-item">
-                                <div class="detail-label">Contact Information</div>
-                                <div class="detail-value">
-                                    <?php if ($store['phone']): ?>
-                                        Phone: <?php echo htmlspecialchars($store['phone']); ?><br>
-                                    <?php endif; ?>
-                                    <?php if ($store['email']): ?>
-                                        Email: <?php echo htmlspecialchars($store['email']); ?><br>
-                                    <?php endif; ?>
-                                    <?php if ($store['emergency_contact']): ?>
-                                        Emergency: <?php echo htmlspecialchars($store['emergency_contact']); ?>
-                                    <?php endif; ?>
-                                </div>
-                            </div>
-                            
-                            <div class="detail-item">
-                                <div class="detail-label">Store Manager</div>
-                                <div class="detail-value">
-                                    <?php echo htmlspecialchars($store['contact_person'] ?: 'Not assigned'); ?>
-                                </div>
-                            </div>
-                            
-                            <div class="detail-item">
-                                <div class="detail-label">Regional Manager</div>
-                                <div class="detail-value">
-                                    <?php echo htmlspecialchars($store['regional_manager'] ?: 'Not assigned'); ?>
-                                    <?php if ($store['region_manager_email']): ?>
-                                        <br><small style="color: #666;"><?php echo htmlspecialchars($store['region_manager_email']); ?></small>
-                                    <?php endif; ?>
-                                </div>
-                            </div>
-                            
-                            <div class="detail-item">
-                                <div class="detail-label">Store Specifications</div>
-                                <div class="detail-value">
-                                    <?php if ($store['store_size'] > 0): ?>
-                                        Size: <?php echo number_format($store['store_size'], 0); ?> sq ft<br>
-                                    <?php endif; ?>
-                                    <?php if ($store['max_capacity'] > 0): ?>
-                                        Capacity: <?php echo number_format($store['max_capacity']); ?> items<br>
-                                    <?php endif; ?>
-                                    Timezone: <?php echo htmlspecialchars($store['timezone']); ?>
-                                </div>
-                            </div>
-                            
-                            <div class="detail-item">
-                                <div class="detail-label">Opening Information</div>
-                                <div class="detail-value">
-                                    <?php if ($store['opening_date']): ?>
-                                        Opened: <?php echo date('M j, Y', strtotime($store['opening_date'])); ?><br>
-                                        <?php 
-                                        $opening_date = new DateTime($store['opening_date']);
-                                        $now = new DateTime();
-                                        $diff = $now->diff($opening_date);
-                                        echo "Operating for {$diff->y} years, {$diff->m} months";
-                                        ?>
-                                    <?php else: ?>
-                                        Opening date not specified
-                                    <?php endif; ?>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Operating Hours -->
-                    <div class="profile-card">
-                        <h3>Operating Hours</h3>
-                        <?php if (!empty($operating_hours)): ?>
-                            <div class="operating-hours">
-                                <?php 
-                                $days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-                                foreach ($days as $day): 
-                                ?>
-                                    <div class="day-hours">
-                                        <span class="day-name"><?php echo ucfirst($day); ?></span>
-                                        <span class="hours-text">
-                                            <?php 
-                                            if (isset($operating_hours[$day]) && $operating_hours[$day]['open']) {
-                                                echo htmlspecialchars($operating_hours[$day]['open'] . ' - ' . $operating_hours[$day]['close']);
-                                            } else {
-                                                echo 'Closed';
-                                            }
-                                            ?>
-                                        </span>
-                                    </div>
-                                <?php endforeach; ?>
-                            </div>
-                        <?php else: ?>
-                            <p style="color: #666; text-align: center; padding: 20px;">Operating hours not configured</p>
-                            <div style="text-align: center;">
-                                <a href="edit.php?id=<?php echo $store_id; ?>" class="btn btn-primary">Set Operating Hours</a>
-                            </div>
-                        <?php endif; ?>
-                    </div>
-
-                    <!-- Performance Overview -->
-                    <div class="profile-card">
-                        <h3>Performance Overview (Last 30 Days)</h3>
-                        <?php if (!empty($avg_performance)): ?>
-                            <div class="stats-grid">
-                                <div class="stat-item">
-                                    <div class="stat-number">$<?php echo number_format($avg_performance['total_sales_30d'], 0); ?></div>
-                                    <div class="stat-label">Total Sales</div>
-                                </div>
-                                <div class="stat-item">
-                                    <div class="stat-number">$<?php echo number_format($avg_performance['avg_daily_sales'], 0); ?></div>
-                                    <div class="stat-label">Avg Daily Sales</div>
-                                </div>
-                                <div class="stat-item">
-                                    <div class="stat-number"><?php echo number_format($avg_performance['avg_transactions'], 0); ?></div>
-                                    <div class="stat-label">Avg Transactions</div>
-                                </div>
-                                <div class="stat-item">
-                                    <div class="stat-number"><?php echo number_format($avg_performance['avg_customers'], 0); ?></div>
-                                    <div class="stat-label">Avg Customers</div>
-                                </div>
-                                <div class="stat-item">
-                                    <div class="stat-number"><?php echo number_format($avg_performance['avg_profit_margin'], 1); ?>%</div>
-                                    <div class="stat-label">Profit Margin</div>
-                                </div>
-                            </div>
-                            
-                            <div class="chart-container">
-                                <div style="text-align: center;">
-                                    <strong>Sales Trend Chart</strong><br>
-                                    <small>Chart visualization would be implemented here using Chart.js or similar library</small>
-                                </div>
-                            </div>
-                        <?php else: ?>
-                            <p style="color: #666; text-align: center; padding: 20px;">No performance data available for the last 30 days</p>
-                        <?php endif; ?>
-                    </div>
-
-                    <!-- Staff Management -->
-                    <div class="profile-card">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                            <h3>Staff Management</h3>
-                            <a href="add_staff.php?store_id=<?php echo $store_id; ?>" class="btn btn-primary">Add Staff</a>
-                        </div>
-                        
-                        <?php if (!empty($staff)): ?>
-                            <div class="staff-list">
-                                <?php foreach ($staff as $member): ?>
-                                    <div class="staff-item">
-                                        <div class="staff-info">
-                                            <div class="staff-name"><?php echo htmlspecialchars($member['name']); ?></div>
-                                            <div class="staff-position"><?php echo htmlspecialchars($member['position']); ?></div>
-                                            <?php if ($member['email']): ?>
-                                                <div style="font-size: 0.8em; color: #999; margin-top: 2px;">
-                                                    <?php echo htmlspecialchars($member['email']); ?>
-                                                </div>
-                                            <?php endif; ?>
-                                        </div>
-                                        <div>
-                                            <span class="staff-badge badge-<?php echo $member['is_manager'] ? 'manager' : 'staff'; ?>">
-                                                <?php echo $member['is_manager'] ? 'Manager' : 'Staff'; ?>
-                                            </span>
-                                        </div>
-                                    </div>
-                                <?php endforeach; ?>
-                            </div>
-                        <?php else: ?>
-                            <p style="color: #666; text-align: center; padding: 20px;">No staff members assigned</p>
-                        <?php endif; ?>
-                    </div>
+            
+            <!-- Sales Statistics (Last 30 Days) -->
+            <?php if ($sales_summary['total_transactions'] > 0): ?>
+            <div class="stats-grid" style="margin-top: 20px;">
+                <div class="stat-card success">
+                    <div class="icon"><i class="fas fa-shopping-cart"></i></div>
+                    <div class="value"><?php echo number_format($sales_summary['total_transactions']); ?></div>
+                    <div class="label">Total Sales (30d)</div>
                 </div>
-
-                <!-- Sidebar -->
-                <div class="profile-sidebar">
-                    <!-- Quick Stats -->
-                    <div class="profile-card">
-                        <h4>Inventory Overview</h4>
-                        <div class="quick-stats">
-                            <div class="stat-item">
-                                <div class="stat-number"><?php echo number_format($inventory_summary['total_products'] ?? 0); ?></div>
-                                <div class="stat-label">Products</div>
-                            </div>
-                            <div class="stat-item">
-                                <div class="stat-number"><?php echo number_format($inventory_summary['total_quantity'] ?? 0); ?></div>
-                                <div class="stat-label">Total Stock</div>
-                            </div>
-                            <div class="stat-item">
-                                <div class="stat-number">$<?php echo number_format($inventory_summary['total_selling_value'] ?? 0, 0); ?></div>
-                                <div class="stat-label">Value</div>
-                            </div>
-                            <div class="stat-item">
-                                <div class="stat-number"><?php echo number_format($inventory_summary['categories_count'] ?? 0); ?></div>
-                                <div class="stat-label">Categories</div>
-                            </div>
-                        </div>
-                        
-                        <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #eee;">
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-                                <span>Low Stock:</span>
-                                <span style="color: #ffc107; font-weight: 600;"><?php echo number_format($inventory_summary['low_stock'] ?? 0); ?></span>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-                                <span>Out of Stock:</span>
-                                <span style="color: #dc3545; font-weight: 600;"><?php echo number_format($inventory_summary['out_of_stock'] ?? 0); ?></span>
-                            </div>
-                            <div style="display: flex; justify-content: space-between;">
-                                <span>Expired:</span>
-                                <span style="color: #dc3545; font-weight: 600;"><?php echo number_format($inventory_summary['expired'] ?? 0); ?></span>
-                            </div>
-                        </div>
-                        
-                        <div style="margin-top: 15px;">
-                            <a href="inventory_viewer.php?id=<?php echo $store_id; ?>" class="btn btn-primary" style="width: 100%;">View Full Inventory</a>
-                        </div>
-                    </div>
-
-                    <!-- Recent Alerts -->
-                    <div class="profile-card">
-                        <h4>Recent Alerts</h4>
-                        <?php if (!empty($alerts)): ?>
-                            <div style="max-height: 300px; overflow-y: auto;">
-                                <?php foreach ($alerts as $alert): ?>
-                                    <div class="alert-item">
-                                        <div class="alert-icon alert-<?php echo $alert['severity']; ?>"></div>
-                                        <div class="alert-content">
-                                            <div class="alert-title"><?php echo htmlspecialchars($alert['title']); ?></div>
-                                            <div class="alert-message"><?php echo htmlspecialchars($alert['message']); ?></div>
-                                            <div class="alert-time">
-                                                <?php echo date('M j, Y g:i A', strtotime($alert['created_at'])); ?>
-                                            </div>
-                                        </div>
-                                    </div>
-                                <?php endforeach; ?>
-                            </div>
-                        <?php else: ?>
-                            <p style="color: #666; text-align: center; padding: 20px;">No active alerts</p>
-                        <?php endif; ?>
-                    </div>
-
-                    <!-- Quick Actions -->
-                    <div class="profile-card">
-                        <h4>Quick Actions</h4>
-                        <div style="display: flex; flex-direction: column; gap: 10px;">
-                            <a href="../stock/add.php?store_id=<?php echo $store_id; ?>" class="btn btn-primary">Add Product</a>
-                            <a href="stock_take.php?store_id=<?php echo $store_id; ?>" class="btn btn-secondary">Stock Take</a>
-                            <a href="../reports/store_report.php?store_id=<?php echo $store_id; ?>" class="btn btn-outline">Generate Report</a>
-                            <a href="settings.php?id=<?php echo $store_id; ?>" class="btn btn-outline">Store Settings</a>
-                        </div>
-                    </div>
+                <div class="stat-card success">
+                    <div class="icon"><i class="fas fa-dollar-sign"></i></div>
+                    <div class="value">$<?php echo number_format($sales_summary['total_revenue'], 2); ?></div>
+                    <div class="label">Revenue (30d)</div>
+                </div>
+                <div class="stat-card">
+                    <div class="icon"><i class="fas fa-receipt"></i></div>
+                    <div class="value">$<?php echo number_format($sales_summary['avg_transaction'], 2); ?></div>
+                    <div class="label">Avg Transaction</div>
                 </div>
             </div>
-        </main>
-    </div>
-
-    <script>
-        // Auto-refresh alerts every 5 minutes
-        setInterval(function() {
-            fetch('api/get_store_alerts.php?store_id=<?php echo $store_id; ?>')
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success && data.alerts.length > 0) {
-                        // Update alerts section if needed
-                        console.log('New alerts available:', data.alerts.length);
-                    }
-                })
-                .catch(error => console.error('Error fetching alerts:', error));
-        }, 300000);
+            <?php endif; ?>
+        </div>
         
-        // Add smooth scroll behavior for internal links
-        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
-            anchor.addEventListener('click', function (e) {
-                e.preventDefault();
-                document.querySelector(this.getAttribute('href')).scrollIntoView({
-                    behavior: 'smooth'
-                });
-            });
-        });
-    </script>
+        <!-- Store Profile Content -->
+        <div class="content-grid" style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-top: 20px;">
+            <!-- Main Content -->
+            <div>
+                <!-- Store Information Card -->
+                <div class="card" style="background: white; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.08);">
+                    <h2 style="margin: 0 0 20px 0; color: #333; font-size: 18px; border-bottom: 2px solid #667eea; padding-bottom: 10px;"><i class="fas fa-info-circle"></i> Store Information</h2>
+                    <div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #f0f0f0;">
+                        <span style="font-weight: 600; color: #666;">Store Code:</span>
+                        <span style="color: #333;"><?php echo htmlspecialchars($store['code'] ?? 'N/A'); ?></span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #f0f0f0;">
+                        <span style="font-weight: 600; color: #666;">Phone:</span>
+                        <span style="color: #333;"><?php echo htmlspecialchars($store['phone'] ?? 'N/A'); ?></span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #f0f0f0;">
+                        <span style="font-weight: 600; color: #666;">Email:</span>
+                        <span style="color: #333;"><?php echo htmlspecialchars($store['email'] ?? 'N/A'); ?></span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #f0f0f0;">
+                        <span style="font-weight: 600; color: #666;">Manager:</span>
+                        <span style="color: #333;"><?php echo htmlspecialchars($store['contact_person'] ?? 'Not assigned'); ?></span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; padding: 10px 0;">
+                        <span style="font-weight: 600; color: #666;">Created:</span>
+                        <span style="color: #333;"><?php echo date('M d, Y', strtotime($store['created_at'])); ?></span>
+                    </div>
+                </div>
+                
+                <!-- Recent Products Card -->
+                <div class="card" style="background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.08);">
+                    <h2 style="margin: 0 0 20px 0; color: #333; font-size: 18px; border-bottom: 2px solid #667eea; padding-bottom: 10px;"><i class="fas fa-box-open"></i> Recently Added Products</h2>
+                    <?php if (!empty($recent_products)): ?>
+                    <div style="overflow-x: auto;">
+                        <table class="products-table">
+                            <thead>
+                                <tr>
+                                    <th>Product Name</th>
+                                    <th>SKU</th>
+                                    <th>Category</th>
+                                    <th>Quantity</th>
+                                    <th>Price</th>
+                                    <th>Added</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($recent_products as $product): ?>
+                                <tr>
+                                    <td><?php echo htmlspecialchars($product['name']); ?></td>
+                                    <td><?php echo htmlspecialchars($product['sku']); ?></td>
+                                    <td><?php echo htmlspecialchars($product['category'] ?? 'N/A'); ?></td>
+                                    <td><?php echo number_format($product['quantity']); ?></td>
+                                    <td>$<?php echo number_format($product['price'], 2); ?></td>
+                                    <td><?php echo date('M d', strtotime($product['created_at'])); ?></td>
+                                </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                    <?php else: ?>
+                    <div class="empty-state">
+                        <i class="fas fa-box-open"></i>
+                        <p>No products added yet</p>
+                    </div>
+                    <?php endif; ?>
+                </div>
+                
+                <!-- Recent Sales Card -->
+                <?php if (!empty($recent_sales)): ?>
+                <div class="card" style="background: white; border-radius: 12px; padding: 20px; margin-top: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.08);">
+                    <h2 style="margin: 0 0 20px 0; color: #333; font-size: 18px; border-bottom: 2px solid #667eea; padding-bottom: 10px;"><i class="fas fa-shopping-cart"></i> Recent Sales</h2>
+                    <div style="overflow-x: auto;">
+                        <table class="products-table">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Items</th>
+                                    <th>Amount</th>
+                                    <th>Payment</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($recent_sales as $sale): ?>
+                                <tr>
+                                    <td><?php echo date('M d, Y H:i', strtotime($sale['created_at'])); ?></td>
+                                    <td><?php echo $sale['items_count']; ?> items</td>
+                                    <td>$<?php echo number_format($sale['total_amount'], 2); ?></td>
+                                    <td><?php echo htmlspecialchars($sale['payment_method'] ?? 'N/A'); ?></td>
+                                </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <?php endif; ?>
+            </div>
+            
+            <!-- Sidebar -->
+            <div>
+                <!-- Low Stock Alert Card -->
+                <?php if (!empty($low_stock_products)): ?>
+                <div class="card" style="background: white; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.08);">
+                    <h2 style="margin: 0 0 20px 0; color: #333; font-size: 18px; border-bottom: 2px solid #667eea; padding-bottom: 10px;"><i class="fas fa-exclamation-triangle"></i> Low Stock Alert</h2>
+                    <table class="products-table">
+                        <thead>
+                            <tr>
+                                <th>Product</th>
+                                <th>Qty</th>
+                                <th>Min</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($low_stock_products as $product): ?>
+                            <tr>
+                                <td>
+                                    <?php echo htmlspecialchars($product['name']); ?>
+                                    <br><small style="color: #999;"><?php echo htmlspecialchars($product['sku']); ?></small>
+                                </td>
+                                <td><span class="badge badge-warning"><?php echo $product['quantity']; ?></span></td>
+                                <td><?php echo $product['reorder_level']; ?></td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+                <?php endif; ?>
+                
+                <!-- Quick Actions Card -->
+                <div class="card" style="background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.08);">
+                    <h2 style="margin: 0 0 20px 0; color: #333; font-size: 18px; border-bottom: 2px solid #667eea; padding-bottom: 10px;"><i class="fas fa-bolt"></i> Quick Actions</h2>
+                    <div style="display: flex; flex-direction: column; gap: 10px;">
+                        <a href="inventory_viewer.php?id=<?php echo $store_id; ?>" style="width: 100%; text-align: center; background: #667eea; color: white; padding: 10px; border-radius: 6px; text-decoration: none;">
+                            <i class="fas fa-boxes"></i> View Full Inventory
+                        </a>
+                        <a href="map.php" style="width: 100%; text-align: center; background: #6c757d; color: white; padding: 10px; border-radius: 6px; text-decoration: none;">
+                            <i class="fas fa-map"></i> Back to Map
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
