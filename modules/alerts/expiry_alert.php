@@ -6,12 +6,16 @@
  */
 
 declare(strict_types=1);
-session_start();
 
 require_once __DIR__ . '/../../config.php';
 require_once __DIR__ . '/../../functions.php';
 
-// Optional auth (match your app)
+// Start session after config (to allow ini_set to work)
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+// Check authentication
 if (!isset($_SESSION['user_id'])) {
     header('Location: ../users/login.php');
     exit;

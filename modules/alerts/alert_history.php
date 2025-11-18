@@ -1,6 +1,11 @@
 <?php
-session_start();
+require_once '../../config.php';
 require_once '../../functions.php';   // <-- adjust if your DB helper is in another folder
+
+// Start session after config (to allow ini_set to work)
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 
 // --- Admin-only guard -------------------------------------------------------
 if (!isset($_SESSION['user_id']) || ($_SESSION['role'] ?? '') !== 'admin') {
