@@ -366,9 +366,9 @@ $page_title = 'Expiry Alerts - Inventory System';
 </head>
 
 <body>
-    <div class="container">
-        <?php include __DIR__ . '/../../includes/dashboard_header.php'; ?>
+    <?php include __DIR__ . '/../../includes/dashboard_header.php'; ?>
 
+    <div class="container" style="max-width: 1600px; margin: 0 auto; padding: 20px;">
         <main>
             <div class="page-header">
                 <h2>Products Nearing Expiry (<?= number_format(array_sum($counts)) ?>)</h2>

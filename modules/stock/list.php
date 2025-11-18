@@ -586,12 +586,9 @@ $page_title = 'Stock Management - Inventory System';
 </head>
 
 <body>
+    <?php include '../../includes/dashboard_header.php'; ?>
 
-    <div class="container">
-        <?php
-        include '../../includes/dashboard_header.php';
-        ?>
-
+    <div class="container" style="max-width: 1600px; margin: 0 auto; padding: 20px;">
         <main>
             <div class="page-header">
                 <h2>Stock Management</h2>

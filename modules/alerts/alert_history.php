@@ -233,8 +233,8 @@ function fs_mark_alert_resolved($db, string $docId, array $merge = []): void
 <body>
     <?php include '../../includes/dashboard_header.php'; ?>
 
-    <div class="container">
-        <h2>Alert History Log</h2>
+    <div class="container" style="max-width: 1600px; margin: 0 auto; padding: 20px;">
+        <h2 style="margin-top: 2rem;">Alert History Log</h2>
 
         <!-- Low Stock Alerts ------------------------------------------------------>
         <div class="card low-stock-card">
