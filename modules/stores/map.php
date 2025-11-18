@@ -337,12 +337,16 @@ $page_title = 'Interactive Store Map - Inventory System';
             margin-bottom: 25px;
             animation: fadeInUp 0.6s ease-out 0.2s both;
             border: 1px solid rgba(255,255,255,0.3);
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 25px;
         }
         
         .map-section h2 {
             color: #2d3748;
             font-weight: 700;
             margin-bottom: 20px;
+            grid-column: 1 / -1;
         }
         
         .filter-controls {
@@ -355,6 +359,7 @@ $page_title = 'Interactive Store Map - Inventory System';
             padding: 20px;
             border-radius: 15px;
             border: 2px dashed rgba(102, 126, 234, 0.2);
+            grid-column: 1 / -1;
         }
         
         .filter-controls input,
@@ -457,6 +462,16 @@ $page_title = 'Interactive Store Map - Inventory System';
             box-shadow: 0 8px 30px rgba(0,0,0,0.15);
             border: 3px solid rgba(255,255,255,0.5);
             overflow: hidden;
+            grid-column: 1;
+            grid-row: 2;
+        }
+        
+        .map-right-panel {
+            grid-column: 2;
+            grid-row: 2;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
         }
         
         .leaflet-container {
@@ -468,8 +483,8 @@ $page_title = 'Interactive Store Map - Inventory System';
             padding: 20px;
             border-radius: 15px;
             box-shadow: 0 6px 25px rgba(0,0,0,0.1);
-            margin-top: 20px;
             border: 1px solid rgba(255,255,255,0.5);
+            margin: 0;
         }
         
         .legend h4 {
@@ -520,19 +535,29 @@ $page_title = 'Interactive Store Map - Inventory System';
         }
         
         .store-list-section {
-            background: rgba(255, 255, 255, 0.98);
-            border-radius: 20px;
-            padding: 30px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.15);
-            margin-top: 25px;
-            animation: fadeInUp 0.6s ease-out 0.3s both;
-            border: 1px solid rgba(255,255,255,0.3);
+            background: linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(247,250,252,0.98) 100%);
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 6px 25px rgba(0,0,0,0.1);
+            border: 1px solid rgba(255,255,255,0.5);
+            margin: 0;
+            flex: 1;
+            overflow-y: auto;
+            max-height: calc(650px - 220px);
         }
         
         .store-list-section h2 {
             color: #2d3748;
             font-weight: 700;
-            margin-bottom: 10px;
+            margin: 0 0 12px 0;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .store-list-section h2 i {
+            color: #667eea;
         }
         
         #store-count {
@@ -543,17 +568,17 @@ $page_title = 'Interactive Store Map - Inventory System';
         
         .store-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-            gap: 20px;
-            margin-top: 20px;
+            grid-template-columns: 1fr;
+            gap: 12px;
+            margin-top: 12px;
         }
         
         .store-card {
             background: white;
-            border: 2px solid #e2e8f0;
-            border-radius: 16px;
-            padding: 20px;
-            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 15px;
+            transition: all 0.3s ease;
             cursor: pointer;
             position: relative;
             overflow: hidden;
@@ -573,8 +598,8 @@ $page_title = 'Interactive Store Map - Inventory System';
         }
         
         .store-card:hover {
-            box-shadow: 0 12px 40px rgba(102, 126, 234, 0.2);
-            transform: translateY(-5px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.15);
+            transform: translateY(-2px);
             border-color: #667eea;
         }
         
@@ -583,35 +608,37 @@ $page_title = 'Interactive Store Map - Inventory System';
         }
         
         .store-card h3 {
-            margin: 0 0 12px 0;
+            margin: 0 0 8px 0;
             color: #2d3748;
             font-weight: 700;
-            font-size: 1.2em;
+            font-size: 15px;
         }
         
         .store-card p {
-            margin: 8px 0;
+            margin: 5px 0;
             color: #718096;
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
+            font-size: 13px;
         }
         
         .store-card i {
             color: #667eea;
-            width: 16px;
+            width: 14px;
+            font-size: 12px;
         }
         
         .store-type-badge {
             display: inline-block;
-            padding: 6px 12px;
-            border-radius: 20px;
-            font-size: 11px;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 10px;
             font-weight: 700;
             text-transform: uppercase;
-            margin-bottom: 12px;
+            margin-bottom: 8px;
             letter-spacing: 0.5px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
         }
         
         .type-retail { 
@@ -729,6 +756,27 @@ $page_title = 'Interactive Store Map - Inventory System';
         }
         
         /* Responsive Design */
+        @media (max-width: 1200px) {
+            .map-section {
+                grid-template-columns: 1fr;
+            }
+            
+            #map {
+                grid-column: 1;
+                grid-row: 2;
+                height: 500px;
+            }
+            
+            .map-right-panel {
+                grid-column: 1;
+                grid-row: 3;
+            }
+            
+            .store-list-section {
+                max-height: 400px;
+            }
+        }
+        
         @media (max-width: 768px) {
             .container {
                 padding: 10px;
@@ -903,39 +951,42 @@ $page_title = 'Interactive Store Map - Inventory System';
                 }
             </style>
             
-            <!-- Legend -->
-            <div class="legend">
-                <h4><i class="fas fa-info-circle"></i> Store Types</h4>
-                <div class="legend-item">
-                    <div class="legend-color" style="background: #1976d2;"></div>
-                    <span>Retail Store</span>
+            <!-- Right Panel: Legend and Store Directory -->
+            <div class="map-right-panel">
+                <!-- Legend -->
+                <div class="legend">
+                    <h4><i class="fas fa-info-circle"></i> Store Types</h4>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: #1976d2;"></div>
+                        <span>Retail Store</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: #388e3c;"></div>
+                        <span>Warehouse</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: #f57c00;"></div>
+                        <span>Distribution Center</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: #c2185b;"></div>
+                        <span>Flagship Store</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: #7b1fa2;"></div>
+                        <span>Outlet</span>
+                    </div>
                 </div>
-                <div class="legend-item">
-                    <div class="legend-color" style="background: #388e3c;"></div>
-                    <span>Warehouse</span>
-                </div>
-                <div class="legend-item">
-                    <div class="legend-color" style="background: #f57c00;"></div>
-                    <span>Distribution Center</span>
-                </div>
-                <div class="legend-item">
-                    <div class="legend-color" style="background: #c2185b;"></div>
-                    <span>Flagship Store</span>
-                </div>
-                <div class="legend-item">
-                    <div class="legend-color" style="background: #7b1fa2;"></div>
-                    <span>Outlet</span>
+                
+                <!-- Store List -->
+                <div class="store-list-section">
+                    <h2><i class="fas fa-store"></i> Store Directory</h2>
+                    <div id="store-count" style="color: #718096; margin-bottom: 12px; font-size: 13px;">
+                        Showing <span id="filtered-count"><?php echo $total_stores; ?></span> of <?php echo $total_stores; ?> stores
+                    </div>
+                    <div class="store-grid" id="store-list"></div>
                 </div>
             </div>
-        </div>
-        
-        <!-- Store List -->
-        <div class="store-list-section">
-            <h2 style="margin: 0 0 15px 0;"><i class="fas fa-store"></i> Store Directory</h2>
-            <div id="store-count" style="color: #666; margin-bottom: 10px;">
-                Showing <span id="filtered-count"><?php echo $total_stores; ?></span> of <?php echo $total_stores; ?> stores
-            </div>
-            <div class="store-grid" id="store-list"></div>
         </div>
     </div>
     
