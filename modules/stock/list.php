@@ -821,7 +821,7 @@ $page_title = 'Stock Management - Inventory System';
                                         </span>
                                     </td>
                                     <td>
-                                        <?php if ($product['expiry_date']): ?>
+                                        <?php if (!empty($product['expiry_date']) && $product['expiry_date'] !== '0000-00-00' && $product['expiry_date'] !== 'null'): ?>
                                             <span class="expiry-date status-<?php echo $product['status']; ?>">
                                                 <?php echo date('M j, Y', strtotime($product['expiry_date'])); ?>
                                             </span>
