@@ -6,10 +6,13 @@
  */
 
 declare(strict_types=1);
-session_start();
 
 require_once __DIR__ . '/../../config.php';
 require_once __DIR__ . '/../../functions.php';
+
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 
 // Accept id (doc id) or sku
 $id = isset($_GET['id']) ? trim((string)$_GET['id']) : '';
