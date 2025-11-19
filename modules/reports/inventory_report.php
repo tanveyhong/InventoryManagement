@@ -1,11 +1,14 @@
 <?php
 // modules/reports/inventory_report.php
 declare(strict_types=1);
-session_start();
 
 require_once __DIR__ . '/../../config.php';
 require_once __DIR__ . '/../../functions.php';
 require_once __DIR__ . '/../../getDB.php';
+
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 
 // ---------- Auth ----------
 if (!isset($_SESSION['user_id'])) {
