@@ -111,9 +111,6 @@ if (strpos($currentPath, 'modules/users/profile/') !== false) {
                         <a href="<?php echo $baseUrl . 'modules/stores/map.php'; ?>">
                             <i class="fas fa-map"></i> Store Map
                         </a>
-                        <a href="<?php echo $baseUrl . 'modules/stores/regional_dashboard.php'; ?>">
-                            <i class="fas fa-chart-area"></i> Regional Dashboard
-                        </a>
                     </div>
                 </div>
                 <?php endif; ?>

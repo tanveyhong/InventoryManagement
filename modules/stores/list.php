@@ -585,5 +585,36 @@ $page_title = 'Store Management - Inventory System';
         </div>
         <?php endif; ?>
     </div>
+    
+    <!-- Offline Functionality for Stores List -->
+    <script>
+        document.addEventListener('DOMContentLoaded', async function() {
+            if (window.offlineManager) {
+                try {
+                    // Cache all stores
+                    const stores = <?php echo json_encode($stores ?? []); ?>;
+                    
+                    if (stores && stores.length > 0) {
+                        await window.offlineManager.saveData('stores', stores);
+                        console.log(`Cached ${stores.length} stores for offline use`);
+                    }
+                    
+                    // Load from cache if offline
+                    if (!window.offlineManager.isOnline) {
+                        const cachedStores = await window.offlineManager.getAllData('stores');
+                        if (cachedStores && cachedStores.length > 0) {
+                            console.log(`Loaded ${cachedStores.length} stores from cache`);
+                            window.offlineManager.showNotification(
+                                `Viewing ${cachedStores.length} cached stores`, 
+                                'info'
+                            );
+                        }
+                    }
+                } catch (error) {
+                    console.error('Failed to cache stores:', error);
+                }
+            }
+        });
+    </script>
 </body>
 </html>
