@@ -83,7 +83,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $errors[] = 'Invalid username or password';
             }
         } catch (Exception $e) {
-            $errors[] = 'Login failed: ' . $e->getMessage();
+            $errorMsg = $e->getMessage();
+            // Show user-friendly message for connection issues
+            if (stripos($errorMsg, 'internet connection') !== false || 
+                stripos($errorMsg, 'host name') !== false) {
+                $errors[] = 'Cannot connect to server. Please check your internet connection and try again.';
+            } else {
+                $errors[] = 'Login failed: ' . $errorMsg;
+            }
         }
     }
 }

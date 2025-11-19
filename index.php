@@ -29,7 +29,84 @@ try {
     $_SESSION['email'] = $currentUser['email'];
     $_SESSION['role'] = $currentUser['role'];
 } catch (Exception $e) {
-    // Database error - redirect to login
+    // Database error - show user-friendly error
+    $errorMsg = $e->getMessage();
+    if (stripos($errorMsg, 'internet connection') !== false || 
+        stripos($errorMsg, 'host name') !== false ||
+        stripos($errorMsg, 'connection') !== false) {
+        // Network issue - show maintenance page
+        session_destroy();
+        ?>
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Connection Error - Inventory System</title>
+            <style>
+                body {
+                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    min-height: 100vh;
+                    margin: 0;
+                    padding: 20px;
+                }
+                .error-container {
+                    background: white;
+                    padding: 40px;
+                    border-radius: 20px;
+                    box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+                    max-width: 500px;
+                    text-align: center;
+                }
+                .error-icon {
+                    font-size: 64px;
+                    margin-bottom: 20px;
+                }
+                h1 {
+                    color: #333;
+                    margin: 0 0 15px 0;
+                }
+                p {
+                    color: #666;
+                    line-height: 1.6;
+                    margin: 15px 0;
+                }
+                .btn-retry {
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                    padding: 12px 30px;
+                    border: none;
+                    border-radius: 8px;
+                    cursor: pointer;
+                    font-size: 16px;
+                    margin-top: 20px;
+                    text-decoration: none;
+                    display: inline-block;
+                }
+                .btn-retry:hover {
+                    opacity: 0.9;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="error-container">
+                <div class="error-icon">🌐</div>
+                <h1>Connection Error</h1>
+                <p><strong>Cannot connect to the server.</strong></p>
+                <p>Please check your internet connection and try again. The application requires an active internet connection to access the database.</p>
+                <a href="modules/users/login.php" class="btn-retry">Try Again</a>
+            </div>
+        </body>
+        </html>
+        <?php
+        exit;
+    }
+    
+    // Other database errors - redirect to login
     session_destroy();
     header('Location: modules/users/login.php');
     exit;

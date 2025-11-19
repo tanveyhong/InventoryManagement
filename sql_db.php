@@ -75,6 +75,16 @@ class SQLDatabase {
             
         } catch (PDOException $e) {
             error_log("Database connection failed: " . $e->getMessage());
+            
+            // Check if it's a network/host resolution error
+            $errorMsg = $e->getMessage();
+            if (stripos($errorMsg, 'could not translate host') !== false || 
+                stripos($errorMsg, 'unknown host') !== false ||
+                stripos($errorMsg, 'connection refused') !== false ||
+                stripos($errorMsg, 'connection timed out') !== false) {
+                throw new Exception("Unable to connect to database server. Please check your internet connection.");
+            }
+            
             throw new Exception("Database connection failed: " . $e->getMessage());
         }
     }
