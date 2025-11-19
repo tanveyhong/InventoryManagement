@@ -160,9 +160,11 @@ try {
             
             // Check if this is for store access management
             $excludeAdmins = isset($_GET['exclude_admins']) && $_GET['exclude_admins'] === 'true';
+            $includeDeleted = isset($_GET['include_deleted']) && $_GET['include_deleted'] === 'true';
             
             // Get all users from PostgreSQL
-            $users = $sqlDb->fetchAll("SELECT id, firebase_id, username, email, full_name, role, created_at, last_login, status FROM users ORDER BY username ASC");
+            $whereClause = $includeDeleted ? "" : "WHERE deleted_at IS NULL";
+            $users = $sqlDb->fetchAll("SELECT id, firebase_id, username, email, full_name, role, created_at, last_login, status, deleted_at FROM users {$whereClause} ORDER BY username ASC");
             
             $userList = [];
             foreach ($users as $user) {
@@ -188,11 +190,69 @@ try {
                     'role' => $user['role'] ?? 'staff',
                     'status' => $user['status'] ?? 'active',
                     'created_at' => $user['created_at'] ?? '',
-                    'last_login' => $user['last_login'] ?? ''
+                    'last_login' => $user['last_login'] ?? '',
+                    'deleted_at' => $user['deleted_at'] ?? null
                 ];
             }
             
             echo json_encode(['success' => true, 'data' => $userList, 'source' => 'postgresql']);
+            break;
+        
+        case 'get_user':
+            // Get specific user by ID - Admin or user management permission required
+            $targetUserId = $_GET['user_id'] ?? null;
+            
+            if (!$targetUserId) {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'error' => 'User ID required']);
+                exit;
+            }
+            
+            // Check permission
+            $currentUser = $sqlDb->fetch("SELECT * FROM users WHERE id = ? OR firebase_id = ?", [$userId, $userId]);
+            if (!$currentUser) {
+                http_response_code(404);
+                echo json_encode(['success' => false, 'error' => 'Current user not found']);
+                exit;
+            }
+            
+            $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
+            $canManageUsers = ($currentUser['can_manage_users'] ?? false) || ($currentUser['can_view_users'] ?? false);
+            
+            // Allow viewing own profile or if admin/manager
+            if ($targetUserId !== $userId && !$isAdmin && !$canManageUsers) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'error' => 'Permission denied']);
+                exit;
+            }
+            
+            // Get user from PostgreSQL
+            $user = $sqlDb->fetch("SELECT id, firebase_id, username, email, full_name, role, created_at, last_login, status FROM users WHERE id = ? OR firebase_id = ?", [$targetUserId, $targetUserId]);
+            
+            if (!$user) {
+                http_response_code(404);
+                echo json_encode(['success' => false, 'error' => 'User not found']);
+                exit;
+            }
+            
+            // Split full_name into first and last name for compatibility
+            $nameParts = explode(' ', trim($user['full_name'] ?? ''), 2);
+            $firstName = $nameParts[0] ?? '';
+            $lastName = $nameParts[1] ?? '';
+            
+            $userData = [
+                'id' => $user['id'] ?? $user['firebase_id'] ?? '',
+                'username' => $user['username'] ?? 'Unknown',
+                'email' => $user['email'] ?? '',
+                'first_name' => $firstName,
+                'last_name' => $lastName,
+                'role' => $user['role'] ?? 'staff',
+                'status' => $user['status'] ?? 'active',
+                'created_at' => $user['created_at'] ?? '',
+                'last_login' => $user['last_login'] ?? ''
+            ];
+            
+            echo json_encode(['success' => true, 'data' => $userData, 'source' => 'postgresql']);
             break;
             
         case 'export_activities':
@@ -1364,6 +1424,119 @@ try {
                 'success' => true,
                 'data' => $storesData
             ]);
+            break;
+            
+        case 'soft_delete_user':
+            // Only allow admin or users with can_manage_users permission
+            $currentUser = $sqlDb->fetch("SELECT * FROM users WHERE id = ? OR firebase_id = ?", [$userId, $userId]);
+            $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
+            $canManageUsers = ($currentUser['can_manage_users'] ?? false);
+            
+            if (!$isAdmin && !$canManageUsers) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'message' => 'Permission denied']);
+                exit;
+            }
+            
+            $data = json_decode(file_get_contents('php://input'), true);
+            $targetUserId = $data['user_id'] ?? null;
+            
+            if (!$targetUserId) {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'message' => 'User ID is required']);
+                exit;
+            }
+            
+            // Check if user exists and is not already deleted
+            $targetUser = $sqlDb->fetch(
+                "SELECT id, username FROM users WHERE id = ? AND deleted_at IS NULL",
+                [$targetUserId]
+            );
+            
+            if (!$targetUser) {
+                http_response_code(404);
+                echo json_encode(['success' => false, 'message' => 'User not found or already deleted']);
+                exit;
+            }
+            
+            // Prevent deleting yourself
+            if ($targetUser['id'] == $userId) {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'message' => 'You cannot delete your own account']);
+                exit;
+            }
+            
+            // Soft delete the user
+            $deleted = $sqlDb->execute(
+                "UPDATE users SET deleted_at = NOW(), status = 'inactive' WHERE id = ?",
+                [$targetUserId]
+            );
+            
+            if ($deleted) {
+                // Log the activity
+                logActivity('user_deleted', 'Deleted user: ' . $targetUser['username'], $userId);
+                
+                echo json_encode([
+                    'success' => true,
+                    'message' => 'User deleted successfully'
+                ]);
+            } else {
+                http_response_code(500);
+                echo json_encode(['success' => false, 'message' => 'Failed to delete user']);
+            }
+            break;
+            
+        case 'restore_user':
+            // Only allow admin or users with can_manage_users permission
+            $currentUser = $sqlDb->fetch("SELECT * FROM users WHERE id = ? OR firebase_id = ?", [$userId, $userId]);
+            $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
+            $canManageUsers = ($currentUser['can_manage_users'] ?? false);
+            
+            if (!$isAdmin && !$canManageUsers) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'message' => 'Permission denied']);
+                exit;
+            }
+            
+            $data = json_decode(file_get_contents('php://input'), true);
+            $targetUserId = $data['user_id'] ?? null;
+            
+            if (!$targetUserId) {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'message' => 'User ID is required']);
+                exit;
+            }
+            
+            // Check if user exists and is deleted
+            $targetUser = $sqlDb->fetch(
+                "SELECT id, username FROM users WHERE id = ? AND deleted_at IS NOT NULL",
+                [$targetUserId]
+            );
+            
+            if (!$targetUser) {
+                http_response_code(404);
+                echo json_encode(['success' => false, 'message' => 'User not found or not deleted']);
+                exit;
+            }
+            
+            // Restore the user
+            $restored = $sqlDb->execute(
+                "UPDATE users SET deleted_at = NULL, status = 'active' WHERE id = ?",
+                [$targetUserId]
+            );
+            
+            if ($restored) {
+                // Log the activity
+                logActivity('user_restored', 'Restored user: ' . $targetUser['username'], $userId);
+                
+                echo json_encode([
+                    'success' => true,
+                    'message' => 'User restored successfully'
+                ]);
+            } else {
+                http_response_code(500);
+                echo json_encode(['success' => false, 'message' => 'Failed to restore user']);
+            }
             break;
             
         default:

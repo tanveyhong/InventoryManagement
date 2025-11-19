@@ -221,6 +221,30 @@ $pageTitle = 'User Management';
             background: #10b981;
             color: white;
         }
+        
+        .user-status {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-left: 8px;
+        }
+        
+        .status-active {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        
+        .status-deleted {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        
+        .user-card.deleted {
+            opacity: 0.7;
+            border: 2px solid #fecaca;
+        }
 
         .user-meta {
             display: grid;
@@ -232,7 +256,8 @@ $pageTitle = 'User Management';
 
         .user-actions {
             display: flex;
-            gap: 8px;
+            flex-wrap: wrap;
+            gap: 6px;
             margin-top: 15px;
             padding-top: 15px;
             border-top: 1px solid #e5e7eb;
@@ -282,8 +307,15 @@ $pageTitle = 'User Management';
         }
 
         .btn-sm {
-            padding: 6px 12px;
-            font-size: 12px;
+            padding: 6px 10px;
+            font-size: 11px;
+            flex: 1;
+            min-width: fit-content;
+        }
+        
+        .btn-restore {
+            background: #10b981;
+            color: white;
         }
 
         .empty-state {
@@ -427,8 +459,15 @@ $pageTitle = 'User Management';
             
             <!-- Users Tab -->
             <div id="tab-users" class="tab-content active">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                    <h2 style="margin: 0;">All Users</h2>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 15px;">
+                    <div>
+                        <h2 style="margin: 0 0 10px 0;">All Users</h2>
+                        <div style="display: flex; gap: 10px;">
+                            <button class="btn btn-sm" onclick="filterUsers('all')" id="filter-all" style="background: #667eea; color: white;">All</button>
+                            <button class="btn btn-sm" onclick="filterUsers('active')" id="filter-active" style="background: #e5e7eb; color: #374151;">Active</button>
+                            <button class="btn btn-sm" onclick="filterUsers('deleted')" id="filter-deleted" style="background: #e5e7eb; color: #374151;">Deleted</button>
+                        </div>
+                    </div>
                     <button class="btn btn-primary" onclick="showCreateUserModal()">
                         <i class="fas fa-user-plus"></i> Create User
                     </button>
@@ -548,10 +587,12 @@ $pageTitle = 'User Management';
             }, 2000);
         }
 
+        let currentFilter = 'all';
+        
         // Load Users
         async function loadUsers() {
             try {
-                const response = await fetch('profile/api.php?action=get_all_users');
+                const response = await fetch('profile/api.php?action=get_all_users&include_deleted=true');
                 const data = await response.json();
 
                 document.getElementById('users-loading').style.display = 'none';
@@ -559,7 +600,7 @@ $pageTitle = 'User Management';
 
                 if (data.success && data.data.length > 0) {
                     allUsers = data.data;
-                    renderUsers(allUsers);
+                    filterUsers(currentFilter);
                 } else {
                     document.getElementById('users-content').innerHTML = `
                         <div class="empty-state">
@@ -591,13 +632,18 @@ $pageTitle = 'User Management';
             const html = `
                 <div class="user-grid">
                     ${users.map(user => `
-                        <div class="user-card" onclick="viewUser('${user.id}')">
+                        <div class="user-card ${user.deleted_at ? 'deleted' : ''}" onclick="viewUser('${user.id}')">
                             <div class="user-card-header">
                                 <div class="user-avatar">
                                     ${getInitials(user.first_name || user.username, user.last_name)}
                                 </div>
                                 <div class="user-info">
-                                    <div class="user-name">${escapeHtml(user.first_name || user.username)} ${escapeHtml(user.last_name || '')}</div>
+                                    <div class="user-name">
+                                        ${escapeHtml(user.first_name || user.username)} ${escapeHtml(user.last_name || '')}
+                                        <span class="user-status status-${user.deleted_at ? 'deleted' : 'active'}">
+                                            ${user.deleted_at ? '🗑️ Deleted' : '✓ Active'}
+                                        </span>
+                                    </div>
                                     <span class="user-role role-${(user.role || 'staff').toLowerCase()}">${user.role || 'Staff'}</span>
                                 </div>
                             </div>
@@ -606,15 +652,24 @@ $pageTitle = 'User Management';
                                 <div><i class="fas fa-user-circle"></i> ${escapeHtml(user.username)}</div>
                             </div>
                             <div class="user-actions" onclick="event.stopPropagation();">
-                                <button class="btn btn-sm btn-primary" onclick="editUser('${user.id}')">
-                                    <i class="fas fa-edit"></i> Edit
-                                </button>
-                                <button class="btn btn-sm btn-warning" onclick="managePermissions('${user.id}')">
-                                    <i class="fas fa-shield-alt"></i> Permissions
-                                </button>
-                                <button class="btn btn-sm btn-success" onclick="manageStoreAccess('${user.id}')">
-                                    <i class="fas fa-store"></i> Stores
-                                </button>
+                                ${!user.deleted_at ? `
+                                    <button class="btn btn-sm btn-primary" onclick="editUser('${user.id}')">
+                                        <i class="fas fa-edit"></i> Edit
+                                    </button>
+                                    <button class="btn btn-sm btn-warning" onclick="managePermissions('${user.id}')">
+                                        <i class="fas fa-shield-alt"></i> Permissions
+                                    </button>
+                                    <button class="btn btn-sm btn-success" onclick="manageStoreAccess('${user.id}')">
+                                        <i class="fas fa-store"></i> Stores
+                                    </button>
+                                    <button class="btn btn-sm btn-danger" onclick="softDeleteUser('${user.id}', '${escapeHtml(user.username)}')">
+                                        <i class="fas fa-trash-alt"></i> Delete
+                                    </button>
+                                ` : `
+                                    <button class="btn btn-sm btn-restore" onclick="restoreUser('${user.id}', '${escapeHtml(user.username)}')">
+                                        <i class="fas fa-undo"></i> Restore User
+                                    </button>
+                                `}
                             </div>
                         </div>
                     `).join('')}
@@ -622,6 +677,85 @@ $pageTitle = 'User Management';
             `;
             
             container.innerHTML = html;
+        }
+
+        // Filter Users
+        function filterUsers(filter) {
+            currentFilter = filter;
+            
+            // Update button styles
+            document.querySelectorAll('[id^="filter-"]').forEach(btn => {
+                btn.style.background = '#e5e7eb';
+                btn.style.color = '#374151';
+            });
+            document.getElementById(`filter-${filter}`).style.background = '#667eea';
+            document.getElementById(`filter-${filter}`).style.color = 'white';
+            
+            // Filter users
+            let filteredUsers = allUsers;
+            if (filter === 'active') {
+                filteredUsers = allUsers.filter(u => !u.deleted_at);
+            } else if (filter === 'deleted') {
+                filteredUsers = allUsers.filter(u => u.deleted_at);
+            }
+            
+            renderUsers(filteredUsers);
+        }
+        
+        // Restore User
+        async function restoreUser(userId, username) {
+            if (!confirm(`Restore user "${username}"?\n\nThis will reactivate the user account.`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('profile/api.php?action=restore_user', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: userId })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    alert('User restored successfully!');
+                    // Reload users
+                    await loadUsers();
+                } else {
+                    alert('Failed to restore user: ' + (result.message || 'Unknown error'));
+                }
+            } catch (error) {
+                console.error('Error restoring user:', error);
+                alert('Error restoring user: ' + error.message);
+            }
+        }
+        
+        // Soft Delete User
+        async function softDeleteUser(userId, username) {
+            if (!confirm(`Are you sure you want to delete user "${username}"?\n\nThis will soft-delete the user and they will no longer be able to access the system.`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('profile/api.php?action=soft_delete_user', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: userId })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    alert('User deleted successfully!');
+                    // Reload users to refresh the list
+                    await loadUsers();
+                } else {
+                    alert('Failed to delete user: ' + (result.message || 'Unknown error'));
+                }
+            } catch (error) {
+                console.error('Error deleting user:', error);
+                alert('Error deleting user: ' + error.message);
+            }
         }
 
         // Helper Functions
@@ -776,10 +910,17 @@ $pageTitle = 'User Management';
         async function editUser(userId) {
             // Load user data first
             try {
-                const user = allUsers.find(u => u.id === userId);
+                let user = allUsers.find(u => u.id === userId);
+                
+                // If user not found in array, fetch from API
                 if (!user) {
-                    alert('User not found');
-                    return;
+                    const response = await fetch(`profile/api.php?action=get_user&user_id=${userId}`);
+                    const data = await response.json();
+                    if (!data.success || !data.data) {
+                        alert('User not found');
+                        return;
+                    }
+                    user = data.data;
                 }
                 
                 const modal = document.createElement('div');
@@ -929,14 +1070,44 @@ $pageTitle = 'User Management';
             }
         }
 
-        function managePermissions(userId) {
-            switchTab('permissions');
-            // TODO: Load permissions for specific user
+        async function managePermissions(userId) {
+            // Switch to permissions tab
+            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+            document.querySelector('[onclick*="permissions"]').classList.add('active');
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            document.getElementById('tab-permissions').classList.add('active');
+            
+            // Load permissions and select the user
+            await loadPermissions();
+            
+            // Select the user in the dropdown if it exists
+            setTimeout(() => {
+                const userSelect = document.getElementById('perm-user-select');
+                if (userSelect) {
+                    userSelect.value = userId;
+                    userSelect.dispatchEvent(new Event('change'));
+                }
+            }, 500);
         }
 
-        function manageStoreAccess(userId) {
-            switchTab('store-access');
-            // TODO: Load store access for specific user
+        async function manageStoreAccess(userId) {
+            // Switch to store-access tab
+            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+            document.querySelector('[onclick*="store-access"]').classList.add('active');
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            document.getElementById('tab-store-access').classList.add('active');
+            
+            // Load store access and select the user
+            await loadStoreAccess();
+            
+            // Select the user in the dropdown if it exists
+            setTimeout(() => {
+                const userSelect = document.getElementById('store-user-select');
+                if (userSelect) {
+                    userSelect.value = userId;
+                    userSelect.dispatchEvent(new Event('change'));
+                }
+            }, 500);
         }
 
         // Activity Manager Variables

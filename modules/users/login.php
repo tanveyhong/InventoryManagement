@@ -32,13 +32,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $sqlDb = SQLDatabase::getInstance();
             
-            // Find user by username or email (PostgreSQL only)
+            // First check if user exists (including deleted users)
             $user = $sqlDb->fetch(
-                "SELECT * FROM users WHERE (LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?)) AND deleted_at IS NULL",
+                "SELECT * FROM users WHERE (LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?))",
                 [$username, $username]
             );
             
-            if ($user && password_verify($password, $user['password_hash'])) {
+            // Check if account was soft deleted
+            if ($user && $user['deleted_at'] !== null) {
+                $errors[] = 'Your account has been deleted. Please contact an administrator if you believe this is an error.';
+            } elseif ($user && password_verify($password, $user['password_hash'])) {
                 // Check if user is active
                 $status = strtolower($user['status'] ?? 'active');
                 if ($status === 'inactive' || $status === 'suspended' || $status === 'banned') {
