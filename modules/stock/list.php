@@ -183,7 +183,7 @@ try {
     $productRecords = $sqlDb->fetchAll("
         SELECT 
             p.id, p.name, p.sku, p.description, p.quantity, p.reorder_level, 
-            p.price, p.expiry_date, p.created_at, p.category, p.store_id,
+            p.price, p.expiry_date, p.created_at, p.updated_at, p.category, p.store_id,
             s.name as store_name
         FROM products p
         LEFT JOIN stores s ON p.store_id = s.id
@@ -203,6 +203,7 @@ try {
             'unit_price' => isset($r['price']) ? floatval($r['price']) : 0.0,
             'expiry_date' => $r['expiry_date'] ?? null,
             'created_at' => $r['created_at'] ?? null,
+            'updated_at' => $r['updated_at'] ?? null,
             'category_name' => $r['category'] ?? null,
             'store_id' => $r['store_id'] ?? null,
             'store_name' => $r['store_name'] ?? null,
@@ -334,9 +335,17 @@ $per_page = 20;
 $offset = ($page - 1) * $per_page;
 
 // Filtering
+
 $filtered_products = array_filter($all_products, function ($p) use ($store_filter, $category_filter, $search_query, $status_filter) {
+    // Only show products that are not deleted and are active
     if (!empty($p['deleted_at'])) return false;
     if (isset($p['status_db']) && strtolower((string)$p['status_db']) === 'disabled') return false;
+
+    // Hide expired products (expiry_date before today)
+    if (!empty($p['expiry_date']) && strtotime($p['expiry_date']) < strtotime(date('Y-m-d'))) {
+        return false;
+    }
+
     if ($store_filter && (!isset($p['store_id']) || $p['store_id'] != $store_filter)) return false;
     if ($category_filter && (!isset($p['category_name']) || $p['category_name'] != $category_filter)) return false;
     if ($search_query) {
@@ -613,6 +622,7 @@ $page_title = 'Stock Management - Inventory System';
                         }
                     }
                     ?>
+                    <button type="submit" form="batchDeleteForm" class="btn btn-danger" id="batchDeleteBtn" style="display: none; background-color: #dc3545; color: white; margin-right: 10px;">Delete Selected</button>
                     <a href="add.php" class="btn btn-addprod">Add Product</a>
                 </div>
             </div>
@@ -715,15 +725,18 @@ $page_title = 'Stock Management - Inventory System';
                     <a href="add.php" class="btn btn-primary">Add Your First Product</a>
                 </div>
             <?php else: ?>
+                <form id="batchDeleteForm" action="batch_delete.php" method="POST">
                 <div class="table-container">
                     <table class="data-table">
                         <thead>
                             <tr>
+                                <th style="width: 40px; text-align: center;"><input type="checkbox" id="selectAll"></th>
                                 <th>Product Details</th>
                                 <th>Stock Level</th>
                                 <th>Price</th>
                                 <th>Status</th>
                                 <th>Expiry Date</th>
+                                <th>Last Updated</th>
                                 <th>Store/Category</th>
                                 <th>Actions</th>
                             </tr>
@@ -759,6 +772,9 @@ $page_title = 'Stock Management - Inventory System';
                                     data-qty="<?php echo (int)$product['quantity']; ?>"
                                     data-min="<?php echo (int)$product['min_stock_level']; ?>">
 
+                                    <td style="text-align: center;">
+                                        <input type="checkbox" name="product_ids[]" value="<?php echo htmlspecialchars($product['id']); ?>" class="product-checkbox">
+                                    </td>
                                     <td>
                                         <div class="product-info" style="<?php echo ($product['_is_store_variant'] ?? false) ? 'padding-left: 30px;' : ''; ?>">
                                             <?php if ($product['_is_store_variant'] ?? false): ?>
@@ -778,7 +794,7 @@ $page_title = 'Stock Management - Inventory System';
                                                 <?php endif; ?>
                                             </strong>
                                             <?php if (!empty($product['sku'])): ?>
-                                                <br><small class="sku">SKU: <?php echo htmlspecialchars($product['sku']); ?></small>
+                                                <div class="sku" style="font-weight: 700; color: #2c3e50; margin-top: 4px; font-size: 0.9em;">SKU: <?php echo htmlspecialchars($product['sku']); ?></div>
                                             <?php endif; ?>
                                             <?php if (!empty($product['description'])): ?>
                                                 <br><small class="description"><?php echo htmlspecialchars(substr($product['description'], 0, 100)); ?><?php echo strlen($product['description']) > 100 ? '...' : ''; ?></small>
@@ -830,6 +846,16 @@ $page_title = 'Stock Management - Inventory System';
                                         <?php endif; ?>
                                     </td>
                                     <td>
+                                        <?php if (!empty($product['updated_at'])): ?>
+                                            <span class="updated-at" style="font-size: 0.85em; color: #555;">
+                                                <?php echo date('M j, Y', strtotime($product['updated_at'])); ?><br>
+                                                <small><?php echo date('h:i A', strtotime($product['updated_at'])); ?></small>
+                                            </span>
+                                        <?php else: ?>
+                                            <span style="color: #999;">-</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
                                         <div class="location-info">
                                             <?php if ($product['store_name']): ?>
                                                 <strong><?php echo htmlspecialchars($product['store_name']); ?></strong><br>
@@ -860,16 +886,22 @@ $page_title = 'Stock Management - Inventory System';
                                             ?>
                                             <a class="btn btn-small btn-primary" title="View Product"
                                                 href="view.php?id=<?php echo urlencode($linkId); ?>&return=<?php echo $return; ?>">
-                                                <i class="fas fa-eye"></i> View
+                                                <i class="fas fa-eye"></i>
                                             </a>
                                             <?php if (currentUserHasPermission('can_edit_inventory')): ?>
 
-                                                <a href="edit.php?id=<?php echo urlencode($linkId); ?>&return=<?php echo $return; ?>" class="btn btn-sm btn-primary" title="Edit Product">Edit</a>
-                                                <a href="adjust.php?id=<?php echo urlencode($linkId); ?>&return=<?php echo $return; ?>" class="btn btn-sm btn-warning" title="Adjust Stock">Adjust</a>
+                                                <a href="edit.php?id=<?php echo urlencode($linkId); ?>&return=<?php echo $return; ?>" class="btn btn-sm btn-primary" title="Edit Product Details">
+                                                    <i class="fas fa-edit"></i> Edit
+                                                </a>
+                                                <a href="adjust.php?id=<?php echo urlencode($linkId); ?>&return=<?php echo $return; ?>" class="btn btn-sm btn-warning" title="Adjust Stock Level" style="background-color: #f39c12; border-color: #e67e22;">
+                                                    <i class="fas fa-boxes"></i> Adjust
+                                                </a>
                                             <?php endif; ?>
                                             <?php if (currentUserHasPermission('can_delete_inventory')): ?>
                                                 <a href="delete.php?id=<?php echo $product['id']; ?>" class="btn btn-sm btn-danger"
-                                                    onclick="return confirm('Are you sure you want to delete this product?')" title="Delete Product">Delete</a>
+                                                    onclick="return confirm('Are you sure you want to delete this product?')" title="Delete Product">
+                                                    <i class="fas fa-trash"></i>
+                                                </a>
                                             <?php endif; ?>
                                         </div>
                                     </td>
@@ -878,6 +910,7 @@ $page_title = 'Stock Management - Inventory System';
                         </tbody>
                     </table>
                 </div>
+                </form>
                 <div id="lowStockHost"></div>
 
 
@@ -1353,6 +1386,42 @@ $page_title = 'Stock Management - Inventory System';
             color: #fff;
         }
     </style>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const selectAll = document.getElementById('selectAll');
+            const checkboxes = document.querySelectorAll('.product-checkbox');
+            const deleteBtn = document.getElementById('batchDeleteBtn');
+
+            function updateDeleteBtn() {
+                const checkedCount = document.querySelectorAll('.product-checkbox:checked').length;
+                if (checkedCount > 0) {
+                    deleteBtn.style.display = 'inline-block';
+                    deleteBtn.textContent = `Delete Selected (${checkedCount})`;
+                } else {
+                    deleteBtn.style.display = 'none';
+                }
+            }
+
+            if (selectAll) {
+                selectAll.addEventListener('change', function() {
+                    checkboxes.forEach(cb => cb.checked = this.checked);
+                    updateDeleteBtn();
+                });
+            }
+
+            checkboxes.forEach(cb => {
+                cb.addEventListener('change', function() {
+                    updateDeleteBtn();
+                    // Update selectAll state
+                    if (!this.checked) {
+                        selectAll.checked = false;
+                    } else if (document.querySelectorAll('.product-checkbox:checked').length === checkboxes.length) {
+                        selectAll.checked = true;
+                    }
+                });
+            });
+        });
+    </script>
 </body>
 
 </html>

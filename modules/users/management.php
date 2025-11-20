@@ -815,21 +815,14 @@ $pageTitle = 'User Management';
                         
                         <div style="margin-bottom: 16px;">
                             <label style="display: block; margin-bottom: 6px; font-weight: 600; color: #374151;">
-                                <i class="fas fa-user-tag"></i> Role <span style="color: #ef4444;">*</span>
-                            </label>
-                            <select name="role" required style="width: 100%; padding: 10px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px;">
-                                <option value="">-- Select Role --</option>
-                                <option value="Staff">Staff</option>
-                                <option value="Manager">Manager</option>
-                                <option value="Admin">Admin</option>
-                            </select>
-                        </div>
-                        
-                        <div style="margin-bottom: 16px;">
-                            <label style="display: block; margin-bottom: 6px; font-weight: 600; color: #374151;">
                                 <i class="fas fa-lock"></i> Password <span style="color: #ef4444;">*</span>
                             </label>
-                            <input type="password" name="password" required style="width: 100%; padding: 10px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px;" placeholder="Enter password">
+                            <div style="position: relative;">
+                                <input type="password" name="password" id="create-password" required style="width: 100%; padding: 10px 40px 10px 10px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px;" placeholder="Enter password">
+                                <button type="button" onclick="togglePasswordField('create-password', this)" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); border: none; background: none; cursor: pointer; color: #667eea; padding: 5px;" title="Show/Hide Password">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                            </div>
                             <small style="display: block; margin-top: 4px; color: #6b7280;">Minimum 6 characters</small>
                         </div>
                         
@@ -837,7 +830,12 @@ $pageTitle = 'User Management';
                             <label style="display: block; margin-bottom: 6px; font-weight: 600; color: #374151;">
                                 <i class="fas fa-lock"></i> Confirm Password <span style="color: #ef4444;">*</span>
                             </label>
-                            <input type="password" name="password_confirm" required style="width: 100%; padding: 10px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px;" placeholder="Confirm password">
+                            <div style="position: relative;">
+                                <input type="password" name="password_confirm" id="create-password-confirm" required style="width: 100%; padding: 10px 40px 10px 10px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px;" placeholder="Confirm password">
+                                <button type="button" onclick="togglePasswordField('create-password-confirm', this)" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); border: none; background: none; cursor: pointer; color: #667eea; padding: 5px;" title="Show/Hide Password">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                            </div>
                         </div>
                         
                         <div style="display: flex; gap: 12px; margin-top: 24px;">
@@ -901,6 +899,21 @@ $pageTitle = 'User Management';
                     submitBtn.innerHTML = '<i class="fas fa-check"></i> Create User';
                 }
             });
+        }
+
+        function togglePasswordField(inputId, button) {
+            const input = document.getElementById(inputId);
+            const icon = button.querySelector('i');
+            
+            if (input.type === 'password') {
+                input.type = 'text';
+                icon.classList.remove('fa-eye');
+                icon.classList.add('fa-eye-slash');
+            } else {
+                input.type = 'password';
+                icon.classList.remove('fa-eye-slash');
+                icon.classList.add('fa-eye');
+            }
         }
 
         function viewUser(userId) {

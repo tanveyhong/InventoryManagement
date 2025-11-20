@@ -286,13 +286,18 @@ $page_title = 'Login - Inventory Management System';
         
         <form method="POST" action="">
             <div class="form-group">
-                <label for="username">Username or Email</label>
-                <input type="text" id="username" name="username" value="<?php echo htmlspecialchars($_POST['username'] ?? ''); ?>" required autofocus>
+                <label for="username">Email</label>
+                <input type="email" id="username" name="username" value="<?php echo htmlspecialchars($_POST['username'] ?? ''); ?>" required autofocus placeholder="your.email@example.com">
             </div>
             
             <div class="form-group">
                 <label for="password">Password</label>
-                <input type="password" id="password" name="password" required>
+                <div style="position: relative;">
+                    <input type="password" id="password" name="password" required style="padding-right: 40px;">
+                    <button type="button" onclick="togglePassword('password', this)" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); border: none; background: none; cursor: pointer; color: #667eea; padding: 5px;" title="Show/Hide Password">
+                        <i class="fas fa-eye" id="password-icon"></i>
+                    </button>
+                </div>
             </div>
             
             <div class="checkbox-group">
@@ -300,14 +305,33 @@ $page_title = 'Login - Inventory Management System';
                 <label for="remember_me">Remember me</label>
             </div>
             
+            <div class="forgot-password-link" style="margin-top: 10px; text-align: right;">
+                <a href="forgot_password.php" style="color: #667eea; text-decoration: none; font-size: 0.9rem;">
+                    <i class="fas fa-key"></i> Forgot Password?
+                </a>
+            </div>
+            
             <button type="submit" class="btn-login">
                 <i class="fas fa-sign-in-alt"></i> Login
             </button>
         </form>
-        
-        <div class="register-link">
-            Don't have an account? <a href="register.php">Register here</a>
-        </div>
     </div>
+    
+    <script>
+        function togglePassword(inputId, button) {
+            const input = document.getElementById(inputId);
+            const icon = button.querySelector('i');
+            
+            if (input.type === 'password') {
+                input.type = 'text';
+                icon.classList.remove('fa-eye');
+                icon.classList.add('fa-eye-slash');
+            } else {
+                input.type = 'password';
+                icon.classList.remove('fa-eye-slash');
+                icon.classList.add('fa-eye');
+            }
+        }
+    </script>
 </body>
 </html>

@@ -4,6 +4,7 @@
         "kreait/firebase-php": "^7.16",
         "google/apiclient": "^2.18",
         "google/cloud-core": "^1.53",
-        "google/gax": "^0.25.0"
+        "google/gax": "^0.25.0",
+        "phpmailer/phpmailer": "^7.0"
     }
 }

@@ -581,7 +581,7 @@ $page_title = 'Dashboard - Inventory Management System';
             ]
         ],
         [
-            'value' => '$' . number_format($stats['todays_sales'], 0),
+            'value' => 'RM ' . number_format($stats['todays_sales'], 0),
             'label' => "Today's Sales",
             'icon' => 'fas fa-dollar-sign',
             'type' => 'warning',

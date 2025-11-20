@@ -6,6 +6,87 @@ require_once '../../functions.php';
 
 session_start();
 
+// Handle JSON API requests (from management interface)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SERVER['CONTENT_TYPE']) && strpos($_SERVER['CONTENT_TYPE'], 'application/json') !== false) {
+    $input = json_decode(file_get_contents('php://input'), true);
+    
+    $username = sanitizeInput($input['username'] ?? '');
+    $email = sanitizeInput($input['email'] ?? '');
+    $password = $input['password'] ?? '';
+    $first_name = sanitizeInput($input['first_name'] ?? '');
+    $last_name = sanitizeInput($input['last_name'] ?? '');
+    
+    $errors = [];
+    
+    // Validation
+    if (empty($username) || strlen($username) < 3) {
+        $errors[] = 'Username must be at least 3 characters';
+    }
+    if (empty($email) || !validateEmail($email)) {
+        $errors[] = 'Invalid email format';
+    }
+    if (empty($password) || strlen($password) < 6) {
+        $errors[] = 'Password must be at least 6 characters';
+    }
+    if (empty($first_name)) {
+        $errors[] = 'First name is required';
+    }
+    if (empty($last_name)) {
+        $errors[] = 'Last name is required';
+    }
+    
+    // Check if username or email already exists
+    if (empty($errors)) {
+        $existingUser = findUserByUsernameOrEmail($username);
+        if ($existingUser) {
+            $errors[] = 'Username already exists';
+        }
+        
+        $existingEmail = findUserByUsernameOrEmail($email);
+        if ($existingEmail && $existingEmail['id'] !== ($existingUser['id'] ?? null)) {
+            $errors[] = 'Email already exists';
+        }
+    }
+    
+    if (empty($errors)) {
+        $email_norm = strtolower(trim($email));
+        
+        try {
+            require_once '../../sql_db.php';
+            $sqlDb = SQLDatabase::getInstance();
+            
+            // Combine first and last name into full_name for Supabase
+            $full_name = trim($first_name . ' ' . $last_name);
+            
+            // Create user in PostgreSQL (Supabase) with RETURNING
+            $user = $sqlDb->fetch(
+                "INSERT INTO users (username, email, password_hash, full_name, role, status, created_at, updated_at) 
+                 VALUES (?, ?, ?, ?, 'user', 'active', NOW(), NOW()) 
+                 RETURNING id",
+                [$username, $email_norm, hashPassword($password), $full_name]
+            );
+            
+            if ($user) {
+                header('Content-Type: application/json');
+                echo json_encode(['success' => true, 'user_id' => $user['id']]);
+                exit;
+            } else {
+                header('Content-Type: application/json');
+                echo json_encode(['success' => false, 'error' => 'Failed to create user']);
+                exit;
+            }
+        } catch (Exception $e) {
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'error' => 'Database error: ' . $e->getMessage()]);
+            exit;
+        }
+    } else {
+        header('Content-Type: application/json');
+        echo json_encode(['success' => false, 'error' => implode(', ', $errors)]);
+        exit;
+    }
+}
+
 // Redirect if already logged in
 if (isLoggedIn()) {
     header('Location: ../../index.php');
@@ -72,31 +153,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Normalize email to lowercase for consistent lookups
         $email_norm = strtolower(trim($email));
 
-        $userData = [
-            'username' => $username,
-            'email' => $email_norm,
-            'password_hash' => hashPassword($password),
-            'first_name' => $first_name,
-            'last_name' => $last_name,
-            'role' => 'user',
-            'is_active' => true
-        ];
-
-        $userId = createFirebaseUser($userData);
-
-        if ($userId) {
-            // Auto-login the newly created user (helps UX and avoids immediate login mismatch)
-            $db = getDB();
-            $createdUser = $db->read('users', $userId);
-            if (!$createdUser) {
-                $found = $db->readAll('users', [['email', '==', $email_norm]], null, 1);
-                $createdUser = $found[0] ?? null;
-            }
+        try {
+            require_once '../../sql_db.php';
+            $sqlDb = SQLDatabase::getInstance();
+            
+            // Combine first and last name into full_name for Supabase
+            $full_name = trim($first_name . ' ' . $last_name);
+            
+            // Create user in PostgreSQL (Supabase) with RETURNING
+            $createdUser = $sqlDb->fetch(
+                "INSERT INTO users (username, email, password_hash, full_name, role, status, created_at, updated_at) 
+                 VALUES (?, ?, ?, ?, 'user', 'active', NOW(), NOW()) 
+                 RETURNING *",
+                [$username, $email_norm, hashPassword($password), $full_name]
+            );
+            
             if ($createdUser) {
+                // Auto-login the newly created user
                 session_regenerate_id(true);
                 $_SESSION['user_id'] = $createdUser['id'];
-                $_SESSION['username'] = $createdUser['username'] ?? ($createdUser['email'] ?? '');
-                $_SESSION['email'] = $createdUser['email'] ?? '';
+                $_SESSION['username'] = $createdUser['username'];
+                $_SESSION['email'] = $createdUser['email'];
                 $_SESSION['role'] = $createdUser['role'] ?? 'user';
                 $_SESSION['login_time'] = time();
 
@@ -106,8 +183,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $success = true;
             addNotification('Registration successful! You can now log in.', 'success');
-        } else {
-            $errors[] = 'Registration failed. Please try again.';
+        } catch (Exception $e) {
+            $errors[] = 'Registration failed: ' . $e->getMessage();
         }
     }
 }

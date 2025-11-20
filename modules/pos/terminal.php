@@ -284,16 +284,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         
                         error_log("Attempting to insert sale record...");
                         
-                        // Insert sale record and get the ID
+                        // Get payment details from request
+                        $amount_paid = $_POST['amount_paid'] ?? $total;
+                        $payment_details_json = $_POST['payment_details'] ?? '{}';
+                        $payment_details = json_decode($payment_details_json, true);
+                        
+                        // Extract cashier info
+                        $cashier_id = $_SESSION['user_id'];
+                        $cashier_name = $_SESSION['username'] ?? $_SESSION['email'] ?? 'Unknown';
+                        
+                        // Prepare payment fields
+                        $payment_change = 0;
+                        $payment_reference = null;
+                        
+                        if ($payment_method === 'cash' && isset($payment_details['change'])) {
+                            $payment_change = $payment_details['change'];
+                        } elseif ($payment_method === 'card' && isset($payment_details['cardLast4'])) {
+                            $payment_reference = $payment_details['cardType'] . ' ****' . $payment_details['cardLast4'];
+                        } elseif ($payment_method === 'ewallet' && isset($payment_details['provider'])) {
+                            $payment_reference = $payment_details['provider'] . ' - ' . ($payment_details['reference'] ?? 'N/A');
+                        }
+                        
+                        // Insert sale record with payment details
                         $sqlDb->execute(
                             "INSERT INTO sales (sale_number, store_id, user_id, customer_name, 
                                                subtotal, tax_amount, total_amount, payment_method, 
-                                               payment_status, notes, created_at, updated_at) 
-                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                               payment_status, notes, amount_paid, payment_change, 
+                                               payment_reference, payment_details, cashier_id, cashier_name,
+                                               created_at, updated_at) 
+                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                             [
                                 $sale_number,
                                 $actual_store_id,
-                                $user_id_for_sale,  // Use sanitized user ID (null if Firebase ID)
+                                $user_id_for_sale,
                                 $customer_name,
                                 $subtotal,
                                 $tax,
@@ -301,6 +324,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                                 $payment_method,
                                 'completed',
                                 $notes,
+                                $amount_paid,
+                                $payment_change,
+                                $payment_reference,
+                                $payment_details_json,
+                                $cashier_id,
+                                $cashier_name,
                                 date('Y-m-d H:i:s'),
                                 date('Y-m-d H:i:s')
                             ]
@@ -835,18 +864,28 @@ $page_title = 'POS Terminal - Inventory System';
         .checkout-btn {
             width: 100%;
             padding: 15px;
-            background: #27ae60;
+            background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
             color: white;
             border: none;
-            border-radius: 5px;
+            border-radius: 8px;
             font-size: 18px;
             font-weight: bold;
             cursor: pointer;
             margin-top: 10px;
+            transition: all 0.3s;
+            box-shadow: 0 4px 15px rgba(52, 152, 219, 0.3);
         }
         
-        .checkout-btn:hover {
-            background: #229954;
+        .checkout-btn:hover:not(:disabled) {
+            background: linear-gradient(135deg, #2980b9 0%, #21618c 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(52, 152, 219, 0.4);
+        }
+        
+        .checkout-btn:disabled {
+            background: #95a5a6;
+            cursor: not-allowed;
+            box-shadow: none;
         }
         
         .checkout-btn:disabled {
@@ -856,13 +895,21 @@ $page_title = 'POS Terminal - Inventory System';
         
         .clear-cart-btn {
             width: 100%;
-            padding: 10px;
+            padding: 12px;
             background: #e74c3c;
             color: white;
             border: none;
-            border-radius: 5px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
             cursor: pointer;
             margin-top: 10px;
+            transition: all 0.3s;
+        }
+        
+        .clear-cart-btn:hover {
+            background: #c0392b;
+            transform: translateY(-1px);
         }
         
         .empty-cart {
@@ -964,10 +1011,13 @@ $page_title = 'POS Terminal - Inventory System';
                     <?php endif; ?>
                 </div>
                 <div style="display: flex; gap: 10px; align-items: center;">
-                    <a href="stock_pos_integration.php" class="add-products-btn" title="Manage products - Add products from inventory to this POS store">
-                        ➕ Manage Products
+                    <a href="my_payments.php" class="add-products-btn" style="background: #9b59b6;" title="View your payment history and sales data">
+                        <i class="fas fa-receipt"></i> My Payments
                     </a>
-                    <a href="../../index.php" class="back-btn">← Dashboard</a>
+                    <a href="stock_pos_integration.php" class="add-products-btn" title="Manage products - Add products from inventory to this POS store">
+                        <i class="fas fa-box"></i> Manage Products
+                    </a>
+                    <a href="../../index.php" class="back-btn"><i class="fas fa-home"></i> Dashboard</a>
                 </div>
             </div>
             
@@ -1015,14 +1065,23 @@ $page_title = 'POS Terminal - Inventory System';
                 
                 <div class="payment-section">
                     <div class="payment-methods">
-                        <div class="payment-method active" data-method="cash">💵 Cash</div>
-                        <div class="payment-method" data-method="card">💳 Card</div>
-                        <div class="payment-method" data-method="ewallet">📱 E-Wallet</div>
-                        <div class="payment-method" data-method="other">🔄 Other</div>
+                        <div class="payment-method active" data-method="cash">
+                            <i class="fas fa-money-bill-wave"></i> Cash
+                        </div>
+                        <div class="payment-method" data-method="card">
+                            <i class="fas fa-credit-card"></i> Card
+                        </div>
+                        <div class="payment-method" data-method="ewallet">
+                            <i class="fas fa-mobile-alt"></i> E-Wallet
+                        </div>
                     </div>
                     
-                    <button class="checkout-btn" id="checkoutBtn" disabled>Complete Sale</button>
-                    <button class="clear-cart-btn" id="clearCartBtn">Clear Cart</button>
+                    <button class="checkout-btn" id="checkoutBtn" disabled>
+                        <i class="fas fa-credit-card"></i> Make Payment
+                    </button>
+                    <button class="clear-cart-btn" id="clearCartBtn">
+                        <i class="fas fa-trash-alt"></i> Clear Cart
+                    </button>
                 </div>
             </div>
         </div>
@@ -1264,54 +1323,253 @@ $page_title = 'POS Terminal - Inventory System';
             document.getElementById('total').textContent = 'RM ' + total.toFixed(2);
         }
         
-        // Process checkout
-        async function checkout() {
-            console.log('=== CHECKOUT INITIATED ===');
+        // Show payment modal
+        function showPaymentModal() {
+            if (cart.length === 0) return;
             
-            if (cart.length === 0) {
-                console.log('Cart is empty');
+            const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+            const tax = subtotal * 0.06;
+            const total = subtotal + tax;
+            
+            let modalContent = '';
+            
+            if (selectedPaymentMethod === 'cash') {
+                modalContent = `
+                    <h3 style="margin-top: 0; color: #2c3e50;"><i class="fas fa-money-bill-wave"></i> Cash Payment</h3>
+                    <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                        <div style="font-size: 14px; color: #7f8c8d; margin-bottom: 5px;">Total Amount</div>
+                        <div style="font-size: 32px; font-weight: bold; color: #27ae60;">RM ${total.toFixed(2)}</div>
+                    </div>
+                    <div style="margin-bottom: 20px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #2c3e50;">Amount Received</label>
+                        <input type="number" id="cashAmount" value="${total.toFixed(2)}" step="0.01" min="${total.toFixed(2)}" 
+                               style="width: 100%; padding: 12px; font-size: 18px; border: 2px solid #e0e0e0; border-radius: 8px;" 
+                               placeholder="Enter amount" autofocus>
+                    </div>
+                    <div id="changeDisplay" style="background: #e8f5e9; padding: 12px; border-radius: 8px; margin-bottom: 20px; display: none;">
+                        <div style="color: #2e7d32; font-weight: 600;">Change: <span id="changeAmount">RM 0.00</span></div>
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 20px;">
+                        <button onclick="document.getElementById('cashAmount').value = ${(total + 10).toFixed(2)}; calculateChange()" style="padding: 12px; background: #ecf0f1; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">+RM 10</button>
+                        <button onclick="document.getElementById('cashAmount').value = ${(total + 20).toFixed(2)}; calculateChange()" style="padding: 12px; background: #ecf0f1; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">+RM 20</button>
+                        <button onclick="document.getElementById('cashAmount').value = ${(total + 50).toFixed(2)}; calculateChange()" style="padding: 12px; background: #ecf0f1; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">+RM 50</button>
+                    </div>`;
+            } else if (selectedPaymentMethod === 'card') {
+                modalContent = `
+                    <h3 style="margin-top: 0; color: #2c3e50;"><i class="fas fa-credit-card"></i> Card Payment</h3>
+                    <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                        <div style="font-size: 14px; color: #7f8c8d; margin-bottom: 5px;">Total Amount</div>
+                        <div style="font-size: 32px; font-weight: bold; color: #3498db;">RM ${total.toFixed(2)}</div>
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #2c3e50;">Card Number (Last 4 digits)</label>
+                        <input type="text" id="cardNumber" maxlength="4" pattern="[0-9]{4}" 
+                               style="width: 100%; padding: 12px; font-size: 16px; border: 2px solid #e0e0e0; border-radius: 8px;" 
+                               placeholder="**** **** **** 1234">
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #2c3e50;">Card Type</label>
+                        <select id="cardType" style="width: 100%; padding: 12px; font-size: 16px; border: 2px solid #e0e0e0; border-radius: 8px;">
+                            <option value="mastercard" selected>MasterCard</option>
+                            <option value="visa">Visa</option>
+                            <option value="amex">American Express</option>
+                            <option value="debit">Debit Card</option>
+                        </select>
+                    </div>
+                    <div style="margin-bottom: 20px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #2c3e50;">Approval Code (Optional)</label>
+                        <input type="text" id="approvalCode" 
+                               style="width: 100%; padding: 12px; font-size: 16px; border: 2px solid #e0e0e0; border-radius: 8px;" 
+                               placeholder="Enter approval code">
+                    </div>`;
+            } else if (selectedPaymentMethod === 'ewallet') {
+                modalContent = `
+                    <h3 style="margin-top: 0; color: #2c3e50;"><i class="fas fa-mobile-alt"></i> E-Wallet Payment</h3>
+                    <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                        <div style="font-size: 14px; color: #7f8c8d; margin-bottom: 5px;">Total Amount</div>
+                        <div style="font-size: 32px; font-weight: bold; color: #9b59b6;">RM ${total.toFixed(2)}</div>
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #2c3e50;">E-Wallet Provider</label>
+                        <select id="ewalletProvider" style="width: 100%; padding: 12px; font-size: 16px; border: 2px solid #e0e0e0; border-radius: 8px;">
+                            <option value="tng">Touch 'n Go</option>
+                            <option value="grabpay">GrabPay</option>
+                            <option value="boost">Boost</option>
+                            <option value="shopeepay">ShopeePay</option>
+                            <option value="other">Other</option>
+                        </select>
+                    </div>
+                    <div style="margin-bottom: 20px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #2c3e50;">Transaction Reference (Optional)</label>
+                        <input type="text" id="ewalletRef" 
+                               style="width: 100%; padding: 12px; font-size: 16px; border: 2px solid #e0e0e0; border-radius: 8px;" 
+                               placeholder="Enter reference number">
+                    </div>`;
+            }
+            
+            const modal = document.createElement('div');
+            modal.id = 'paymentModal';
+            modal.innerHTML = `
+                <div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 10000;">
+                    <div style="background: white; padding: 30px; border-radius: 16px; max-width: 500px; width: 90%; max-height: 90vh; overflow-y: auto;">
+                        ${modalContent}
+                        <div style="display: flex; gap: 12px; margin-top: 20px;">
+                            <button onclick="closePaymentModal()" style="flex: 1; padding: 14px; background: #95a5a6; color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer;">
+                                <i class="fas fa-times"></i> Cancel
+                            </button>
+                            <button onclick="confirmAndCompleteSale()" style="flex: 2; padding: 14px; background: #27ae60; color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer;">
+                                <i class="fas fa-check-circle"></i> Complete Sale
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            
+            // Setup cash amount change calculator
+            if (selectedPaymentMethod === 'cash') {
+                document.getElementById('cashAmount').addEventListener('input', calculateChange);
+                calculateChange();
+            }
+        }
+        
+        function calculateChange() {
+            const total = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0) * 1.06;
+            const amountPaid = parseFloat(document.getElementById('cashAmount').value) || 0;
+            const change = amountPaid - total;
+            
+            const changeDisplay = document.getElementById('changeDisplay');
+            if (change >= 0) {
+                changeDisplay.style.display = 'block';
+                document.getElementById('changeAmount').textContent = 'RM ' + change.toFixed(2);
+            } else {
+                changeDisplay.style.display = 'none';
+            }
+        }
+        
+        function closePaymentModal() {
+            const modal = document.getElementById('paymentModal');
+            if (modal) modal.remove();
+        }
+        
+        // Confirm and complete sale with validation
+        async function confirmAndCompleteSale() {
+            console.log('=== PAYMENT VALIDATION & SALE COMPLETION ===');
+            
+            const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+            const tax = subtotal * 0.06;
+            const total = subtotal + tax;
+            
+            let amountPaid = total;
+            let paymentDetails = {};
+            let validationErrors = [];
+            
+            // Validate and collect payment details based on method
+            if (selectedPaymentMethod === 'cash') {
+                const cashInput = document.getElementById('cashAmount').value;
+                amountPaid = parseFloat(cashInput);
+                
+                if (!cashInput || cashInput.trim() === '') {
+                    validationErrors.push('Please enter the amount received');
+                } else if (isNaN(amountPaid)) {
+                    validationErrors.push('Invalid amount entered');
+                } else if (amountPaid < total) {
+                    validationErrors.push(`Insufficient payment. Need RM ${(total - amountPaid).toFixed(2)} more`);
+                }
+                
+                if (validationErrors.length === 0) {
+                    paymentDetails = {
+                        amountReceived: amountPaid.toFixed(2),
+                        change: (amountPaid - total).toFixed(2),
+                        method: 'Cash Payment'
+                    };
+                }
+            } else if (selectedPaymentMethod === 'card') {
+                const cardNumber = document.getElementById('cardNumber').value.trim();
+                const cardType = document.getElementById('cardType').value;
+                const approvalCode = document.getElementById('approvalCode').value.trim();
+                
+                // Card validation
+                if (!cardNumber) {
+                    validationErrors.push('Please enter card number (last 4 digits)');
+                } else if (!/^\d{4}$/.test(cardNumber)) {
+                    validationErrors.push('Card number must be 4 digits');
+                }
+                
+                if (validationErrors.length === 0) {
+                    paymentDetails = {
+                        cardLast4: cardNumber,
+                        cardType: cardType.toUpperCase(),
+                        approvalCode: approvalCode || 'N/A',
+                        method: `${cardType.toUpperCase()} Card Payment`
+                    };
+                    // For card, amount paid is exact
+                    amountPaid = total;
+                }
+            } else if (selectedPaymentMethod === 'ewallet') {
+                const provider = document.getElementById('ewalletProvider').value;
+                const reference = document.getElementById('ewalletRef').value.trim();
+                
+                if (validationErrors.length === 0) {
+                    const providerNames = {
+                        'tng': "Touch 'n Go",
+                        'grabpay': 'GrabPay',
+                        'boost': 'Boost',
+                        'shopeepay': 'ShopeePay',
+                        'other': 'E-Wallet'
+                    };
+                    
+                    paymentDetails = {
+                        provider: providerNames[provider] || provider,
+                        reference: reference || 'N/A',
+                        method: `${providerNames[provider] || 'E-Wallet'} Payment`
+                    };
+                    // For e-wallet, amount paid is exact
+                    amountPaid = total;
+                }
+            }
+            
+            // Show validation errors if any
+            if (validationErrors.length > 0) {
+                alert('Please fix the following:\n\n• ' + validationErrors.join('\n• '));
                 return;
             }
             
-            const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-            const tax = subtotal * 0.06; // 6% tax
-            const total = subtotal + tax;
-            
-            console.log('Subtotal:', subtotal);
-            console.log('Tax:', tax);
-            console.log('Total:', total);
-            console.log('Payment Method:', selectedPaymentMethod);
-            
-            // For cash, ask for amount paid
-            let amountPaid = total;
+            // Show confirmation summary
+            let confirmMessage = '=== SALE CONFIRMATION ===\n\n';
+            confirmMessage += `Items: ${cart.length}\n`;
+            confirmMessage += `Subtotal: RM ${subtotal.toFixed(2)}\n`;
+            confirmMessage += `Tax (6%): RM ${tax.toFixed(2)}\n`;
+            confirmMessage += `Total: RM ${total.toFixed(2)}\n\n`;
+            confirmMessage += `Payment: ${paymentDetails.method}\n`;
             
             if (selectedPaymentMethod === 'cash') {
-                const promptResult = prompt('Enter amount paid (Total: RM ' + total.toFixed(2) + '):', total.toFixed(2));
-                console.log('Prompt result:', promptResult);
-                
-                if (promptResult === null) {
-                    console.log('Payment cancelled');
-                    return; // User cancelled
+                confirmMessage += `Received: RM ${paymentDetails.amountReceived}\n`;
+                confirmMessage += `Change: RM ${paymentDetails.change}\n`;
+            } else if (selectedPaymentMethod === 'card') {
+                confirmMessage += `Card: ${paymentDetails.cardType} ****${paymentDetails.cardLast4}\n`;
+                if (paymentDetails.approvalCode !== 'N/A') {
+                    confirmMessage += `Approval: ${paymentDetails.approvalCode}\n`;
                 }
-                
-                amountPaid = parseFloat(promptResult);
-                console.log('Amount paid:', amountPaid);
-                
-                if (isNaN(amountPaid)) {
-                    console.error('Invalid number:', promptResult);
-                    alert('Invalid payment amount - please enter a number');
-                    return;
-                }
-                
-                if (amountPaid < total) {
-                    console.error('Insufficient payment:', amountPaid, '<', total);
-                    alert('Insufficient payment. Total is RM ' + total.toFixed(2));
-                    return;
+            } else if (selectedPaymentMethod === 'ewallet') {
+                confirmMessage += `Provider: ${paymentDetails.provider}\n`;
+                if (paymentDetails.reference !== 'N/A') {
+                    confirmMessage += `Reference: ${paymentDetails.reference}\n`;
                 }
             }
             
+            confirmMessage += '\n\nProceed with this sale?';
+            
+            if (!confirm(confirmMessage)) {
+                console.log('Sale cancelled by user');
+                return;
+            }
+            
+            closePaymentModal();
+            
             const customerName = document.getElementById('customerName').value || 'Walk-in Customer';
             console.log('Customer:', customerName);
+            console.log('Payment Details:', paymentDetails);
             
             try {
                 document.getElementById('checkoutBtn').disabled = true;
@@ -1323,6 +1581,7 @@ $page_title = 'POS Terminal - Inventory System';
                 formData.append('customer_name', customerName);
                 formData.append('payment_method', selectedPaymentMethod);
                 formData.append('amount_paid', amountPaid);
+                formData.append('payment_details', JSON.stringify(paymentDetails));
                 
                 console.log('Sending sale data...');
                 console.log('Cart items:', cart);
@@ -1399,7 +1658,7 @@ $page_title = 'POS Terminal - Inventory System';
             });
         });
         
-        document.getElementById('checkoutBtn').addEventListener('click', checkout);
+        document.getElementById('checkoutBtn').addEventListener('click', showPaymentModal);
         
         document.getElementById('clearCartBtn').addEventListener('click', () => {
             if (cart.length > 0 && confirm('Clear all items from cart?')) {
