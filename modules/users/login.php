@@ -261,6 +261,22 @@ $page_title = 'Login - Inventory Management System';
         .register-link a:hover {
             text-decoration: underline;
         }
+
+        .forgot-password {
+            text-align: right;
+            margin-top: -15px;
+            margin-bottom: 20px;
+            font-size: 0.85rem;
+        }
+        
+        .forgot-password a {
+            color: #666;
+            text-decoration: none;
+        }
+        
+        .forgot-password a:hover {
+            color: #667eea;
+        }
     </style>
 </head>
 <body>
@@ -305,10 +321,8 @@ $page_title = 'Login - Inventory Management System';
                 <label for="remember_me">Remember me</label>
             </div>
             
-            <div class="forgot-password-link" style="margin-top: 10px; text-align: right;">
-                <a href="forgot_password.php" style="color: #667eea; text-decoration: none; font-size: 0.9rem;">
-                    <i class="fas fa-key"></i> Forgot Password?
-                </a>
+            <div class="forgot-password">
+                <a href="forgot_password.php">Forgot Password?</a>
             </div>
             
             <button type="submit" class="btn-login">

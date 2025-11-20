@@ -794,7 +794,7 @@ $page_title = 'Stock Management - Inventory System';
                                                 <?php endif; ?>
                                             </strong>
                                             <?php if (!empty($product['sku'])): ?>
-                                                <div class="sku" style="font-weight: 700; color: #2c3e50; margin-top: 4px; font-size: 0.9em;">SKU: <?php echo htmlspecialchars($product['sku']); ?></div>
+                                                <div class="sku" style="font-weight: 800; color: #000; margin-top: 4px; font-size: 1.1em; letter-spacing: 0.5px;">SKU: <?php echo htmlspecialchars($product['sku']); ?></div>
                                             <?php endif; ?>
                                             <?php if (!empty($product['description'])): ?>
                                                 <br><small class="description"><?php echo htmlspecialchars(substr($product['description'], 0, 100)); ?><?php echo strlen($product['description']) > 100 ? '...' : ''; ?></small>

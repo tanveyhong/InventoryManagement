@@ -405,7 +405,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             @unlink($cacheFile);
         }
 
-        header('Location: view.php?id=' . rawurlencode($docId) . '&updated=1');
+        $_SESSION['success'] = "Product updated successfully.";
+        header('Location: list.php');
         exit;
       } catch (Throwable $e) {
         $errors[] = 'Failed to update product: ' . $e->getMessage();
