@@ -99,73 +99,10 @@ function product_id_of(array $p): string
     return (string)($p['doc_id'] ?? $p['id'] ?? $p['product_id'] ?? '');
 }
 
+// Expiry alert removed
 function fs_put_expiry_alert($db, array $prod): void
 {
-    $pid = isset($prod['id']) ? trim((string)$prod['id']) : '';
-    if ($pid === '') return;
-
-    $name = trim((string)($prod['name'] ?? ''));
-    $expiryRaw = $prod['expiry_date'] ?? null;
-    if (empty($expiryRaw)) return;
-
-    $expTs = strtotime($expiryRaw);
-    if ($expTs === false) return;
-
-    $now = time();
-    $in30 = strtotime('+30 days');
-
-    // Determine expiry condition
-    $isExpired = ($expTs < $now);
-    $isExpiring = (!$isExpired && $expTs <= $in30);
-    if (!$isExpired && !$isExpiring) return; // normal, no alert
-
-    $alertType = $isExpired ? 'EXPIRED' : 'EXPIRING_SOON';
-    $docId = 'EXP_' . $pid;
-    $nowIso = date('c');
-    $qtyNow = isset($prod['quantity'])
-        ? (int)$prod['quantity']
-        : ((isset($prod['stock_qty']) ? (int)$prod['stock_qty'] : 0));
-
-
-    // Check existing record
-    $existing = null;
-    if (method_exists($db, 'readDoc')) $existing = $db->readDoc('alerts', $docId);
-    elseif (method_exists($db, 'read')) $existing = $db->read('alerts', $docId);
-
-    $prevStatus = strtoupper($existing['status'] ?? '');
-    $prevKind = strtoupper($existing['expiry_kind'] ?? '');
-    $reopen = (!$existing || $prevStatus === 'RESOLVED' || $prevKind !== $alertType);
-
-    $payload = [
-        'product_id'        => $pid,
-        'product_name'      => $name,
-        'alert_type'        => 'EXPIRY',
-        'expiry_kind'       => $alertType,        // EXPIRED | EXPIRING_SOON
-        'expiry_date'       => $expiryRaw,
-        'status'            => 'PENDING',
-        'quantity_affected' => $qtyNow,           // <-- IMPORTANT
-        'created_at'        => $reopen ? $nowIso : ($existing['created_at'] ?? $nowIso),
-        'updated_at'        => $nowIso,
-    ];
-
-    // Save / upsert
-    if (method_exists($db, 'writeDoc')) {
-        $db->writeDoc('alerts', $docId, $payload);
-    } elseif (method_exists($db, 'upsert')) {
-        $db->upsert('alerts', $docId, $payload);
-    } elseif (method_exists($db, 'setDoc')) {
-        $db->setDoc('alerts', $docId, $payload);
-    } elseif (method_exists($db, 'create')) {
-        try {
-            $db->create('alerts', $docId, $payload);
-        } catch (Throwable $e) {
-            if (method_exists($db, 'update')) $db->update('alerts', $docId, $payload);
-        }
-    } elseif (method_exists($db, 'update')) {
-        $db->update('alerts', $docId, $payload);
-    } elseif (method_exists($db, 'write')) {
-        $db->write('alerts', $docId, $payload);
-    }
+    return;
 }
 
 
@@ -183,7 +120,7 @@ try {
     $productRecords = $sqlDb->fetchAll("
         SELECT 
             p.id, p.name, p.sku, p.description, p.quantity, p.reorder_level, 
-            p.price, p.expiry_date, p.created_at, p.updated_at, p.category, p.store_id,
+            p.price, p.created_at, p.updated_at, p.category, p.store_id,
             s.name as store_name
         FROM products p
         LEFT JOIN stores s ON p.store_id = s.id
@@ -201,7 +138,7 @@ try {
             'quantity' => isset($r['quantity']) ? intval($r['quantity']) : 0,
             'min_stock_level' => isset($r['reorder_level']) ? intval($r['reorder_level']) : 0,
             'unit_price' => isset($r['price']) ? floatval($r['price']) : 0.0,
-            'expiry_date' => $r['expiry_date'] ?? null,
+            'expiry_date' => null,
             'created_at' => $r['created_at'] ?? null,
             'updated_at' => $r['updated_at'] ?? null,
             'category_name' => $r['category'] ?? null,
@@ -251,7 +188,7 @@ try {
             'quantity' => isset($r['quantity']) ? intval($r['quantity']) : 0,
             'min_stock_level' => isset($r['reorder_level']) ? intval($r['reorder_level']) : (isset($r['min_stock_level']) ? intval($r['min_stock_level']) : 0),
             'unit_price' => isset($r['price']) ? floatval($r['price']) : (isset($r['unit_price']) ? floatval($r['unit_price']) : 0.0),
-            'expiry_date' => $r['expiry_date'] ?? null,
+            'expiry_date' => null,
             'created_at' => $r['created_at'] ?? null,
             'category_name' => $r['category'] ?? ($r['category_name'] ?? null),
             'store_id' => $r['store_id'] ?? null,
@@ -316,8 +253,8 @@ try {
         // low stock alert
         fs_put_low_stock_alert($db, $pp);
 
-        // expiry alert (new)
-        fs_put_expiry_alert($db, $pp);
+        // expiry alert (removed)
+        // fs_put_expiry_alert($db, $pp);
     }
 } catch (Throwable $e) {
     error_log('prepass failed: ' . $e->getMessage());
@@ -341,60 +278,15 @@ $filtered_products = array_filter($all_products, function ($p) use ($store_filte
     if (!empty($p['deleted_at'])) return false;
     if (isset($p['status_db']) && strtolower((string)$p['status_db']) === 'disabled') return false;
 
-    // Hide expired products (expiry_date before today)
-    if (!empty($p['expiry_date']) && strtotime($p['expiry_date']) < strtotime(date('Y-m-d'))) {
-        return false;
-    }
-
+    // SERVER-SIDE FILTERING DISABLED FOR CLIENT-SIDE REALTIME
+    // We load all products so JS can filter them instantly without refresh
+    /*
     if ($store_filter && (!isset($p['store_id']) || $p['store_id'] != $store_filter)) return false;
     if ($category_filter && (!isset($p['category_name']) || $p['category_name'] != $category_filter)) return false;
-    if ($search_query) {
-        $q = strtolower(trim($search_query));
-        $norm = function ($s) {
-            $s = strtolower((string)$s);
-            $noHS = preg_replace('/[-\s]+/', '', $s);   // remove hyphens/spaces
-            $digits = preg_replace('/\D+/', '', $s);    // keep only digits
-            return [$s, $noHS, $digits];
-        };
-        [$q1, $q2, $q3] = $norm($q);
-
-        $fields = [
-            $p['name']        ?? '',
-            $p['sku']         ?? '',
-            $p['description'] ?? '',
-            $p['barcode']     ?? '',   // include barcode
-        ];
-
-        $matched = false;
-        foreach ($fields as $f) {
-            [$f1, $f2, $f3] = $norm($f);
-            if (($q1 && strpos($f1, $q1) !== false) ||
-                ($q2 && $f2 && strpos($f2, $q2) !== false) ||
-                ($q3 && $f3 && strpos($f3, $q3) !== false)
-            ) {
-                $matched = true;
-                break;
-            }
-        }
-        if (!$matched) return false;
-    }
-
-    if ($status_filter) {
-        switch ($status_filter) {
-            case 'low_stock':
-                if (!isset($p['quantity'], $p['min_stock_level']) || $p['quantity'] > $p['min_stock_level']) return false;
-                break;
-            case 'out_of_stock':
-                if (!isset($p['quantity']) || $p['quantity'] != 0) return false;
-                break;
-            case 'expiring':
-                if (empty($p['expiry_date']) || strtotime($p['expiry_date']) > strtotime('+30 days')) return false;
-                break;
-            case 'expired':
-                if (empty($p['expiry_date']) || strtotime($p['expiry_date']) >= time()) return false;
-                break;
-        }
-    }
+    if ($search_query) { ... }
+    if ($status_filter) { ... }
+    */
+    
     return true;
 });
 
@@ -426,6 +318,10 @@ foreach ($filtered_products as $product) {
     $baseSku = $sku;
     $isStoreVariant = false;
     
+    // Check for meaningful suffix (e.g. -MAINSTORE) derived from store name
+    $sanitizedStoreName = $product['store_name'] ? strtoupper(preg_replace('/[^a-zA-Z0-9]/', '', $product['store_name'])) : '';
+    $meaningfulSuffix = $sanitizedStoreName ? '-' . $sanitizedStoreName : '';
+    
     if (preg_match('/^(.+)-S(\d+)$/', $sku, $matches)) {
         // Properly formatted store variant (e.g., COM-BREAD-WHT-S6)
         $baseSku = $matches[1];
@@ -433,6 +329,12 @@ foreach ($filtered_products as $product) {
         $product['_is_store_variant'] = true;
         // Use store name instead of S# suffix
         $product['_store_suffix'] = $product['store_name'] ? $product['store_name'] : 'Store ' . $matches[2];
+    } elseif ($meaningfulSuffix && strlen($sku) > strlen($meaningfulSuffix) && substr($sku, -strlen($meaningfulSuffix)) === $meaningfulSuffix) {
+        // Meaningful suffix found (e.g. PRODUCT-MAINSTORE)
+        $baseSku = substr($sku, 0, -strlen($meaningfulSuffix));
+        $isStoreVariant = true;
+        $product['_is_store_variant'] = true;
+        $product['_store_suffix'] = $product['store_name'];
     } elseif (!empty($storeId)) {
         // Has store_id but no suffix - treat as malformed variant
         // Show it but mark it for easier identification
@@ -484,7 +386,7 @@ foreach ($productGroups as $baseSku => $group) {
 }
 
 // Sorting (after grouping)
-$valid_sorts = ['name', 'sku', 'quantity', 'unit_price', 'expiry_date', 'created_at', 'category_name', 'store_name'];
+$valid_sorts = ['name', 'sku', 'quantity', 'unit_price', 'created_at', 'updated_at', 'category_name', 'store_name'];
 if (!in_array($sort_by, $valid_sorts)) {
     $sort_by = 'name';
 }
@@ -513,8 +415,10 @@ usort($filtered_products, $sort_func);
 $total_count = count($filtered_products);
 $page_title = 'Stock Management - Inventory System';
 
-$pagination = paginate($page, $per_page, $total_count);
-$products = array_slice($filtered_products, $offset, $per_page);
+// Client-side pagination: Load all products
+$products = $filtered_products;
+// $pagination = paginate($page, $per_page, $total_count);
+// $products = array_slice($filtered_products, $offset, $per_page);
 
 // Compute status for products so templates can render status-based classes safely
 foreach ($products as &$prod) {
@@ -526,17 +430,7 @@ foreach ($products as &$prod) {
     } elseif ($min > 0 && $qty <= $min) {
         $status = 'low_stock';
     }
-    if (!empty($prod['expiry_date'])) {
-        $exp = strtotime($prod['expiry_date']);
-        if ($exp !== false) {
-            if ($exp < time()) {
-                $status = 'expired';
-            } elseif ($exp <= strtotime('+30 days')) {
-                // only mark expiring_soon if not already expired
-                if ($status !== 'expired') $status = 'expiring_soon';
-            }
-        }
-    }
+    // Expiry logic removed
     $prod['status'] = $status;
 }
 unset($prod);
@@ -560,7 +454,6 @@ $summary_stats = [
     'total_products' => $total_count,
     'out_of_stock' => 0,
     'low_stock' => 0,
-    'expired' => 0,
     'total_value' => 0
 ];
 foreach ($filtered_products as $p) {
@@ -573,7 +466,7 @@ foreach ($filtered_products as $p) {
 
 
     if ($p['quantity'] <= $p['min_stock_level']) $summary_stats['low_stock']++;
-    if (!empty($p['expiry_date']) && strtotime($p['expiry_date']) < time()) $summary_stats['expired']++;
+    // Expiry stats removed
     $summary_stats['total_value'] += $p['quantity'] * $p['unit_price'];
 }
 
@@ -649,10 +542,13 @@ $page_title = 'Stock Management - Inventory System';
 
             <!-- Filters -->
             <div class="filters-panel">
-                <form id="filterForm" method="GET" class="filters-form">
+                <form id="filterForm" class="filters-form" onsubmit="return false;">
                     <div class="filter-group">
                         <label for="search">Search:</label>
-                        <input type="text" id="search" name="search" value="<?php echo htmlspecialchars($search_query ?? ''); ?>" placeholder="Product name/SKU/Desc">
+                        <div class="search-wrapper">
+                            <i class="fas fa-search"></i>
+                            <input type="text" id="search" name="search" value="<?php echo htmlspecialchars($search_query ?? ''); ?>" placeholder="Product name, SKU...">
+                        </div>
                     </div>
 
                     <div class="filter-group">
@@ -685,34 +581,11 @@ $page_title = 'Stock Management - Inventory System';
                             <option value="">All Status</option>
                             <option value="low_stock" <?php echo $status_filter === 'low_stock' ? 'selected' : ''; ?>>Low Stock</option>
                             <option value="out_of_stock" <?php echo $status_filter === 'out_of_stock' ? 'selected' : ''; ?>>Out of Stock</option>
-                            <option value="expiring" <?php echo $status_filter === 'expiring' ? 'selected' : ''; ?>>Expiring Soon</option>
-                            <option value="expired" <?php echo $status_filter === 'expired' ? 'selected' : ''; ?>>Expired</option>
-                        </select>
-                    </div>
-
-                    <div class="filter-group">
-                        <label for="sort">Sort By:</label>
-                        <select id="sort" name="sort">
-                            <option value="name" <?php echo $sort_by === 'name' ? 'selected' : ''; ?>>Name</option>
-                            <option value="sku" <?php echo $sort_by === 'sku' ? 'selected' : ''; ?>>SKU</option>
-                            <option value="quantity" <?php echo $sort_by === 'quantity' ? 'selected' : ''; ?>>Quantity</option>
-                            <option value="unit_price" <?php echo $sort_by === 'unit_price' ? 'selected' : ''; ?>>Price</option>
-                            <option value="expiry_date" <?php echo $sort_by === 'expiry_date' ? 'selected' : ''; ?>>Expiry Date</option>
-                            <option value="created_at" <?php echo $sort_by === 'created_at' ? 'selected' : ''; ?>>Date Added</option>
-                        </select>
-                    </div>
-
-                    <div class="filter-group">
-                        <label for="order">Order:</label>
-                        <select id="order" name="order">
-                            <option value="asc" <?php echo $sort_order === 'ASC' ? 'selected' : ''; ?>>Ascending</option>
-                            <option value="desc" <?php echo $sort_order === 'DESC' ? 'selected' : ''; ?>>Descending</option>
                         </select>
                     </div>
 
                     <div class="filter-actions">
-                        <button id="applyFiltersBtn" type="submit" class="btn btn-primary">Apply Filters</button>
-                        <a href="list.php" class="btn btn-clear">Clear All</a>
+                        <button id="clearFiltersBtn" type="button" class="btn btn-clear">Clear All</button>
                     </div>
                 </form>
             </div>
@@ -731,17 +604,17 @@ $page_title = 'Stock Management - Inventory System';
                         <thead>
                             <tr>
                                 <th style="width: 40px; text-align: center;"><input type="checkbox" id="selectAll"></th>
-                                <th>Product Details</th>
-                                <th>Stock Level</th>
-                                <th>Price</th>
-                                <th>Status</th>
-                                <th>Expiry Date</th>
-                                <th>Last Updated</th>
-                                <th>Store/Category</th>
+                                <th class="sortable" data-sort="name">Product Details <span class="sort-icon"></span></th>
+                                <th class="sortable" data-sort="qty">Stock Level <span class="sort-icon"></span></th>
+                                <th class="sortable" data-sort="price">Price <span class="sort-icon"></span></th>
+                                <th class="sortable" data-sort="status">Status <span class="sort-icon"></span></th>
+                                <th class="sortable" data-sort="updated">Last Updated <span class="sort-icon"></span></th>
+                                <th class="sortable" data-sort="created">Added On <span class="sort-icon"></span></th>
+                                <th class="sortable" data-sort="store-name">Store/Category <span class="sort-icon"></span></th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
-                        <tbody>
+                        <tbody id="productTableBody">
                             <?php foreach ($products as $product): ?>
                                 <?php
                                 // Determine correct Firestore document id *before* using it anywhere
@@ -770,7 +643,14 @@ $page_title = 'Stock Management - Inventory System';
                                     data-name="<?php echo htmlspecialchars($product['name']); ?>"
                                     data-sku="<?php echo htmlspecialchars($product['sku']); ?>"
                                     data-qty="<?php echo (int)$product['quantity']; ?>"
-                                    data-min="<?php echo (int)$product['min_stock_level']; ?>">
+                                    data-min="<?php echo (int)$product['min_stock_level']; ?>"
+                                    data-price="<?php echo (float)$product['unit_price']; ?>"
+                                    data-updated="<?php echo !empty($product['updated_at']) ? strtotime($product['updated_at']) : 0; ?>"
+                                    data-created="<?php echo !empty($product['created_at']) ? strtotime($product['created_at']) : 0; ?>"
+                                    data-store-name="<?php echo htmlspecialchars($product['store_name'] ?? ''); ?>"
+                                    data-store-id="<?php echo htmlspecialchars($product['store_id'] ?? ''); ?>"
+                                    data-category="<?php echo htmlspecialchars($product['category_name'] ?? ''); ?>"
+                                    data-status="<?php echo htmlspecialchars($product['status']); ?>">
 
                                     <td style="text-align: center;">
                                         <input type="checkbox" name="product_ids[]" value="<?php echo htmlspecialchars($product['id']); ?>" class="product-checkbox">
@@ -794,7 +674,7 @@ $page_title = 'Stock Management - Inventory System';
                                                 <?php endif; ?>
                                             </strong>
                                             <?php if (!empty($product['sku'])): ?>
-                                                <div class="sku" style="font-weight: 800; color: #000; margin-top: 4px; font-size: 1.1em; letter-spacing: 0.5px;">SKU: <?php echo htmlspecialchars($product['sku']); ?></div>
+                                                <div class="sku" style="font-weight: 800; color: #000; margin-top: 2px; font-size: 1.1em; letter-spacing: 0.5px;">SKU: <?php echo htmlspecialchars($product['sku']); ?></div>
                                             <?php endif; ?>
                                             <?php if (!empty($product['description'])): ?>
                                                 <br><small class="description"><?php echo htmlspecialchars(substr($product['description'], 0, 100)); ?><?php echo strlen($product['description']) > 100 ? '...' : ''; ?></small>
@@ -823,12 +703,6 @@ $page_title = 'Stock Management - Inventory System';
                                                 case 'low_stock':
                                                     echo 'Low Stock';
                                                     break;
-                                                case 'expired':
-                                                    echo 'Expired';
-                                                    break;
-                                                case 'expiring_soon':
-                                                    echo 'Expiring Soon';
-                                                    break;
                                                 default:
                                                     echo 'Normal';
                                                     break;
@@ -837,19 +711,28 @@ $page_title = 'Stock Management - Inventory System';
                                         </span>
                                     </td>
                                     <td>
-                                        <?php if (!empty($product['expiry_date']) && $product['expiry_date'] !== '0000-00-00' && $product['expiry_date'] !== 'null'): ?>
-                                            <span class="expiry-date status-<?php echo $product['status']; ?>">
-                                                <?php echo date('M j, Y', strtotime($product['expiry_date'])); ?>
+                                        <?php if (!empty($product['updated_at'])): ?>
+                                            <?php 
+                                                $updatedTime = strtotime($product['updated_at']);
+                                                $isStale = (time() - $updatedTime) > (90 * 24 * 60 * 60); // 90 days
+                                            ?>
+                                            <span class="updated-at" style="font-size: 0.85em; color: <?php echo $isStale ? '#e74c3c' : '#555'; ?>;">
+                                                <?php echo date('M j, Y', $updatedTime); ?><br>
+                                                <small><?php echo date('h:i A', $updatedTime); ?></small>
+                                                <?php if ($isStale): ?>
+                                                    <br><span style="font-size: 0.8em; font-weight: bold; color: #e74c3c;">(Stale)</span>
+                                                <?php endif; ?>
                                             </span>
                                         <?php else: ?>
-                                            <span class="no-expiry">No expiry</span>
+                                            <span style="color: #999;">-</span>
                                         <?php endif; ?>
                                     </td>
                                     <td>
-                                        <?php if (!empty($product['updated_at'])): ?>
-                                            <span class="updated-at" style="font-size: 0.85em; color: #555;">
-                                                <?php echo date('M j, Y', strtotime($product['updated_at'])); ?><br>
-                                                <small><?php echo date('h:i A', strtotime($product['updated_at'])); ?></small>
+                                        <?php if (!empty($product['created_at'])): ?>
+                                            <?php $createdTime = strtotime($product['created_at']); ?>
+                                            <span class="created-at" style="font-size: 0.85em; color: #555;">
+                                                <?php echo date('M j, Y', $createdTime); ?><br>
+                                                <small><?php echo date('h:i A', $createdTime); ?></small>
                                             </span>
                                         <?php else: ?>
                                             <span style="color: #999;">-</span>
@@ -884,7 +767,7 @@ $page_title = 'Stock Management - Inventory System';
                                                 $linkId = (string)$product['id'];
                                             }
                                             ?>
-                                            <a class="btn btn-small btn-primary" title="View Product"
+                                            <a class="btn btn-sm btn-primary" title="View Product"
                                                 href="view.php?id=<?php echo urlencode($linkId); ?>&return=<?php echo $return; ?>">
                                                 <i class="fas fa-eye"></i>
                                             </a>
@@ -914,54 +797,17 @@ $page_title = 'Stock Management - Inventory System';
                 <div id="lowStockHost"></div>
 
 
-                <!-- Pagination -->
-                <?php if ($pagination['total_pages'] > 1): ?>
-                    <div class="pagination">
-                        <?php if ($pagination['has_previous']): ?>
-                            <a href="?<?php echo http_build_query(array_merge($_GET, ['page' => $pagination['current_page'] - 1])); ?>"
-                                class="btn btn-sm btn-outline">Previous</a>
-                        <?php endif; ?>
-
-                        <span class="pagination-info">
-                            Page <?php echo $pagination['current_page']; ?> of <?php echo $pagination['total_pages']; ?>
-                            (<?php echo number_format($total_count); ?> total products)
-                        </span>
-
-                        <?php if ($pagination['has_next']): ?>
-                            <a href="?<?php echo http_build_query(array_merge($_GET, ['page' => $pagination['current_page'] + 1])); ?>"
-                                class="btn btn-sm btn-outline">Next</a>
-                        <?php endif; ?>
-                    </div>
-                <?php endif; ?>
+                <!-- Client-side Pagination Controls -->
+                <div id="paginationControls" class="pagination" style="display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 20px;">
+                    <!-- JS will populate this -->
+                </div>
             <?php endif; ?>
         </main>
     </div>
 
     <script src="../../assets/js/main.js"></script>
     <script>
-        // Auto-submit filters on change
-        document.addEventListener('DOMContentLoaded', function() {
-            const filterInputs = document.querySelectorAll('.filters-form select:not(#sort):not(#order)');
-
-            filterInputs.forEach(input => {
-                input.addEventListener('change', function() {
-                    // Add a small delay for better UX
-                    setTimeout(() => {
-                        this.form.submit();
-                    }, 100);
-                });
-            });
-
-            // Submit search on Enter key
-            const searchInput = document.getElementById('search');
-            if (searchInput) {
-                searchInput.addEventListener('keypress', function(e) {
-                    if (e.key === 'Enter') {
-                        this.form.submit();
-                    }
-                });
-            }
-        });
+        // Legacy auto-submit removed for client-side filtering
 
         (function() {
             // Show exactly once per day per product
@@ -1085,6 +931,73 @@ $page_title = 'Stock Management - Inventory System';
             const input = document.getElementById('search');
             if (input && q) input.value = q; // no submit; server already filtered
         })();
+
+        document.addEventListener('DOMContentLoaded', function() {
+            // Client-side Pagination Logic
+            const tableBody = document.getElementById('productTableBody');
+            if (!tableBody) return;
+
+            const rows = Array.from(tableBody.querySelectorAll('tr.product-row'));
+            const rowsPerPage = 20;
+            let currentPage = 1;
+            const totalPages = Math.ceil(rows.length / rowsPerPage);
+            const paginationControls = document.getElementById('paginationControls');
+
+            function displayRows(page) {
+                const start = (page - 1) * rowsPerPage;
+                const end = start + rowsPerPage;
+
+                rows.forEach((row, index) => {
+                    if (index >= start && index < end) {
+                        row.style.display = '';
+                    } else {
+                        row.style.display = 'none';
+                    }
+                });
+            }
+
+            function updatePaginationControls() {
+                if (totalPages <= 1) {
+                    paginationControls.style.display = 'none';
+                    return;
+                }
+
+                let html = '';
+                
+                // Previous Button
+                if (currentPage > 1) {
+                    html += `<button onclick="changePage(${currentPage - 1})" class="btn btn-sm btn-outline">Previous</button>`;
+                } else {
+                    html += `<button disabled class="btn btn-sm btn-outline" style="opacity: 0.5; cursor: not-allowed;">Previous</button>`;
+                }
+
+                // Info
+                html += `<span class="pagination-info">Page ${currentPage} of ${totalPages} (${rows.length} total products)</span>`;
+
+                // Next Button
+                if (currentPage < totalPages) {
+                    html += `<button onclick="changePage(${currentPage + 1})" class="btn btn-sm btn-outline">Next</button>`;
+                } else {
+                    html += `<button disabled class="btn btn-sm btn-outline" style="opacity: 0.5; cursor: not-allowed;">Next</button>`;
+                }
+
+                paginationControls.innerHTML = html;
+            }
+
+            // Expose changePage to global scope
+            window.changePage = function(page) {
+                if (page < 1 || page > totalPages) return;
+                currentPage = page;
+                displayRows(currentPage);
+                updatePaginationControls();
+                // Scroll to top of table
+                document.querySelector('.table-container').scrollIntoView({ behavior: 'smooth' });
+            };
+
+            // Initialize
+            displayRows(currentPage);
+            updatePaginationControls();
+        });
     </script>
 
     <style>
@@ -1385,6 +1298,197 @@ $page_title = 'Stock Management - Inventory System';
             background: #ef4444;
             color: #fff;
         }
+
+        /* Compact Table Styles */
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        .data-table th {
+            background-color: #f8fafc;
+            color: #64748b;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 11px;
+            letter-spacing: 0.5px;
+            padding: 12px 16px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .data-table td {
+            padding: 10px 16px;
+            border-bottom: 1px solid #f1f5f9;
+            vertical-align: middle;
+        }
+
+        .product-row:hover td {
+            background-color: #f8fafc;
+        }
+
+        .product-info strong {
+            font-size: 14px;
+            color: #1e293b;
+            display: block;
+            margin-bottom: 2px;
+        }
+
+        .product-info .description {
+            color: #94a3b8;
+            font-size: 12px;
+            line-height: 1.4;
+            display: block;
+            margin-top: 2px;
+        }
+
+        .stock-info .current-stock {
+            font-size: 14px;
+            font-weight: 600;
+            color: #334155;
+        }
+
+        .stock-info small,
+        .price small,
+        .updated-at small {
+            color: #94a3b8;
+            font-size: 11px;
+        }
+
+        .price {
+            font-family: 'Roboto Mono', monospace;
+            font-weight: 600;
+            color: #334155;
+            font-size: 13px;
+        }
+
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 6px;
+        }
+
+        .action-buttons .btn {
+            padding: 6px 10px;
+            font-size: 12px;
+            border-radius: 6px;
+        }
+
+        .action-buttons .btn i {
+            font-size: 12px;
+        }
+
+        /* Compact Summary Cards */
+        .stock-summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+
+        .summary-card {
+            background: white;
+            padding: 15px 20px;
+            border-radius: 10px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            border: 1px solid #e2e8f0;
+        }
+
+        .summary-card h3 {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #64748b;
+            margin: 0 0 5px 0;
+        }
+
+        .summary-card .stat-number {
+            font-size: 24px;
+            font-weight: 700;
+            color: #1e293b;
+            margin: 0;
+        }
+
+        /* Compact Filters */
+        .filters-panel {
+            background: white;
+            padding: 15px 20px;
+            border-radius: 10px;
+            border: 1px solid #e2e8f0;
+            margin-bottom: 20px;
+        }
+
+        .filters-form {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            align-items: flex-end;
+        }
+
+        .filter-group {
+            flex: 1;
+            min-width: 150px;
+        }
+
+        .filter-group label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            color: #64748b;
+            margin-bottom: 5px;
+        }
+
+        .filter-group input,
+        .filter-group select {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            font-size: 13px;
+            color: #334155;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .filter-group input:focus,
+        .filter-group select:focus {
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+            outline: none;
+        }
+
+        /* Search Input Icon */
+        .search-wrapper {
+            position: relative;
+        }
+        .search-wrapper i {
+            position: absolute;
+            left: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #94a3b8;
+            pointer-events: none;
+        }
+        .search-wrapper input {
+            padding-left: 32px; /* Space for icon */
+        }
+
+        .filter-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .filter-actions .btn {
+            padding: 8px 16px;
+            font-size: 13px;
+        }
     </style>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
@@ -1420,6 +1524,175 @@ $page_title = 'Stock Management - Inventory System';
                     }
                 });
             });
+
+            // --- Real-time Filtering ---
+            const searchInput = document.getElementById('search');
+            const storeSelect = document.getElementById('store');
+            const categorySelect = document.getElementById('category');
+            const statusSelect = document.getElementById('status');
+            const filterForm = document.getElementById('filterForm'); // Get the form
+            const tableBody = document.getElementById('productTableBody');
+            const rows = tableBody ? Array.from(tableBody.getElementsByTagName('tr')) : [];
+            const noDataMsg = document.querySelector('.no-data'); // Might need to create one if not exists
+
+            // Prevent form submission
+            if (filterForm) {
+                filterForm.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    filterProducts();
+                });
+            }
+
+            function filterProducts() {
+                const term = searchInput ? searchInput.value.toLowerCase().trim() : '';
+                const store = storeSelect ? storeSelect.value : '';
+                const category = categorySelect ? categorySelect.value : '';
+                const status = statusSelect ? statusSelect.value : '';
+
+                let visibleCount = 0;
+
+                rows.forEach(row => {
+                    const name = (row.dataset.name || '').toLowerCase();
+                    const sku = (row.dataset.sku || '').toLowerCase();
+                    const rowStore = row.dataset.storeId || '';
+                    const rowCategory = row.dataset.category || '';
+                    const rowStatus = row.dataset.status || '';
+
+                    // Search match (Name or SKU)
+                    const matchesSearch = !term || name.includes(term) || sku.includes(term);
+                    
+                    // Filter matches
+                    const matchesStore = !store || rowStore === store;
+                    const matchesCategory = !category || rowCategory === category;
+                    const matchesStatus = !status || rowStatus === status;
+
+                    if (matchesSearch && matchesStore && matchesCategory && matchesStatus) {
+                        row.style.display = '';
+                        visibleCount++;
+                    } else {
+                        row.style.display = 'none';
+                    }
+                });
+                
+                // Optional: Update a counter or show "No results" message
+            }
+
+            // Attach listeners for real-time updates
+            if (searchInput) {
+                searchInput.addEventListener('input', filterProducts);
+                // Prevent form submission on enter for search
+                searchInput.addEventListener('keydown', function(e) {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        filterProducts();
+                    }
+                });
+            }
+            if (storeSelect) storeSelect.addEventListener('change', filterProducts);
+            if (categorySelect) categorySelect.addEventListener('change', filterProducts);
+            if (statusSelect) statusSelect.addEventListener('change', filterProducts);
+
+            // --- Client-side Sorting ---
+            let sortHistory = [{ column: 'name', dir: 'asc' }]; // Default sort
+
+            function sortRows(column) {
+                // Update History
+                const existingIndex = sortHistory.findIndex(s => s.column === column);
+                
+                if (existingIndex === 0) {
+                    // Toggle direction of primary sort
+                    sortHistory[0].dir = sortHistory[0].dir === 'asc' ? 'desc' : 'asc';
+                } else {
+                    // Move to front (become primary)
+                    if (existingIndex > 0) {
+                        // If it was secondary, remove it so we can push to front
+                        sortHistory.splice(existingIndex, 1);
+                    }
+                    // Add as new primary (default to asc)
+                    sortHistory.unshift({ column: column, dir: 'asc' });
+                }
+                
+                // Keep history manageable (max 3 levels of sort)
+                if (sortHistory.length > 3) sortHistory.pop();
+
+                // Update UI icons
+                document.querySelectorAll('th.sortable').forEach(th => {
+                    const icon = th.querySelector('.sort-icon');
+                    const isPrimary = th.dataset.sort === sortHistory[0].column;
+                    
+                    if (isPrimary) {
+                        th.classList.add('active-sort');
+                        icon.innerHTML = sortHistory[0].dir === 'asc' ? '<i class="fas fa-sort-up"></i>' : '<i class="fas fa-sort-down"></i>';
+                    } else {
+                        th.classList.remove('active-sort');
+                        icon.innerHTML = '<i class="fas fa-sort" style="color: #ccc; opacity: 0.5;"></i>';
+                    }
+                });
+
+                // Perform Sort
+                const rowsArray = Array.from(tableBody.querySelectorAll('tr'));
+                
+                rowsArray.sort((a, b) => {
+                    for (let sort of sortHistory) {
+                        let valA = a.dataset[toCamelCase(sort.column)] || '';
+                        let valB = b.dataset[toCamelCase(sort.column)] || '';
+
+                        // Numeric sort for specific columns
+                        if (['qty', 'min', 'price', 'updated', 'created'].includes(sort.column)) {
+                            valA = parseFloat(valA) || 0;
+                            valB = parseFloat(valB) || 0;
+                        } else {
+                            valA = valA.toLowerCase();
+                            valB = valB.toLowerCase();
+                        }
+
+                        if (valA < valB) return sort.dir === 'asc' ? -1 : 1;
+                        if (valA > valB) return sort.dir === 'asc' ? 1 : -1;
+                    }
+                    return 0;
+                });
+
+                // Re-append sorted rows
+                rowsArray.forEach(row => tableBody.appendChild(row));
+            }
+
+            // Helper to convert kebab-case to camelCase for dataset access
+            function toCamelCase(str) {
+                return str.replace(/-([a-z])/g, function (g) { return g[1].toUpperCase(); });
+            }
+
+            // Attach sort listeners
+            document.querySelectorAll('th.sortable').forEach(th => {
+                th.style.cursor = 'pointer';
+                th.addEventListener('click', () => sortRows(th.dataset.sort));
+            });
+
+
+            // Clear Filters Button
+            const clearBtn = document.getElementById('clearFiltersBtn');
+            if (clearBtn) {
+                clearBtn.addEventListener('click', function() {
+                    if (searchInput) searchInput.value = '';
+                    if (storeSelect) storeSelect.value = '';
+                    if (categorySelect) categorySelect.value = '';
+                    if (statusSelect) statusSelect.value = '';
+                    
+                    // Reset Sort
+                    sortHistory = [];
+                    sortRows('name'); // Re-sort by name asc (default)
+                    
+                    filterProducts();
+                });
+            }
+            
+            // Apply Filters Button (Manual Trigger) - Removed
+            // const applyBtn = document.getElementById('applyFiltersBtn');
+            // if (applyBtn) {
+            //    applyBtn.addEventListener('click', filterProducts);
+            // }
+
+            // Run on load to apply any pre-filled values
+            filterProducts();
         });
     </script>
 </body>

@@ -159,45 +159,12 @@ try {
             break;
             
         case 'check_expiry':
-            // Manual trigger for expiry checks
-            $expiry_threshold = date('Y-m-d', strtotime('+' . EXPIRY_ALERT_DAYS . ' days'));
-            
-            $products = $db->fetchAll(
-                "SELECT id, name, sku, expiry_date, quantity, store_id,
-                        (expiry_date - CURRENT_DATE) as days_to_expiry
-                 FROM products 
-                 WHERE active = TRUE 
-                   AND expiry_date IS NOT NULL
-                   AND expiry_date BETWEEN CURRENT_DATE AND ?
-                 ORDER BY expiry_date", 
-                [$expiry_threshold]
-            );
-            
-            $alerts_triggered = 0;
-            foreach ($products as $product) {
-                // Check if we already have a recent alert for this product
-                $recent_alert = $db->fetch(
-                    "SELECT id FROM alerts 
-                     WHERE type = 'expiry' 
-                       AND product_id = ? 
-                       AND created_at > NOW() - INTERVAL '24 hours'", 
-                    [$product['id']]
-                );
-                
-                if (!$recent_alert) {
-                    triggerExpiryAlert(
-                        $product['id'], 
-                        $product['expiry_date'], 
-                        $product['days_to_expiry']
-                    );
-                    $alerts_triggered++;
-                }
-            }
-            
+            // Manual trigger for expiry checks - DISABLED
             echo json_encode([
                 'success' => true,
-                'message' => "Triggered {$alerts_triggered} expiry alerts"
+                'message' => "Triggered 0 expiry alerts (Feature Disabled)"
             ]);
+            break;
             break;
             
         case 'get_stats':

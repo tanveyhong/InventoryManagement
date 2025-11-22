@@ -63,10 +63,6 @@ try {
             $where_conditions[] = 'p.quantity <= p.reorder_level AND p.quantity > 0';
         } elseif ($status === 'out_of_stock') {
             $where_conditions[] = 'p.quantity = 0';
-        } elseif ($status === 'expired') {
-            $where_conditions[] = 'p.expiry_date < CURRENT_DATE';
-        } elseif ($status === 'expiring_soon') {
-            $where_conditions[] = 'p.expiry_date BETWEEN CURRENT_DATE AND DATE_ADD(CURRENT_DATE, INTERVAL 30 DAY)';
         }
     }
     
@@ -93,11 +89,8 @@ try {
                      CASE 
                          WHEN p.quantity = 0 THEN 'out_of_stock'
                          WHEN p.quantity <= p.reorder_level THEN 'low_stock'
-                         WHEN p.expiry_date < CURRENT_DATE THEN 'expired'
-                         WHEN p.expiry_date <= DATE_ADD(CURRENT_DATE, INTERVAL 30 DAY) THEN 'expiring_soon'
                          ELSE 'in_stock'
-                     END as stock_status,
-                     DATEDIFF(p.expiry_date, CURRENT_DATE) as days_to_expiry
+                     END as stock_status
               FROM products p 
               {$where_clause}
               ORDER BY p.name
@@ -118,28 +111,13 @@ try {
                 'in_stock' => 'badge-success',
                 'low_stock' => 'badge-warning',
                 'out_of_stock' => 'badge-danger',
-                'expired' => 'badge-danger',
-                'expiring_soon' => 'badge-warning',
                 default => 'badge-secondary'
             }
         ];
         
-        // Expiry status
-        if ($product['expiry_date']) {
-            if ($product['days_to_expiry'] < 0) {
-                $product['expiry_status'] = 'expired';
-                $product['expiry_text'] = 'Expired ' . abs($product['days_to_expiry']) . ' days ago';
-            } elseif ($product['days_to_expiry'] <= 30) {
-                $product['expiry_status'] = 'expiring_soon';
-                $product['expiry_text'] = 'Expires in ' . $product['days_to_expiry'] . ' days';
-            } else {
-                $product['expiry_status'] = 'good';
-                $product['expiry_text'] = 'Expires ' . formatDate($product['expiry_date'], 'M j, Y');
-            }
-        } else {
-            $product['expiry_status'] = 'no_expiry';
-            $product['expiry_text'] = 'No expiry date';
-        }
+        // Expiry status removed
+        $product['expiry_status'] = 'no_expiry';
+        $product['expiry_text'] = 'No expiry date';
     }
     
     // Get summary statistics
@@ -148,13 +126,12 @@ try {
                         SUM(quantity) as total_quantity,
                         SUM(quantity * price) as total_value,
                         SUM(CASE WHEN quantity = 0 THEN 1 ELSE 0 END) as out_of_stock_count,
-                        SUM(CASE WHEN quantity <= reorder_level THEN 1 ELSE 0 END) as low_stock_count,
-                        SUM(CASE WHEN expiry_date < CURRENT_DATE THEN 1 ELSE 0 END) as expired_count
+                        SUM(CASE WHEN quantity <= reorder_level THEN 1 ELSE 0 END) as low_stock_count
                       FROM products 
                       WHERE store_id = ? AND active = 1";
     
     $summary = $sql_db->fetch($summary_query, [$store_id]);
-    $summary = $summary ?: ['total_products' => 0, 'total_quantity' => 0, 'total_value' => 0, 'out_of_stock_count' => 0, 'low_stock_count' => 0, 'expired_count' => 0];
+    $summary = $summary ?: ['total_products' => 0, 'total_quantity' => 0, 'total_value' => 0, 'out_of_stock_count' => 0, 'low_stock_count' => 0];
     
     echo json_encode([
         'success' => true,

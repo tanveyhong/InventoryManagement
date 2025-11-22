@@ -21,6 +21,11 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
+// Expiry tracking disabled
+require_once __DIR__ . '/../../includes/page_header.php';
+echo '<div class="container" style="padding: 2rem;"><div class="alert alert-info"><h3><i class="fas fa-info-circle"></i> Expiry Tracking Disabled</h3><p>The expiry date tracking feature has been removed from the system.</p><a href="../../index.php" class="btn btn-primary">Back to Dashboard</a></div></div>';
+exit;
+
 // --- helpers ---------------------------------------------------------------
 
 /** days between today (00:00) and a date string; negative if past */

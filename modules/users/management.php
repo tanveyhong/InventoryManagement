@@ -92,7 +92,7 @@ $pageTitle = 'User Management';
             background: white;
             border-radius: 12px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.08);
-            overflow: hidden;
+            overflow: visible;
         }
 
         .tabs {
@@ -422,6 +422,160 @@ $pageTitle = 'User Management';
         input:disabled + .toggle-slider {
             opacity: 0.5;
             cursor: not-allowed;
+        }
+
+        .enhanced-select {
+            width: 100%;
+            max-width: 400px;
+            padding: 12px 16px;
+            font-size: 16px;
+            color: #2d3748;
+            background-color: #fff;
+            border: 2px solid #e2e8f0;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            appearance: none;
+            -webkit-appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23718096' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 12px center;
+            background-size: 16px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+        }
+
+        .enhanced-select:hover {
+            border-color: #cbd5e0;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        }
+
+        .enhanced-select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+        }
+
+        .enhanced-select option {
+            padding: 12px;
+            font-size: 16px;
+        }
+        
+        /* Searchable Dropdown Styles */
+        .searchable-select-wrapper {
+            position: relative;
+            width: 100%;
+            max-width: 400px;
+        }
+
+        .searchable-select-input {
+            width: 100%;
+            padding: 12px 16px;
+            font-size: 16px;
+            color: #2d3748;
+            background-color: #fff;
+            border: 2px solid #e2e8f0;
+            border-radius: 10px;
+            cursor: text;
+            transition: all 0.3s ease;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23718096' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 12px center;
+            background-size: 16px;
+        }
+
+        .searchable-select-input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+        }
+
+        .searchable-select-options {
+            position: absolute;
+            top: calc(100% + 5px);
+            left: 0;
+            right: 0;
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            max-height: 300px;
+            overflow-y: auto;
+            z-index: 9999;
+            display: none;
+            /* Custom Scrollbar */
+            scrollbar-width: thin;
+            scrollbar-color: #cbd5e0 #f7fafc;
+        }
+
+        /* Webkit Scrollbar Styling */
+        .searchable-select-options::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .searchable-select-options::-webkit-scrollbar-track {
+            background: #f7fafc;
+            border-radius: 0 10px 10px 0;
+        }
+
+        .searchable-select-options::-webkit-scrollbar-thumb {
+            background-color: #cbd5e0;
+            border-radius: 4px;
+            border: 2px solid #f7fafc;
+        }
+
+        .searchable-select-options::-webkit-scrollbar-thumb:hover {
+            background-color: #a0aec0;
+        }
+
+        .searchable-select-option {
+            padding: 12px 16px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border-bottom: 1px solid #f7fafc;
+            color: #4a5568;
+        }
+
+        .searchable-select-option:last-child {
+            border-bottom: none;
+        }
+
+        .searchable-select-option:hover {
+            background-color: #f8fafc;
+            color: #667eea;
+            padding-left: 20px; /* Subtle slide effect */
+        }
+
+        .searchable-select-option.selected {
+            background-color: #ebf4ff;
+            color: #5a67d8;
+            font-weight: 600;
+        }
+
+        /* Role-based styling for dropdown options */
+        .option-role-admin {
+            border-left: 4px solid #ef4444;
+        }
+        .option-role-manager {
+            border-left: 4px solid #f59e0b;
+        }
+        .option-role-staff {
+            border-left: 4px solid #10b981;
+        }
+        .option-role-user {
+            border-left: 4px solid #6b7280;
+        }
+        
+        .user-role.role-admin { background: #ef4444; color: white; border-radius: 4px; }
+        .user-role.role-manager { background: #f59e0b; color: white; border-radius: 4px; }
+        .user-role.role-staff { background: #10b981; color: white; border-radius: 4px; }
+        .user-role.role-user { background: #6b7280; color: white; border-radius: 4px; }
+
+        .searchable-select-no-results {
+            padding: 16px;
+            color: #a0aec0;
+            text-align: center;
+            font-style: italic;
+            font-size: 14px;
         }
     </style>
 </head>
@@ -1125,7 +1279,8 @@ $pageTitle = 'User Management';
 
         // Activity Manager Variables
         let allActivitiesCache = [];
-        let visibleActivitiesCount = 20;
+        let currentPage = 1;
+        const itemsPerPage = 10;
         
         // Activity Manager: Load Activities
         async function loadActivities(useCache = true, forceRefresh = false) {
@@ -1134,6 +1289,9 @@ $pageTitle = 'User Management';
             
             loading.style.display = 'flex';
             content.style.display = 'none';
+            
+            // Reset pagination
+            currentPage = 1;
             
             try {
                 // Check localStorage cache first
@@ -1312,21 +1470,19 @@ $pageTitle = 'User Management';
             // Setup event listeners
             setTimeout(() => {
                 const searchInput = document.getElementById('activity-search');
-                const filterSelect = document.getElementById('activity-filter');
                 
                 if (searchInput) {
                     searchInput.addEventListener('input', () => {
-                        visibleActivitiesCount = 20;
+                        currentPage = 1;
                         renderActivities();
                     });
                 }
                 
-                if (filterSelect) {
-                    filterSelect.addEventListener('change', () => {
-                        visibleActivitiesCount = 20;
-                        renderActivities();
-                    });
-                }
+                // Initialize searchable dropdown for Type Filter
+                setupSearchableDropdown('activity-filter', function(value) {
+                    currentPage = 1;
+                    renderActivities();
+                });
                 
                 // Load users for admin dropdown
                 if (isAdmin) {
@@ -1344,14 +1500,32 @@ $pageTitle = 'User Management';
                 if (data.success) {
                     const select = document.getElementById('activity-user-filter');
                     if (select) {
+                        // Sort users by role then username
+                        const roleOrder = { 'admin': 1, 'manager': 2, 'staff': 3, 'user': 4 };
+                        
+                        data.data.sort((a, b) => {
+                            const roleA = roleOrder[a.role.toLowerCase()] || 99;
+                            const roleB = roleOrder[b.role.toLowerCase()] || 99;
+                            
+                            if (roleA !== roleB) return roleA - roleB;
+                            return a.username.localeCompare(b.username);
+                        });
+
+                        // Clear existing options except the first one (All Users)
+                        while (select.options.length > 1) {
+                            select.remove(1);
+                        }
+
                         data.data.forEach(user => {
                             const opt = document.createElement('option');
                             opt.value = user.id;
-                            opt.textContent = `${user.username} (${user.role})`;
+                            opt.textContent = `${user.username}`;
+                            opt.className = `option-role-${user.role.toLowerCase()}`;
                             select.appendChild(opt);
                         });
                         
-                        select.addEventListener('change', () => {
+                        // Initialize searchable dropdown
+                        setupSearchableDropdown('activity-user-filter', function(value) {
                             loadActivities(false, true);
                         });
                     }
@@ -1366,7 +1540,10 @@ $pageTitle = 'User Management';
             const container = document.getElementById('activity-list');
             if (!container) return;
             
-            let filtered = allActivitiesCache;
+            let filtered = [...allActivitiesCache];
+            
+            // Sort by date descending (newest first)
+            filtered.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
             
             // Apply date filter
             if (window.activityDateFilter) {
@@ -1403,7 +1580,16 @@ $pageTitle = 'User Management';
             }
             
             // Show only visible count
-            const visible = filtered.slice(0, visibleActivitiesCount);
+            const totalItems = filtered.length;
+            const totalPages = Math.ceil(totalItems / itemsPerPage);
+            
+            // Ensure current page is valid
+            if (currentPage < 1) currentPage = 1;
+            if (currentPage > totalPages && totalPages > 0) currentPage = totalPages;
+            
+            const startIndex = (currentPage - 1) * itemsPerPage;
+            const endIndex = startIndex + itemsPerPage;
+            const visible = filtered.slice(startIndex, endIndex);
             
             if (visible.length === 0) {
                 container.innerHTML = `
@@ -1416,48 +1602,157 @@ $pageTitle = 'User Management';
                 return;
             }
             
-            const html = visible.map(activity => {
+            // Group by date
+            const grouped = {};
+            visible.forEach(activity => {
                 const date = new Date(activity.created_at);
-                const timeAgo = getTimeAgo(date);
-                const icon = getActivityIcon(activity.action_type || activity.activity_type);
+                const today = new Date();
+                const yesterday = new Date(today);
+                yesterday.setDate(yesterday.getDate() - 1);
                 
-                return `
-                    <div style="background: white; border: 1px solid #e5e7eb; border-radius: 8px; padding: 15px; margin-bottom: 10px;">
-                        <div style="display: flex; gap: 15px;">
-                            <div style="font-size: 24px;">${icon}</div>
-                            <div style="flex: 1;">
-                                <div style="font-weight: 600; color: #1f2937; margin-bottom: 5px;">
-                                    ${escapeHtml(activity.action_type || activity.activity_type || 'Activity')}
+                let dateLabel = date.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+                
+                if (date.toDateString() === today.toDateString()) {
+                    dateLabel = 'Today';
+                } else if (date.toDateString() === yesterday.toDateString()) {
+                    dateLabel = 'Yesterday';
+                }
+                
+                if (!grouped[dateLabel]) grouped[dateLabel] = [];
+                grouped[dateLabel].push(activity);
+            });
+            
+            let html = '';
+            for (const [dateLabel, activities] of Object.entries(grouped)) {
+                html += `<div style="margin-top: 20px; margin-bottom: 10px; font-size: 13px; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; padding-left: 5px; border-left: 3px solid #cbd5e0; line-height: 1;">${dateLabel}</div>`;
+                
+                html += activities.map(activity => {
+                    const date = new Date(activity.created_at);
+                    const timeStr = date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+                    const timeAgo = getTimeAgo(date);
+                    const icon = getActivityIcon(activity.action_type || activity.activity_type);
+                    
+                    // Determine color based on action type
+                    let iconColor = '#6b7280';
+                    let iconBg = '#f3f4f6';
+                    const type = (activity.action_type || activity.activity_type || '').toLowerCase();
+                    
+                    if (type.includes('create') || type.includes('add')) { iconColor = '#10b981'; iconBg = '#d1fae5'; }
+                    else if (type.includes('update') || type.includes('edit')) { iconColor = '#f59e0b'; iconBg = '#fef3c7'; }
+                    else if (type.includes('delete') || type.includes('remove')) { iconColor = '#ef4444'; iconBg = '#fee2e2'; }
+                    else if (type.includes('login')) { iconColor = '#3b82f6'; iconBg = '#dbeafe'; }
+                    else if (type.includes('logout')) { iconColor = '#6b7280'; iconBg = '#f3f4f6'; }
+                    
+                    return `
+                        <div style="background: white; border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; margin-bottom: 12px; transition: all 0.2s; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                            <div style="display: flex; gap: 16px; align-items: flex-start;">
+                                <div style="width: 40px; height: 40px; border-radius: 10px; background: ${iconBg}; color: ${iconColor}; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0;">
+                                    ${icon}
                                 </div>
-                                <div style="color: #6b7280; font-size: 14px; margin-bottom: 8px;">
-                                    ${escapeHtml(activity.description || 'No description')}
-                                </div>
-                                <div style="font-size: 12px; color: #9ca3af;">
-                                    <i class="fas fa-clock"></i> ${timeAgo}
+                                <div style="flex: 1;">
+                                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px;">
+                                        <div style="font-weight: 600; color: #1f2937; font-size: 15px;">
+                                            ${escapeHtml(activity.action_type || activity.activity_type || 'Activity')}
+                                        </div>
+                                        <div style="font-size: 12px; color: #9ca3af; white-space: nowrap; margin-left: 10px;" title="${date.toLocaleString()}">
+                                            ${timeStr}
+                                        </div>
+                                    </div>
+                                    <div style="color: #4b5563; font-size: 14px; line-height: 1.5; margin-bottom: 8px;">
+                                        ${escapeHtml(activity.description || 'No description')}
+                                    </div>
+                                    <div style="display: flex; align-items: center; gap: 10px; font-size: 12px; color: #6b7280;">
+                                        <span style="background: #f3f4f6; padding: 2px 8px; border-radius: 4px;">
+                                            <i class="fas fa-user" style="font-size: 10px; margin-right: 4px;"></i> 
+                                            ${activity.user_name ? escapeHtml(activity.user_name) : 'User'}
+                                        </span>
+                                        <span><i class="fas fa-clock" style="margin-right: 4px;"></i> ${timeAgo}</span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
-                `;
-            }).join('');
+                    `;
+                }).join('');
+            }
             
             container.innerHTML = html;
             
-            // Add load more button
-            if (filtered.length > visibleActivitiesCount) {
-                container.innerHTML += `
-                    <div style="text-align: center; margin-top: 20px;">
-                        <button onclick="loadMoreActivities()" class="btn btn-secondary">
-                            <i class="fas fa-chevron-down"></i> Load More (${filtered.length - visibleActivitiesCount} remaining)
-                        </button>
-                    </div>
+            // Render Pagination Controls
+            if (totalPages > 1) {
+                renderPaginationControls(container, totalPages);
+            }
+        }
+
+        function renderPaginationControls(container, totalPages) {
+            let paginationHtml = '<div class="pagination-controls" style="display: flex; justify-content: center; gap: 5px; margin-top: 20px; margin-bottom: 40px;">';
+            
+            // Previous Button
+            paginationHtml += `
+                <button onclick="changePage(${currentPage - 1})" class="btn" style="background: ${currentPage === 1 ? '#f3f4f6' : 'white'}; color: ${currentPage === 1 ? '#9ca3af' : '#374151'}; border: 1px solid #d1d5db; padding: 8px 12px;" ${currentPage === 1 ? 'disabled' : ''}>
+                    <i class="fas fa-chevron-left"></i>
+                </button>
+            `;
+
+            // Page Numbers
+            let startPage = Math.max(1, currentPage - 2);
+            let endPage = Math.min(totalPages, startPage + 4);
+            
+            if (endPage - startPage < 4) {
+                startPage = Math.max(1, endPage - 4);
+            }
+
+            if (startPage > 1) {
+                paginationHtml += `
+                    <button onclick="changePage(1)" class="btn" style="background: white; color: #374151; border: 1px solid #d1d5db; padding: 8px 12px;">1</button>
                 `;
+                if (startPage > 2) {
+                    paginationHtml += `<span style="padding: 8px; color: #6b7280;">...</span>`;
+                }
+            }
+
+            for (let i = startPage; i <= endPage; i++) {
+                const isActive = i === currentPage;
+                paginationHtml += `
+                    <button onclick="changePage(${i})" class="btn" style="background: ${isActive ? '#667eea' : 'white'}; color: ${isActive ? 'white' : '#374151'}; border: 1px solid ${isActive ? '#667eea' : '#d1d5db'}; padding: 8px 12px;">
+                        ${i}
+                    </button>
+                `;
+            }
+
+            if (endPage < totalPages) {
+                if (endPage < totalPages - 1) {
+                    paginationHtml += `<span style="padding: 8px; color: #6b7280;">...</span>`;
+                }
+                paginationHtml += `
+                    <button onclick="changePage(${totalPages})" class="btn" style="background: white; color: #374151; border: 1px solid #d1d5db; padding: 8px 12px;">${totalPages}</button>
+                `;
+            }
+
+            // Next Button
+            paginationHtml += `
+                <button onclick="changePage(${currentPage + 1})" class="btn" style="background: ${currentPage === totalPages ? '#f3f4f6' : 'white'}; color: ${currentPage === totalPages ? '#9ca3af' : '#374151'}; border: 1px solid #d1d5db; padding: 8px 12px;" ${currentPage === totalPages ? 'disabled' : ''}>
+                    <i class="fas fa-chevron-right"></i>
+                </button>
+            `;
+
+            paginationHtml += '</div>';
+            container.innerHTML += paginationHtml;
+        }
+
+        function changePage(page) {
+            currentPage = page;
+            renderActivities();
+            // Scroll to top of activity list
+            const activityList = document.getElementById('activity-list');
+            if (activityList) {
+                const yOffset = -100; // Offset for sticky header if any
+                const y = activityList.getBoundingClientRect().top + window.pageYOffset + yOffset;
+                window.scrollTo({top: y, behavior: 'smooth'});
             }
         }
         
         function loadMoreActivities() {
-            visibleActivitiesCount += 20;
-            renderActivities();
+            // Deprecated
         }
         
         function getActivityIcon(type) {
@@ -1527,7 +1822,7 @@ $pageTitle = 'User Management';
             }
             
             window.activityDateFilter = { from: dateFrom, to: dateTo };
-            visibleActivitiesCount = 20;
+            currentPage = 1;
             renderActivities();
         }
         
@@ -1535,7 +1830,7 @@ $pageTitle = 'User Management';
             document.getElementById('activity-date-from').value = '';
             document.getElementById('activity-date-to').value = '';
             window.activityDateFilter = null;
-            visibleActivitiesCount = 20;
+            currentPage = 1;
             renderActivities();
         }
         
@@ -1711,6 +2006,16 @@ $pageTitle = 'User Management';
                 
                 const users = data.data;
                 
+                // Sort users by role then username
+                const roleOrder = { 'admin': 1, 'manager': 2, 'staff': 3, 'user': 4 };
+                users.sort((a, b) => {
+                    const roleA = roleOrder[a.role.toLowerCase()] || 99;
+                    const roleB = roleOrder[b.role.toLowerCase()] || 99;
+                    
+                    if (roleA !== roleB) return roleA - roleB;
+                    return a.username.localeCompare(b.username);
+                });
+                
                 let html = `
                     <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); padding: 20px; border-radius: 12px; margin-bottom: 25px; color: white;">
                         <div style="display: flex; align-items: center; gap: 15px;">
@@ -1731,9 +2036,9 @@ $pageTitle = 'User Management';
                         <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #374151;">
                             <i class="fas fa-user-circle"></i> Select User:
                         </label>
-                        <select id="perm-user-select" class="form-input" style="width: 100%; max-width: 400px; padding: 10px;">
+                        <select id="perm-user-select" class="enhanced-select">
                             <option value="">-- Select a user --</option>
-                            ${users.map(u => `<option value="${u.id}">${escapeHtml(u.username)} (${u.role})</option>`).join('')}
+                            ${users.map(u => `<option value="${u.id}" class="option-role-${u.role.toLowerCase()}">${escapeHtml(u.username)}</option>`).join('')}
                         </select>
                     </div>
                     
@@ -1742,6 +2047,17 @@ $pageTitle = 'User Management';
                 
                 container.innerHTML = html;
                 
+                // Setup searchable dropdown
+                setupSearchableDropdown('perm-user-select', function(value) {
+                    if (value) {
+                        window._lastSelectedUserId = value;
+                        loadUserPermissions(value);
+                    } else {
+                        window._lastSelectedUserId = '';
+                        document.getElementById('user-permissions-display').innerHTML = '';
+                    }
+                });
+
                 // Add event listener
                 const permSelect = document.getElementById('perm-user-select');
                 if (permSelect) {
@@ -2032,12 +2348,8 @@ $pageTitle = 'User Management';
                     
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 25px;">
                         <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; border-radius: 12px; color: white;">
-                            <div style="font-size: 14px; opacity: 0.9; margin-bottom: 5px;">Total Permissions</div>
+                            <div style="font-size: 14px; opacity: 0.9; margin-bottom: 5px;">Assigned Stores</div>
                             <div style="font-size: 32px; font-weight: 700;">${grantedCount}/${permissionsList.length}</div>
-                        </div>
-                        <div style="background: ${grantedCount === permissionsList.length ? 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)' : 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)'}; padding: 20px; border-radius: 12px; color: white;">
-                            <div style="font-size: 14px; opacity: 0.9; margin-bottom: 5px;">Access Level</div>
-                            <div style="font-size: 24px; font-weight: 700;">${grantedCount === permissionsList.length ? 'Full Access' : 'Limited Access'}</div>
                         </div>
                     </div>
                     
@@ -2047,7 +2359,7 @@ $pageTitle = 'User Management';
                             return `
                                 <div style="background: white; border: 2px solid ${granted ? '#10b981' : '#e5e7eb'}; border-radius: 12px; padding: 20px;">
                                     <div style="display: flex; align-items: start; gap: 15px;">
-                                        <div style="width: 50px; height: 50px; background: ${granted ? 'linear-gradient(135deg, #10b981, #059669)' : '#f3f4f6'}; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: ${granted ? 'white' : '#9ca3af'}; font-size: 24px;">
+                                        <div style="width: 50px; height: 50px; background: ${granted ? 'linear-gradient(135deg, #10b981, #059669)' : '#f3f4f6'}; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: white; font-size: 24px;">
                                             <i class="fas fa-${perm.icon}"></i>
                                         </div>
                                         <div>
@@ -2057,7 +2369,7 @@ $pageTitle = 'User Management';
                                                     ${granted ? '<i class="fas fa-check"></i> Granted' : '<i class="fas fa-times"></i> Denied'}
                                                 </span>
                                             </div>
-                                            <p style="margin: 0 0 8px 0; font-size: 14px; color: #6b7280;">${perm.desc}</p>
+                                            <p style="margin: 0 0 8px 0; font-size: 14px; color: #6b7280; line-height: 1.5;">${perm.desc}</p>
                                             <small style="font-size: 12px; color: #9ca3af;">${perm.details}</small>
                                         </div>
                                     </div>
@@ -2102,8 +2414,7 @@ $pageTitle = 'User Management';
                     // Clear cache to force reload
                     permissionsCache = null;
                     permissionsLoaded = false;
-                    delete userPermissionsCache[userId];
-                    loadUserPermissions(userId);
+                    loadPermissions();
                 } else {
                     alert('Failed to update permission: ' + (data.error || 'Unknown error'));
                 }
@@ -2322,6 +2633,16 @@ $pageTitle = 'User Management';
                 
                 const users = data.data;
                 
+                // Sort users by role then username
+                const roleOrder = { 'admin': 1, 'manager': 2, 'staff': 3, 'user': 4 };
+                users.sort((a, b) => {
+                    const roleA = roleOrder[a.role.toLowerCase()] || 99;
+                    const roleB = roleOrder[b.role.toLowerCase()] || 99;
+                    
+                    if (roleA !== roleB) return roleA - roleB;
+                    return a.username.localeCompare(b.username);
+                });
+                
                 let html = `
                     <div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); padding: 20px; border-radius: 12px; margin-bottom: 25px; color: white;">
                         <div style="display: flex; align-items: center; gap: 15px;">
@@ -2349,9 +2670,9 @@ $pageTitle = 'User Management';
                         <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #374151;">
                             <i class="fas fa-user-circle"></i> Select User:
                         </label>
-                        <select id="store-user-select" class="form-input" style="width: 100%; max-width: 400px; padding: 10px;">
+                        <select id="store-user-select" class="enhanced-select">
                             <option value="">-- Select a user --</option>
-                            ${users.map(u => `<option value="${u.id}">${escapeHtml(u.username)} (${u.role})</option>`).join('')}
+                            ${users.map(u => `<option value="${u.id}" class="option-role-${u.role.toLowerCase()}">${escapeHtml(u.username)}</option>`).join('')}
                         </select>
                     </div>
                     
@@ -2360,6 +2681,16 @@ $pageTitle = 'User Management';
                 
                 container.innerHTML = html;
                 
+                // Setup searchable dropdown
+                setupSearchableDropdown('store-user-select', function(value) {
+                    selectedUserId = value;
+                    if (value) {
+                        loadUserStores(value);
+                    } else {
+                        document.getElementById('user-stores-display').innerHTML = '';
+                    }
+                });
+
                 // Add event listener
                 const storeSelect = document.getElementById('store-user-select');
                 if (storeSelect) {
@@ -2532,7 +2863,7 @@ $pageTitle = 'User Management';
                                             '<span style="padding: 4px 10px; background: #f8d7da; color: #721c24; border-radius: 12px; font-size: 12px; font-weight: 600;"><i class="fas fa-times-circle"></i> Inactive</span>'
                                         }
                                     </div>
-                                    <div style="font-size: 14px; color: #6b7280;">
+                                    <div style="font-size: 14px; color: #6b7280; margin-bottom: 12px;">
                                         <div style="margin-bottom: 5px;">
                                             <i class="fas fa-map-marker-alt"></i> ${escapeHtml(store.city || 'N/A')}, ${escapeHtml(store.state || 'N/A')}
                                         </div>
@@ -2772,6 +3103,139 @@ $pageTitle = 'User Management';
             }
             
             console.log('=== removeStoreAccess completed ===');
+        }
+
+        // --- Searchable Dropdown Helper ---
+        function setupSearchableDropdown(selectId, onChangeCallback) {
+            const originalSelect = document.getElementById(selectId);
+            if (!originalSelect) return;
+
+            // Create wrapper
+            const wrapper = document.createElement('div');
+            wrapper.className = 'searchable-select-wrapper';
+            
+            // Create search input
+            const searchInput = document.createElement('input');
+            searchInput.type = 'text';
+            searchInput.className = 'searchable-select-input';
+            searchInput.placeholder = 'Search user...';
+            searchInput.autocomplete = 'off';
+            
+            // Create options container
+            const optionsList = document.createElement('div');
+            optionsList.className = 'searchable-select-options';
+            
+            // Populate options
+            const options = Array.from(originalSelect.options);
+            let hasOptions = false;
+
+            options.forEach(opt => {
+                if (opt.value === "") return; // Skip placeholder
+                hasOptions = true;
+                const div = document.createElement('div');
+                div.className = 'searchable-select-option ' + opt.className;
+                div.textContent = opt.text;
+                div.dataset.value = opt.value;
+                div.dataset.text = opt.text.toLowerCase();
+                
+                // Add role badge if class exists
+                if (opt.className.includes('option-role-')) {
+                    const role = opt.className.split('option-role-')[1].split(' ')[0];
+                    const badge = document.createElement('span');
+                    badge.className = `user-role role-${role}`;
+                    badge.style.fontSize = '10px';
+                    badge.style.marginLeft = '8px';
+                    badge.style.padding = '2px 6px';
+                    badge.textContent = role.toUpperCase();
+                    
+                    div.appendChild(badge);
+                }
+                
+                div.onclick = (e) => {
+                    e.stopPropagation();
+                    searchInput.value = opt.text;
+                    originalSelect.value = opt.value;
+                    optionsList.style.display = 'none';
+                    
+                    // Trigger callback
+                    if (onChangeCallback) onChangeCallback(opt.value);
+                };
+                optionsList.appendChild(div);
+            });
+
+            if (!hasOptions) {
+                const noOpt = document.createElement('div');
+                noOpt.className = 'searchable-select-no-results';
+                noOpt.textContent = 'No users found';
+                optionsList.appendChild(noOpt);
+            }
+
+            // Filter logic
+            searchInput.addEventListener('input', (e) => {
+                const term = e.target.value.toLowerCase();
+                let matchCount = 0;
+                
+                Array.from(optionsList.children).forEach(child => {
+                    if (child.classList.contains('searchable-select-no-results')) return;
+                    
+                    const text = child.dataset.text;
+                    if (text.includes(term)) {
+                        child.style.display = 'block';
+                        matchCount++;
+                    } else {
+                        child.style.display = 'none';
+                    }
+                });
+
+                optionsList.style.display = 'block';
+                
+                // Handle no results
+                let noRes = optionsList.querySelector('.searchable-select-no-results');
+                if (matchCount === 0) {
+                    if (!noRes) {
+                        noRes = document.createElement('div');
+                        noRes.className = 'searchable-select-no-results';
+                        noRes.textContent = 'No matches found';
+                        optionsList.appendChild(noRes);
+                    }
+                    noRes.style.display = 'block';
+                } else if (noRes) {
+                    noRes.style.display = 'none';
+                }
+            });
+
+            // Show/Hide logic
+            searchInput.addEventListener('focus', () => {
+                optionsList.style.display = 'block';
+                // Reset filter on focus if needed, or keep current
+            });
+            
+            searchInput.addEventListener('click', (e) => {
+                e.stopPropagation();
+                optionsList.style.display = 'block';
+            });
+
+            document.addEventListener('click', (e) => {
+                if (!wrapper.contains(e.target)) {
+                    optionsList.style.display = 'none';
+                }
+            });
+
+            // Hide original select but keep it in DOM
+            originalSelect.style.display = 'none';
+            
+            // Insert wrapper before select
+            originalSelect.parentNode.insertBefore(wrapper, originalSelect);
+            wrapper.appendChild(searchInput);
+            wrapper.appendChild(optionsList);
+            
+            // If original select has a value, set input text
+            if (originalSelect.value) {
+                const selectedOpt = originalSelect.options[originalSelect.selectedIndex];
+                if (selectedOpt) {
+                    searchInput.value = selectedOpt.text;
+                }
+            }
         }
 
         // Auto-load users on page load

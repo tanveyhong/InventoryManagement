@@ -89,41 +89,8 @@ function fs_resolve_expiry_if_normal(
   ?string $expiryRaw = null,   // pass the new value if you have it
   ?string $who = null
 ): void {
-  if ($productId === '') return;
-
-  // If not provided, fetch the product once
-  if ($expiryRaw === null) {
-    $p = method_exists($db, 'readDoc') ? $db->readDoc('products', $productId)
-      : (method_exists($db, 'read') ? $db->read('products', $productId) : null);
-    if (!$p) return;
-    $expiryRaw = $p['expiry_date'] ?? null;
-  }
-
-  // If no expiry or clearly not expiring soon/expired -> resolve
-  $expTs = $expiryRaw ? strtotime($expiryRaw) : false;
-  $now   = time();
-  $soon  = strtotime('+30 days');
-
-  $isExpired  = ($expTs !== false && $expTs < $now);
-  $isExpiring = ($expTs !== false && $expTs >= $now && $expTs <= $soon);
-
-  if ($isExpired || $isExpiring) return; // still needs an alert, do nothing
-
-  // Not expired/expiring → mark alert RESOLVED
-  $docId  = 'EXP_' . $productId;
-  $nowIso = date('c');
-  $payload = [
-    'status'      => 'RESOLVED',
-    'resolved_at' => $nowIso,
-    'updated_at'  => $nowIso,
-    'resolution_note' => 'Expiry date updated',
-  ];
-  if (!empty($who)) $payload['resolved_by'] = $who;
-
-  if (method_exists($db, 'update'))        $db->update('alerts', $docId, $payload);
-  elseif (method_exists($db, 'writeDoc'))  $db->writeDoc('alerts', $docId, $payload);
-  elseif (method_exists($db, 'setDoc'))    $db->setDoc('alerts', $docId, array_merge(['alert_type' => 'EXPIRY'], $payload));
-  elseif (method_exists($db, 'write'))     $db->write('alerts', $docId, $payload);
+  // Expiry logic removed
+  return;
 }
 
 function fs_delete_expiry_alert_if_normal(
@@ -131,74 +98,8 @@ function fs_delete_expiry_alert_if_normal(
   string $productId,
   ?string $newExpiryRaw = null
 ): void {
-  if ($productId === '') return;
-
-  // Get latest expiry if not provided
-  if ($newExpiryRaw === null) {
-    $p = method_exists($db, 'readDoc') ? $db->readDoc('products', $productId)
-      : (method_exists($db, 'read') ? $db->read('products', $productId) : null);
-    $newExpiryRaw = $p['expiry_date'] ?? null;
-  }
-
-  // Decide if "normal" (not expired, not within 30 days)
-  $expTs = $newExpiryRaw ? strtotime($newExpiryRaw) : false;
-  $now   = time();
-  $soon  = strtotime('+30 days');
-
-  $isExpired  = ($expTs !== false && $expTs < $now);
-  $isExpiring = ($expTs !== false && $expTs >= $now && $expTs <= $soon);
-
-  if ($isExpired || $isExpiring) {
-    // still needs an expiry alert -> keep
-    return;
-  }
-
-  // Primary: delete the canonical alert doc "EXP_<productId>"
-  $docId = 'EXP_' . $productId;
-  try {
-    if (method_exists($db, 'delete')) {
-      $db->delete('alerts', $docId);
-      return;
-    }
-    if (method_exists($db, 'deleteDoc')) {
-      $db->deleteDoc('alerts', $docId);
-      return;
-    }
-    if (method_exists($db, 'remove')) {
-      $db->remove('alerts', $docId);
-      return;
-    }
-    if (method_exists($db, 'setDoc')) {
-      $db->setDoc('alerts', $docId, null);
-      return;
-    } // some wrappers treat null as delete
-  } catch (Throwable $t) {
-    // fall through to scan fallback
-  }
-
-  // Fallback: scan and delete any alerts with this product_id and alert_type=EXPIRY
-  try {
-    $rows = method_exists($db, 'readAll') ? $db->readAll('alerts', [], null, 1000) : [];
-    foreach ($rows as $row) {
-      $pid   = (string)($row['product_id'] ?? '');
-      $atype = strtoupper($row['alert_type'] ?? '');
-      if ($atype !== 'EXPIRY') continue;
-      if ($pid !== $productId) continue;
-
-      // infer alert doc id field (common wrappers expose 'id' or 'doc_id')
-      $aid = $row['id'] ?? $row['doc_id'] ?? ('EXP_' . $pid);
-      try {
-        if (method_exists($db, 'delete'))    $db->delete('alerts', $aid);
-        elseif (method_exists($db, 'deleteDoc')) $db->deleteDoc('alerts', $aid);
-        elseif (method_exists($db, 'remove'))    $db->remove('alerts', $aid);
-        elseif (method_exists($db, 'setDoc'))    $db->setDoc('alerts', $aid, null);
-      } catch (Throwable $t) {
-        // ignore individual failures; continue
-      }
-    }
-  } catch (Throwable $t) {
-    // ignore
-  }
+  // Expiry logic removed
+  return;
 }
 
 // ----- load target product -----
@@ -243,7 +144,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $quantity      = (int)($_POST['quantity'] ?? (int)$stock['quantity']);
   $reorderLevel  = (int)($_POST['reorder_level'] ?? (int)$stock['reorder_level']);
   $price         = (float)($_POST['price'] ?? (float)$stock['price']);
-  $expiryDate    = trim((string)($_POST['expiry_date'] ?? ($stock['expiry_date'] ?? '')));
   $storeId       = trim((string)($_POST['store_id'] ?? ($stock['store_id'] ?? '')));
   $location      = trim((string)($_POST['location'] ?? ($stock['location'] ?? '')));
   $unit          = trim((string)($_POST['unit'] ?? ($stock['unit'] ?? '')));
@@ -291,7 +191,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       'quantity'      => $quantity,
       'reorder_level' => $reorderLevel,
       'price'         => $price,
-      'expiry_date'   => $expiryDate !== '' ? $expiryDate : null,
       'store_id' => ($storeId !== '' ? $storeId : null),
       'location'      => $location,
       'unit'          => $unit,
@@ -699,16 +598,7 @@ if ($returnRaw !== '') {
             <input class="control" type="number" min="0" step="0.01" name="price" value="<?php echo h(number_format((float)$stock['price'], 2, '.', '')); ?>">
           </div>
           <div class="field">
-            <label class="label">Expiry date</label>
-            <input class="control" type="date" name="expiry_date" value="<?php
-                                                                          $d = $stock['expiry_date'] ?? '';
-                                                                          // keep YYYY-MM-DD if already that; else try to parse
-                                                                          if ($d && preg_match('/^\d{4}-\d{2}-\d{2}$/', $d)) {
-                                                                            echo h($d);
-                                                                          } elseif ($d) {
-                                                                            echo h(date('Y-m-d', strtotime($d)));
-                                                                          }
-                                                                          ?>">
+            <!-- Expiry date removed -->
           </div>
         </div>
 

@@ -53,8 +53,8 @@ $updates = [
 ];
 
 foreach ($updates as $prod) {
-    $db->execute("UPDATE products SET expiry_date = ?, price = ?, quantity = ?, sku = ? WHERE id = ?", [
-        $prod['expiry'], $prod['price'], $prod['qty'], $prod['sku'], $prod['id']
+    $db->execute("UPDATE products SET price = ?, quantity = ?, sku = ? WHERE id = ?", [
+        $prod['price'], $prod['qty'], $prod['sku'], $prod['id']
     ]);
     echo "✓ Updated product ID {$prod['id']} ({$prod['sku']})\n";
 }

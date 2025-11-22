@@ -488,42 +488,7 @@ function triggerLowStockAlert($product_id, $current_stock, $min_stock)
     return $db->create('alerts', $alertData);
 }
 
-function triggerExpiryAlert($product_id, $expiry_date, $days_to_expiry)
-{
-    $db = getDB();
 
-    // Get product details
-    $product = $db->read('products', $product_id);
-    if (!$product) {
-        return false;
-    }
-
-    // Determine priority based on days to expiry
-    if ($days_to_expiry <= 3) {
-        $priority = 'critical';
-    } elseif ($days_to_expiry <= 7) {
-        $priority = 'high';
-    } else {
-        $priority = 'medium';
-    }
-
-    // Create alert record
-    $alertData = [
-        'type' => 'expiry',
-        'title' => 'Product Expiry Alert',
-        'message' => "Product '{$product['name']}' expires in {$days_to_expiry} days ({$expiry_date})",
-        'priority' => $priority,
-        'product_id' => $product_id,
-        'store_id' => $product['store_id'] ?? null,
-        'metadata' => json_encode([
-            'expiry_date' => $expiry_date,
-            'days_to_expiry' => $days_to_expiry
-        ]),
-        'created_at' => date('c')
-    ];
-
-    return $db->create('alerts', $alertData);
-}
 
 // Notification Functions
 function addNotification($message, $type = 'info')
@@ -643,7 +608,7 @@ function _fs_normalize_product(string $docId, array $d): array
         'store_id'      => $d['store_id']      ?? '',
         'created_at'    => $d['created_at']    ?? null,
         'updated_at'    => $d['updated_at']    ?? null,
-        'expiry_date'   => $d['expiry_date']   ?? null,
+        'expiry_date'   => null,
         'image_url'     => $d['image_url']     ?? '',
         'barcode'       => $d['barcode']       ?? '',
         'supplier'      => $d['supplier']      ?? '',
@@ -894,27 +859,9 @@ function log_low_stock_alert(array $p): void {
     else      $db->create('alert_logs', $payload);
 }
 
-/** Upsert an expiry alert (expired vs soon) */
+/** Upsert an expiry alert (expired vs soon) - REMOVED */
 function log_expiry_alert(array $p, string $subtype): void {
-    $db = alerts_db(); if (!$db) return;
-    $pid = (string)($p['doc_id'] ?? '');
-    if ($pid === '') return;
-
-    $type = $subtype === 'expired' ? 'expired' : 'expiry_soon';
-    $row  = fs_alert_find_open($pid, $type);
-    $payload = [
-        'type'                 => $type,
-        'status'               => $row ? ($row['status'] ?? 'open') : 'open',
-        'product_id'           => $pid,
-        'sku'                  => $p['sku'] ?? null,
-        'product_name'         => $p['name'] ?? null,
-        'quantity_at_alert'    => (int)($p['quantity'] ?? 0),
-        'expiry_date_at_alert' => $p['expiry_date'] ?? null,
-        'triggered_at'         => $row ? ($row['triggered_at'] ?? date('c')) : date('c'),
-        'last_seen_at'         => date('c'),
-    ];
-    if ($row) $db->update('alert_logs', (string)$row['doc_id'], $payload);
-    else      $db->create('alert_logs', $payload);
+    return;
 }
 
 /** Resolve helper */

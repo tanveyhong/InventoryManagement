@@ -41,8 +41,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['batch_add_products'])
             $skip_reasons = [];
             $sqlDb = SQLDatabase::getInstance();
             
+            // Fetch store name for meaningful SKU
+            $targetStore = $sqlDb->fetch("SELECT name FROM stores WHERE id = ?", [$target_store_id]);
+            $storeNameRaw = $targetStore ? $targetStore['name'] : 'Store ' . $target_store_id;
+            // Generate suffix: Uppercase, alphanumeric only. e.g. "Main Store" -> "MAINSTORE"
+            $storeSuffix = strtoupper(preg_replace('/[^a-zA-Z0-9]/', '', $storeNameRaw));
+            if (empty($storeSuffix)) $storeSuffix = 'S' . $target_store_id;
+
             error_log("===== BATCH ASSIGN PRODUCTS TO STORE =====");
-            error_log("Target Store ID: $target_store_id");
+            error_log("Target Store ID: $target_store_id ($storeNameRaw)");
             error_log("Product IDs to assign: " . json_encode($product_ids));
             
             foreach ($product_ids as $idx => $product_id) {
@@ -90,7 +97,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['batch_add_products'])
                 }
                 
                 // Create store variant SKU
-                $variantSku = $sku . '-S' . $target_store_id;
+                $variantSku = $sku . '-' . $storeSuffix;
                 error_log("Creating store variant with SKU: $variantSku");
                 
                 // Check if variant already exists
@@ -111,7 +118,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['batch_add_products'])
                             name, sku, barcode, description, category, unit,
                             cost_price, selling_price, price, quantity, reorder_level,
                             store_id, active, created_at, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))";
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())";
                         
                         $params = [
                             $mainProduct['name'],
@@ -136,7 +143,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['batch_add_products'])
                         // 2. Update main product quantity (subtract assigned quantity)
                         $newMainQty = $mainQty - $assignQty;
                         $sqlDb->execute(
-                            "UPDATE products SET quantity = ?, updated_at = datetime('now') WHERE id = ?",
+                            "UPDATE products SET quantity = ?, updated_at = NOW() WHERE id = ?",
                             [$newMainQty, $product_id]
                         );
                         error_log("✓ Main product quantity updated: $mainQty → $newMainQty");
@@ -145,7 +152,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['batch_add_products'])
                         // Movement OUT from main product
                         $sqlDb->execute("
                             INSERT INTO stock_movements (product_id, store_id, movement_type, quantity, reference, notes, user_id, created_at)
-                            VALUES (?, NULL, 'out', ?, 'Store Assignment', ?, ?, datetime('now'))
+                            VALUES (?, NULL, 'out', ?, 'Store Assignment', ?, ?, NOW())
                         ", [
                             $product_id,
                             $assignQty,
@@ -156,7 +163,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['batch_add_products'])
                         // Movement IN to store variant
                         $sqlDb->execute("
                             INSERT INTO stock_movements (product_id, store_id, movement_type, quantity, reference, notes, user_id, created_at)
-                            VALUES (?, ?, 'in', ?, 'Store Assignment', ?, ?, datetime('now'))
+                            VALUES (?, ?, 'in', ?, 'Store Assignment', ?, ?, NOW())
                         ", [
                             $variant_id,
                             $target_store_id,

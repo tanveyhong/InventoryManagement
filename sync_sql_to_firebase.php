@@ -34,7 +34,6 @@ try {
                 'quantity' => intval($product['quantity'] ?? 0),
                 'reorder_level' => intval($product['reorder_level'] ?? 0),
                 'min_stock_level' => intval($product['reorder_level'] ?? 0),
-                'expiry_date' => $product['expiry_date'] ?? null,
                 'store_id' => $product['store_id'] ?? null,
                 'active' => intval($product['active'] ?? 1),
                 'created_at' => $product['created_at'] ?? date('c'),

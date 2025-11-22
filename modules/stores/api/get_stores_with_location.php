@@ -103,7 +103,6 @@ try {
                 COALESCE(SUM(p.quantity), 0) as total_inventory,
                 COALESCE(SUM(p.quantity * p.cost_price), 0) as inventory_value,
                 COUNT(DISTINCT CASE WHEN p.quantity <= p.reorder_level THEN p.id END) as low_stock_count,
-                COUNT(DISTINCT CASE WHEN p.expiry_date < CURDATE() THEN p.id END) as expired_count,
                 COUNT(DISTINCT ss.id) as staff_count,
                 COALESCE(AVG(sp.daily_sales), 0) as avg_daily_sales,
                 COALESCE(MAX(sp.metric_date), NULL) as last_performance_update

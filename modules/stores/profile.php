@@ -54,8 +54,6 @@ try {
                                     COALESCE(SUM(quantity * CAST(price AS NUMERIC)), 0) as inventory_value,
                                     COUNT(CASE WHEN quantity = 0 THEN 1 END) as out_of_stock,
                                     COUNT(CASE WHEN quantity <= reorder_level AND quantity > 0 THEN 1 END) as low_stock,
-                                    COUNT(CASE WHEN expiry_date < CURRENT_DATE THEN 1 END) as expired,
-                                    COUNT(CASE WHEN expiry_date BETWEEN CURRENT_DATE AND (CURRENT_DATE + INTERVAL '30 days') THEN 1 END) as expiring_soon,
                                     COUNT(DISTINCT category) as categories
                                 FROM products 
                                 WHERE store_id = ? AND active = TRUE", [$store_id]);
@@ -98,7 +96,7 @@ try {
     
 } catch (Exception $e) {
     error_log('Error fetching store profile data: ' . $e->getMessage());
-    $inventory = ['total_products' => 0, 'total_stock' => 0, 'inventory_value' => 0, 'out_of_stock' => 0, 'low_stock' => 0, 'expired' => 0, 'expiring_soon' => 0, 'categories' => 0];
+    $inventory = ['total_products' => 0, 'total_stock' => 0, 'inventory_value' => 0, 'out_of_stock' => 0, 'low_stock' => 0, 'categories' => 0];
     $recent_products = [];
     $low_stock_products = [];
     $recent_sales = [];

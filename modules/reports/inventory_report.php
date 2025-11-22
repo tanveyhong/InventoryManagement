@@ -59,7 +59,6 @@ if ($fs) {
         'quantity'        => isset($r['quantity']) ? (int)$r['quantity'] : 0,
         'min_stock_level' => isset($r['reorder_level']) ? (int)$r['reorder_level'] : (isset($r['min_stock_level']) ? (int)$r['min_stock_level'] : 0),
         'unit_price'      => isset($r['price']) ? (float)$r['price'] : (isset($r['unit_price']) ? (float)$r['unit_price'] : 0.0),
-        'expiry_date'     => $r['expiry_date'] ?? null,
         'created_at'      => $r['created_at'] ?? null,
         'updated_at'      => $r['updated_at'] ?? null,
         'category_name'   => $r['category'] ?? ($r['category_name'] ?? null),
@@ -86,7 +85,7 @@ $category     = isset($_GET['category']) ? trim((string)$_GET['category']) : '';
 $storeFilter  = isset($_GET['store_id'])
                   ? trim((string)$_GET['store_id'])
                   : trim((string)($_GET['location'] ?? '')); // legacy fallback
-$date_field   = isset($_GET['date_field']) ? trim((string)$_GET['date_field']) : 'created_at'; // created_at | updated_at | expiry_date
+$date_field   = isset($_GET['date_field']) ? trim((string)$_GET['date_field']) : 'created_at'; // created_at | updated_at
 $from_date    = isset($_GET['from']) ? trim((string)$_GET['from']) : '';
 $to_date      = isset($_GET['to']) ? trim((string)$_GET['to']) : '';
 $do_preview   = isset($_GET['run']) && $_GET['run'] === '1';
@@ -127,7 +126,7 @@ if ($do_preview || $export) {
     if ($storeFilter !== '' && (string)($p['store_id'] ?? '') !== $storeFilter) return false;
 
     // Date range filter
-    if (!in_array($date_field, ['created_at', 'updated_at', 'expiry_date'], true)) $date_field = 'created_at';
+    if (!in_array($date_field, ['created_at', 'updated_at'], true)) $date_field = 'created_at';
     $dv = $p[$date_field] ?? null;
     if ($from_date !== '' || $to_date !== '') {
       if (!$dv) return false;
@@ -157,7 +156,7 @@ try {
 if ($export === 'excel') {
   // Try PhpSpreadsheet if available; else fall back to CSV (Excel opens it fine).
   $filename = 'Inventory Report_' . date('Ymd_His');
-  $columns = ['Name', 'SKU', 'Category', 'Store', 'Quantity', 'Min Level', 'Unit Price (RM)', 'Total Value (RM)', 'Expiry Date', 'Created At'];
+  $columns = ['Name', 'SKU', 'Category', 'Store', 'Quantity', 'Min Level', 'Unit Price (RM)', 'Total Value (RM)', 'Created At'];
 
   // Fallback CSV
   header('Content-Type: text/csv; charset=utf-8');
@@ -179,7 +178,6 @@ foreach ($filtered as $p) {
     (string)($p['min_stock_level'] ?? 0),
     number_format((float)($p['unit_price'] ?? 0), 2, '.', ''),
     number_format(((float)($p['unit_price'] ?? 0) * (int)($p['quantity'] ?? 0)), 2, '.', ''),
-    $p['expiry_date'] ?? '',
     $p['created_at'] ?? '',
   ];
   fputcsv($out, $row);
@@ -199,8 +197,8 @@ if ($export === 'pdf') {
     $html .= '</div>';
     $html .= '<table width="100%" cellspacing="0" cellpadding="6" style="border-collapse:collapse;font-size:12px">';
     $html .= '<thead><tr style="background:#e5e7eb">';
-    $heads = ['Name', 'SKU', 'Category', 'Store', 'Qty', 'Min', 'Unit Price (RM)', 'Total (RM)', 'Expiry', 'Created'];
-    foreach ($heads as $hcell) $html .= '<th style="border:1px solid #cbd5e1;text-align:left">' . $h($hcell) . '</th>';
+    $heads = ['Name', 'SKU', 'Category', 'Store', 'Qty', 'Min', 'Unit Price (RM)', 'Total (RM)', 'Created'];
+    foreach ($heads as $hcell) $html .= '<th style="border:1px solid #cbd5e1;text-align:left">' . h($hcell) . '</th>';
     $html .= '</tr></thead><tbody>';
     foreach ($filtered as $p) {
       $html .= '<tr>';
@@ -214,7 +212,6 @@ $html .= '<td style="border:1px solid #e5e7eb">' . h($storeName) . '</td>';
       $html .= '<td style="border:1px solid #e5e7eb">' . (int)($p['min_stock_level'] ?? 0) . '</td>';
       $html .= '<td style="border:1px solid #e5e7eb">' . number_format((float)($p['unit_price'] ?? 0), 2) . '</td>';
       $html .= '<td style="border:1px solid #e5e7eb">' . number_format(((float)($p['unit_price'] ?? 0) * (int)($p['quantity'] ?? 0)), 2) . '</td>';
-      $html .= '<td style="border:1px solid #e5e7eb">' . h($p['expiry_date'] ?? '') . '</td>';
       $html .= '<td style="border:1px solid #e5e7eb">' . h($p['created_at'] ?? '') . '</td>';
       $html .= '</tr>';
     }
@@ -635,7 +632,6 @@ $page_title = 'Inventory Report – Stock Management';
               <label class="label">Date Field</label>
               <select class="control" name="date_field">
                 <option value="Created At" <?php echo $date_field === 'created_at' ? 'selected' : ''; ?>>Created At</option>
-                <option value="Expiry Date" <?php echo $date_field === 'expiry_date' ? 'selected' : ''; ?>>Expiry Date</option>
               </select>
             </div>
           </div>
@@ -737,7 +733,6 @@ $page_title = 'Inventory Report – Stock Management';
                 <th>Qty</th>
                 <th>Unit Price</th>
                 <th>Total Value</th>
-                <th>Expiry</th>
                 <th>Created</th>
               </tr>
             </thead>
@@ -756,7 +751,6 @@ $page_title = 'Inventory Report – Stock Management';
                   <td><?php echo number_format((int)($p['quantity'] ?? 0)); ?></td>
                   <td>RM <?php echo number_format((float)($p['unit_price'] ?? 0), 2); ?></td>
                   <td>RM <?php echo number_format(((float)($p['unit_price'] ?? 0) * (int)($p['quantity'] ?? 0)), 2); ?></td>
-                  <td><?php echo !empty($p['expiry_date']) ? h(date('M j, Y', strtotime($p['expiry_date']))) : '—'; ?></td>
                   <td><?php echo !empty($p['created_at']) ? h(date('M j, Y', strtotime($p['created_at']))) : '—'; ?></td>
                 </tr>
               <?php endforeach; ?>

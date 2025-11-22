@@ -27,7 +27,6 @@ try {
             'product_name'      => $doc['product_name']      ?? '',
             'alert_type'        => strtoupper($doc['alert_type'] ?? ''),
             'expiry_kind'       => $doc['expiry_kind']       ?? null,
-            'expiry_date'       => $doc['expiry_date']       ?? null,
             'quantity_affected' => $doc['quantity_affected'] ?? null,  // <-- add this
             'status'            => ucfirst(strtolower($doc['status'] ?? 'Pending')),
             'created_at'        => $doc['created_at']        ?? '',

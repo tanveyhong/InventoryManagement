@@ -77,10 +77,6 @@ if (!empty($status)) {
         $where .= " AND p.quantity <= p.reorder_level AND p.quantity > 0";
     } elseif ($status === 'out_of_stock') {
         $where .= " AND p.quantity = 0";
-    } elseif ($status === 'expired') {
-        $where .= " AND p.expiry_date < CURRENT_DATE";
-    } elseif ($status === 'expiring_soon') {
-        $where .= " AND p.expiry_date BETWEEN CURRENT_DATE AND (CURRENT_DATE + INTERVAL '30 days')";
     }
 }
 
@@ -102,8 +98,6 @@ try {
                    CASE 
                        WHEN p.quantity = 0 THEN 'out_of_stock'
                        WHEN p.quantity <= p.reorder_level THEN 'low_stock'
-                       WHEN p.expiry_date < CURRENT_DATE THEN 'expired'
-                       WHEN p.expiry_date BETWEEN CURRENT_DATE AND (CURRENT_DATE + INTERVAL '30 days') THEN 'expiring_soon'
                        ELSE 'in_stock'
                    END as stock_status
             FROM products p
@@ -123,9 +117,7 @@ try {
                                 COALESCE(SUM(quantity), 0) as total_quantity,
                                 COALESCE(SUM(quantity * CAST(price AS NUMERIC)), 0) as total_value,
                                 COUNT(CASE WHEN quantity = 0 THEN 1 END) as out_of_stock,
-                                COUNT(CASE WHEN quantity <= reorder_level AND quantity > 0 THEN 1 END) as low_stock,
-                                COUNT(CASE WHEN expiry_date < CURRENT_DATE THEN 1 END) as expired,
-                                COUNT(CASE WHEN expiry_date BETWEEN CURRENT_DATE AND (CURRENT_DATE + INTERVAL '30 days') THEN 1 END) as expiring_soon
+                                COUNT(CASE WHEN quantity <= reorder_level AND quantity > 0 THEN 1 END) as low_stock
                             FROM products 
                             WHERE store_id = ? AND active = TRUE", [$store_id]);
     
@@ -134,7 +126,7 @@ try {
     $products = [];
     $total_records = 0;
     $categories = [];
-    $summary = ['total_products' => 0, 'total_quantity' => 0, 'total_value' => 0, 'out_of_stock' => 0, 'low_stock' => 0, 'expired' => 0, 'expiring_soon' => 0];
+    $summary = ['total_products' => 0, 'total_quantity' => 0, 'total_value' => 0, 'out_of_stock' => 0, 'low_stock' => 0];
 }
 
 // Calculate pagination
@@ -598,7 +590,6 @@ $page_title = "Inventory - {$store['name']} - Inventory System";
                         <th>Quantity</th>
                         <th>Price</th>
                         <th>Status</th>
-                        <th>Expiry Date</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -617,15 +608,6 @@ $page_title = "Inventory - {$store['name']} - Inventory System";
                             <span class="status-badge <?php echo $status_class; ?>">
                                 <?php echo $status_text; ?>
                             </span>
-                        </td>
-                        <td>
-                            <?php 
-                            if ($product['expiry_date']) {
-                                echo date('M d, Y', strtotime($product['expiry_date']));
-                            } else {
-                                echo '-';
-                            }
-                            ?>
                         </td>
                     </tr>
                     <?php endforeach; ?>

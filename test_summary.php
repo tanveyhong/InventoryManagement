@@ -12,9 +12,7 @@ try {
                             SUM(quantity) as total_quantity,
                             SUM(quantity * price) as total_value,
                             COUNT(CASE WHEN quantity = 0 THEN 1 END) as out_of_stock,
-                            COUNT(CASE WHEN quantity <= reorder_level AND quantity > 0 THEN 1 END) as low_stock,
-                            COUNT(CASE WHEN expiry_date < CURRENT_DATE THEN 1 END) as expired,
-                            COUNT(CASE WHEN expiry_date BETWEEN CURRENT_DATE AND (CURRENT_DATE + INTERVAL '30 days') THEN 1 END) as expiring_soon
+                            COUNT(CASE WHEN quantity <= reorder_level AND quantity > 0 THEN 1 END) as low_stock
                         FROM products 
                         WHERE store_id = ? AND active = TRUE", [$store_id]);
     
@@ -27,8 +25,6 @@ try {
     echo "Total Value: $" . number_format($summary['total_value'] ?? 0, 2) . "\n";
     echo "Out of Stock: " . ($summary['out_of_stock'] ?? 0) . "\n";
     echo "Low Stock: " . ($summary['low_stock'] ?? 0) . "\n";
-    echo "Expired: " . ($summary['expired'] ?? 0) . "\n";
-    echo "Expiring Soon: " . ($summary['expiring_soon'] ?? 0) . "\n";
     
 } catch (Exception $e) {
     echo "Error: " . $e->getMessage() . "\n";
@@ -36,7 +32,7 @@ try {
 
 echo "\n=== Check actual products data ===\n";
 try {
-    $products = $db->fetchAll("SELECT name, quantity, price, reorder_level, expiry_date FROM products WHERE store_id = ? AND active = TRUE", [$store_id]);
+    $products = $db->fetchAll("SELECT name, quantity, price, reorder_level FROM products WHERE store_id = ? AND active = TRUE", [$store_id]);
     print_r($products);
 } catch (Exception $e) {
     echo "Error: " . $e->getMessage() . "\n";

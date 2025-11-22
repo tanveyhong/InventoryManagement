@@ -67,7 +67,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $unit_price      = (float)($_POST['unit_price'] ?? 0);
     $cost_price      = (float)($_POST['cost_price'] ?? 0);
     $min_stock_level = (int)($_POST['min_stock_level'] ?? 0);
-    $expiry_date     = $_POST['expiry_date'] ?? null;
     $barcode         = trim($_POST['barcode'] ?? '');
     $unit            = trim($_POST['unit'] ?? 'pcs');
 
@@ -79,7 +78,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($quantity < 0) $errors[] = 'Quantity cannot be negative';
     if ($unit_price < 0) $errors[] = 'Unit price cannot be negative';
     if ($min_stock_level < 0) $errors[] = 'Minimum stock level cannot be negative';
-    if (!empty($expiry_date) && !strtotime($expiry_date)) $errors[] = 'Invalid expiry date format';
 
     // Check if SKU contains store suffix (should not for main products)
     if (preg_match('/-S\d+$/', $sku)) {
@@ -126,9 +124,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Insert main product (NO store_id)
             $sql = "
                 INSERT INTO products
-                    (name, sku, barcode, description, category, unit, cost_price, price, quantity, reorder_level, expiry_date, store_id, active, created_at, updated_at)
+                    (name, sku, barcode, description, category, unit, cost_price, price, quantity, reorder_level, store_id, active, created_at, updated_at)
                 VALUES
-                    (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             ";
             $sqlDb->execute($sql, [
                 $name,
@@ -141,7 +139,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $unit_price,
                 $quantity,
                 $min_stock_level,
-                !empty($expiry_date) ? $expiry_date : null,
             ]);
 
             $product_id = $sqlDb->lastInsertId();
@@ -175,7 +172,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'quantity'      => $quantity,
                     'reorder_level' => $min_stock_level,
                     'min_stock_level' => $min_stock_level,
-                    'expiry_date'   => !empty($expiry_date) ? $expiry_date : null,
                     'store_id'      => null, // Main product has no store
                     'active'        => 1,
                     'created_at'    => date('c'),

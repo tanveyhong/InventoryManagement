@@ -157,7 +157,6 @@ class SQLDatabase {
                     price DECIMAL(10,2) DEFAULT 0.00,
                     quantity INTEGER DEFAULT 0,
                     reorder_level INTEGER DEFAULT 0,
-                    expiry_date DATE,
                     store_id INTEGER,
                     active BOOLEAN DEFAULT 1,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

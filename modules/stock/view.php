@@ -85,7 +85,6 @@ $barcode    = $stock['barcode']   ?? '';
 $notes      = $stock['description'] ?? '';
 $location   = $stock['location']  ?? '—';
 $supplier   = $stock['supplier']  ?? '—';
-$expiry     = $stock['expiry_date'] ?: '—';
 $created    = $stock['created_at']  ?: '—';
 $updated    = $stock['updated_at']  ?: '—';
 
@@ -189,26 +188,6 @@ if ($returnRaw !== '') {
       box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
       backdrop-filter: blur(10px);
     }
-
-    /* New expiring badge style */
-    .status-expiring {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.4rem;
-      background: #facc15;
-      /* yellow tone */
-      color: #1e293b;
-      font-weight: 600;
-      font-size: 0.85rem;
-      padding: 0.5rem 1rem;
-      border-radius: 50px;
-      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15);
-    }
-
-    .status-expiring i {
-      color: #ca8a04;
-    }
-
 
     .status-badge.success {
       background: rgba(34, 197, 94, 0.9);
@@ -465,9 +444,6 @@ if ($returnRaw !== '') {
         padding: 1.5rem;
       }
     }
-
-    .status-expired {
-      display: inline-flex;
       align-items: center;
       gap: 0.4rem;
       background: #ef4444;
@@ -478,10 +454,6 @@ if ($returnRaw !== '') {
       padding: 0.5rem 1rem;
       border-radius: 50px;
       box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15);
-    }
-
-    .status-expired i {
-      color: #fff;
     }
   </style>
 </head>
@@ -531,22 +503,6 @@ if ($returnRaw !== '') {
                 <i class="fas fa-circle"></i>
                 <?php echo htmlspecialchars($status); ?>
               </div>
-
-              <?php
-              $expiryDate = isset($stock['expiry_date']) ? strtotime($stock['expiry_date']) : null;
-              $today = strtotime('today');
-
-              if ($expiryDate) {
-                if ($expiryDate < $today) {
-                  // Product already expired
-                  echo '<div class="status-expired"><i class="fas fa-ban"></i> Expired</div>';
-                } elseif ($status === 'In stock' && $expiryDate <= strtotime('+30 days')) {
-                  // Product is still valid but expiring soon
-                  echo '<div class="status-expiring"><i class="fas fa-hourglass-half"></i> Expiring Soon</div>';
-                }
-              }
-              ?>
-
             </div>
 
 
@@ -616,10 +572,6 @@ if ($returnRaw !== '') {
             <div class="detail-item">
               <span class="detail-label">Store</span>
               <span class="detail-value"><?= htmlspecialchars($storeName) ?></span>
-            </div>
-            <div class="detail-item">
-              <span class="detail-label">Expiry Date</span>
-              <span class="detail-value"><?php echo htmlspecialchars($expiry ?: '—'); ?></span>
             </div>
           </div>
         </div>

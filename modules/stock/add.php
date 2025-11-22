@@ -67,7 +67,69 @@ $selectedCategory = isset($_POST['category']) && $_POST['category'] !== ''
     ? (string)$_POST['category']
     : 'General';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+// --- BATCH INSERT LOGIC ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['batch_insert_personal_care'])) {
+    try {
+        $sqlDb = getSQLDB();
+        
+        // Get the first active store
+        $store = $sqlDb->fetch("SELECT id, name FROM stores WHERE is_active = 1 LIMIT 1");
+        if (!$store) {
+            throw new Exception("No active store found. Please create a store first.");
+        }
+        $storeId = $store['id'];
+        // Create a simple suffix from store name (first 3 chars, uppercase)
+        $storeSuffix = strtoupper(substr(preg_replace('/[^a-zA-Z0-9]/', '', $store['name']), 0, 3));
+
+        $personalCareProducts = [
+            ['name' => 'Shampoo (Aloe Vera)', 'price' => 15.50, 'qty' => 50, 'min' => 10],
+            ['name' => 'Body Wash (Lavender)', 'price' => 12.90, 'qty' => 40, 'min' => 10],
+            ['name' => 'Toothpaste (Mint)', 'price' => 8.50, 'qty' => 100, 'min' => 20],
+            ['name' => 'Hand Soap (Lemon)', 'price' => 5.50, 'qty' => 60, 'min' => 15],
+            ['name' => 'Face Wash (Charcoal)', 'price' => 18.90, 'qty' => 30, 'min' => 5],
+        ];
+
+        $count = 0;
+        foreach ($personalCareProducts as $prod) {
+            // Generate a unique SKU: PC-{RAND}-{STORE}
+            $sku = 'PC-' . rand(1000, 9999) . '-' . $storeSuffix;
+            
+            // Check if SKU exists (simple check)
+            $exists = $sqlDb->fetch("SELECT id FROM products WHERE sku = ?", [$sku]);
+            if ($exists) {
+                $sku = 'PC-' . rand(1000, 9999) . '-' . $storeSuffix . 'X'; // Retry once with suffix
+            }
+
+            $sql = "
+                INSERT INTO products
+                    (name, sku, description, category, store_id, quantity, price, reorder_level, created_at, updated_at)
+                VALUES
+                    (?,    ?,   ?,           ?,        ?,        ?,        ?,     ?,             CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ";
+            $sqlDb->execute($sql, [
+                $prod['name'],
+                $sku,
+                'Auto-generated Personal Care Product',
+                'Personal Care',
+                $storeId,
+                $prod['qty'],
+                $prod['price'],
+                $prod['min'],
+            ]);
+            $count++;
+        }
+
+        $_SESSION['success'] = "Successfully added $count Personal Care products.";
+        header('Location: list.php');
+        exit;
+
+    } catch (Exception $e) {
+        $errors[] = "Batch insert failed: " . $e->getMessage();
+    }
+}
+// --------------------------
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['batch_insert_personal_care'])) {
     // --- 1) Gather & normalize ------------------------------------------------
     $name            = sanitizeInput($_POST['name'] ?? '');
     $sku             = strtoupper(trim((string)($_POST['sku'] ?? '')));   // <-- canonicalize
@@ -77,7 +139,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $quantity        = (int)($_POST['quantity'] ?? 0);
     $unit_price      = (float)($_POST['unit_price'] ?? 0);
     $min_stock_level = (int)($_POST['min_stock_level'] ?? 0);
-    $expiry_date     = $_POST['expiry_date'] ?? null;
 
     $errors = [];
 
@@ -86,7 +147,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($quantity < 0) $errors[] = 'Quantity cannot be negative';
     if ($unit_price < 0) $errors[] = 'Unit price cannot be negative';
     if ($min_stock_level < 0) $errors[] = 'Minimum stock level cannot be negative';
-    if (!empty($expiry_date) && !strtotime($expiry_date)) $errors[] = 'Invalid expiry date format';
 
     // --- 3) Firestore-first SKU uniqueness -----------------------------------
     // Use helper to find existing product by sku or doc id
@@ -114,7 +174,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'quantity'      => isset($row['quantity']) ? (int)$row['quantity'] : 0,
                         'price'         => isset($row['price']) ? (float)$row['price'] : 0.0,
                         'reorder_level' => isset($row['reorder_level']) ? (int)$row['reorder_level'] : 0,
-                        'expiry_date'   => $row['expiry_date']   ?? null,
                         'created_at'    => date('c'),
                         'updated_at'    => date('c'),
                     ];
@@ -155,9 +214,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $sql = "
                 INSERT INTO products
-                    (name, sku, description, category, store_id, quantity, price, reorder_level, expiry_date, created_at, updated_at)
+                    (name, sku, description, category, store_id, quantity, price, reorder_level, created_at, updated_at)
                 VALUES
-                    (?,    ?,   ?,           ?,        ?,        ?,        ?,     ?,             ?,          CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    (?,    ?,   ?,           ?,        ?,        ?,        ?,     ?,             CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             ";
             $sqlDb->execute($sql, [
                 $name,
@@ -168,7 +227,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $quantity,
                 $unit_price,
                 $min_stock_level,
-                !empty($expiry_date) ? $expiry_date : null,
             ]);
 
             $product_id = $sqlDb->lastInsertId();
@@ -200,7 +258,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'quantity'      => $quantity,
                     'price'         => $unit_price,
                     'reorder_level' => $min_stock_level,
-                    'expiry_date'   => !empty($expiry_date) ? $expiry_date : null,
                     'created_at'    => date('c'),
                     'updated_at'    => date('c'),
                 ];
@@ -306,6 +363,12 @@ $page_title = 'Add Product - Inventory System';
                         <p class="subtitle">Fill in the details below to create a new product record.</p>
                     </div>
                     <div class="right">
+                        <form method="POST" style="display: inline; margin-right: 10px;">
+                            <input type="hidden" name="batch_insert_personal_care" value="1">
+                            <button type="submit" class="btn btn-secondary" onclick="return confirm('This will add 5 sample Personal Care products. Continue?');">
+                                <i class="fas fa-magic"></i> Batch Insert Personal Care
+                            </button>
+                        </form>
                         <a href="list.php" class="btn-back">
                             <i class="fas fa-arrow-left"></i> Back to Stock List
                         </a>
@@ -414,12 +477,6 @@ $page_title = 'Add Product - Inventory System';
                                     <label for="unit_price">Unit Price ($):</label>
                                     <input type="number" id="unit_price" name="unit_price" value="<?php echo htmlspecialchars($_POST['unit_price'] ?? '0.00'); ?>" min="0" step="0.01">
                                     <small>Selling price per unit</small>
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="expiry_date">Expiry Date:</label>
-                                    <input type="date" id="expiry_date" name="expiry_date" value="<?php echo htmlspecialchars($_POST['expiry_date'] ?? ''); ?>">
-                                    <small>Leave blank if product doesn't expire</small>
                                 </div>
                             </div>
                         </div>
