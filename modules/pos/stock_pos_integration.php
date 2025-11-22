@@ -55,13 +55,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['batch_add_products'])
             foreach ($product_ids as $idx => $product_id) {
                 error_log("\n--- Processing Main Product ID: $product_id ---");
                 $mainProduct = null;
-                $assignQty = isset($quantities[$idx]) ? (int)$quantities[$idx] : 0;
+                // ZERO-COPY LOGIC: Always assign with 0 quantity. Stock must be added via restocking.
+                $assignQty = 0; 
                 
                 // Load MAIN product (store_id = NULL)
                 try {
                     $mainProduct = $sqlDb->fetch("SELECT * FROM products WHERE id = ? AND store_id IS NULL LIMIT 1", [$product_id]);
                     if ($mainProduct) {
-                        error_log("✓ Found main product: {$mainProduct['name']} (SKU: {$mainProduct['sku']}, Qty: {$mainProduct['quantity']})");
+                        error_log("✓ Found main product: {$mainProduct['name']} (SKU: {$mainProduct['sku']})");
                     } else {
                         error_log("✗ Product ID $product_id not found or is not a main product");
                     }
@@ -77,22 +78,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['batch_add_products'])
                 
                 $sku = $mainProduct['sku'] ?? '';
                 $productName = $mainProduct['name'] ?? 'Unknown';
-                $mainQty = (int)($mainProduct['quantity'] ?? 0);
                 
                 if (empty($sku)) {
                     $skipped_count++;
                     $skip_reasons[] = "Product '$productName': Missing SKU";
-                    continue;
-                }
-                
-                // Validate quantity
-                if ($assignQty <= 0) {
-                    $assignQty = $mainQty; // Assign all if not specified
-                }
-                
-                if ($assignQty > $mainQty) {
-                    $skipped_count++;
-                    $skip_reasons[] = "Product '$productName': Cannot assign $assignQty units (only $mainQty available)";
                     continue;
                 }
                 
@@ -109,7 +98,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['batch_add_products'])
                     continue;
                 }
                 
-                // NEW ARCHITECTURE: Create store variant and update main product
+                // NEW ARCHITECTURE: Create store variant with 0 quantity (Zero-Copy)
                 try {
                     $sqlDb->execute("BEGIN TRANSACTION");
                         
@@ -130,7 +119,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['batch_add_products'])
                             $mainProduct['cost_price'] ?? 0,
                             $mainProduct['price'],
                             $mainProduct['price'],
-                            $assignQty,
+                            0, // Always 0 quantity
                             $mainProduct['reorder_level'] ?? 10,
                             $target_store_id,
                             1
@@ -140,34 +129,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['batch_add_products'])
                         $variant_id = $sqlDb->lastInsertId();
                         error_log("✓ Store variant created with ID: $variant_id");
                         
-                        // 2. Update main product quantity (subtract assigned quantity)
-                        $newMainQty = $mainQty - $assignQty;
-                        $sqlDb->execute(
-                            "UPDATE products SET quantity = ?, updated_at = NOW() WHERE id = ?",
-                            [$newMainQty, $product_id]
-                        );
-                        error_log("✓ Main product quantity updated: $mainQty → $newMainQty");
+                        // 2. NO Update to main product quantity (Zero-Copy)
                         
-                        // 3. Log stock movements
-                        // Movement OUT from main product
-                        $sqlDb->execute("
-                            INSERT INTO stock_movements (product_id, store_id, movement_type, quantity, reference, notes, user_id, created_at)
-                            VALUES (?, NULL, 'out', ?, 'Store Assignment', ?, ?, NOW())
-                        ", [
-                            $product_id,
-                            $assignQty,
-                            "Assigned to store (Variant: $variantSku)",
-                            $_SESSION['user_id'] ?? null
-                        ]);
-                        
-                        // Movement IN to store variant
+                        // 3. Log stock movements (Only for the new variant creation)
                         $sqlDb->execute("
                             INSERT INTO stock_movements (product_id, store_id, movement_type, quantity, reference, notes, user_id, created_at)
                             VALUES (?, ?, 'in', ?, 'Store Assignment', ?, ?, NOW())
                         ", [
                             $variant_id,
                             $target_store_id,
-                            $assignQty,
+                            0,
                             "Assigned from main product (ID: $product_id)",
                             $_SESSION['user_id'] ?? null
                         ]);
@@ -188,7 +159,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['batch_add_products'])
                                 'cost_price' => floatval($mainProduct['cost_price'] ?? 0),
                                 'selling_price' => floatval($mainProduct['price'] ?? 0),
                                 'price' => floatval($mainProduct['price'] ?? 0),
-                                'quantity' => $assignQty,
+                                'quantity' => 0,
                                 'reorder_level' => intval($mainProduct['reorder_level'] ?? 0),
                                 'store_id' => $target_store_id,
                                 'active' => 1,
@@ -197,25 +168,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['batch_add_products'])
                             ];
                             $db->create('products', $variantDoc, (string)$variant_id);
                             
-                            // Update main product in Firebase
-                            $db->update('products', (string)$product_id, [
-                                'quantity' => $newMainQty,
-                                'updated_at' => date('c')
-                            ]);
-                            
-                            error_log("✓ Firebase sync successful");
                         } catch (Exception $e) {
-                            error_log("⚠️ Firebase sync failed: " . $e->getMessage());
+                            error_log("! Firebase sync warning: " . $e->getMessage());
                         }
                         
                         $added_count++;
-                        error_log("✅ SUCCESS: $productName assigned to store ($assignQty units)");
                         
                     } catch (Exception $e) {
                         $sqlDb->execute("ROLLBACK");
+                        error_log("✗ Transaction failed: " . $e->getMessage());
                         $skipped_count++;
-                        $skip_reasons[] = "Product '$productName': Database error - " . $e->getMessage();
-                        error_log("❌ FAILED: " . $e->getMessage());
+                        $skip_reasons[] = "Product '$productName': Database error";
                     }
             }
             
@@ -535,9 +498,30 @@ $page_title = 'Stock-POS Integration - Inventory System';
     <link rel="stylesheet" href="../../assets/css/style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
-        /* Main content spacing after navigation */
+        :root {
+            --primary: #4f46e5;
+            --primary-dark: #4338ca;
+            --secondary: #64748b;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --surface: #ffffff;
+            --background: #f1f5f9;
+            --text-main: #0f172a;
+            --text-secondary: #64748b;
+            --border: #e2e8f0;
+            --radius: 8px;
+            --shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        body {
+            background-color: var(--background);
+            color: var(--text-main);
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+        }
+
         .main-content {
-            margin-top: 80px;
+            margin-top: 60px;
             padding: 20px 0;
         }
 
@@ -547,50 +531,84 @@ $page_title = 'Stock-POS Integration - Inventory System';
             padding: 0 20px;
         }
 
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            background: var(--surface);
+            padding: 15px 20px;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .header-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 18px;
+        }
+
+        .header-text h1 {
+            font-size: 18px;
+            font-weight: 700;
+            margin: 0;
+            color: var(--text-main);
+        }
+
+        .header-text p {
+            margin: 2px 0 0 0;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
         .integration-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
+            gap: 15px;
+            margin-bottom: 20px;
         }
         
         .integration-card {
-            background: white;
-            border-radius: 12px;
-            padding: 20px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            border-left: 4px solid #4f46e5;
+            background: var(--surface);
+            border-radius: var(--radius);
+            padding: 15px;
+            box-shadow: var(--shadow);
+            border-left: 4px solid var(--primary);
         }
         
-        .integration-card.warning {
-            border-left-color: #f59e0b;
-        }
-        
-        .integration-card.danger {
-            border-left-color: #ef4444;
-        }
-        
-        .integration-card.success {
-            border-left-color: #10b981;
-        }
+        .integration-card.warning { border-left-color: var(--warning); }
+        .integration-card.danger { border-left-color: var(--danger); }
+        .integration-card.success { border-left-color: var(--success); }
         
         .card-header {
             display: flex;
             align-items: center;
-            gap: 12px;
-            margin-bottom: 15px;
-            padding-bottom: 15px;
-            border-bottom: 1px solid #e5e7eb;
+            gap: 10px;
+            margin-bottom: 12px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border);
         }
         
         .card-icon {
-            width: 48px;
-            height: 48px;
-            border-radius: 10px;
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 24px;
+            font-size: 18px;
         }
         
         .card-icon.primary { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
@@ -599,33 +617,26 @@ $page_title = 'Stock-POS Integration - Inventory System';
         .card-icon.success { background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; }
         
         .card-title {
-            font-size: 18px;
+            font-size: 15px;
             font-weight: 600;
-            color: #1f2937;
+            color: var(--text-main);
         }
         
         .sync-status {
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            padding: 4px 12px;
+            padding: 4px 10px;
             border-radius: 20px;
-            font-size: 13px;
+            font-size: 12px;
             font-weight: 500;
         }
         
-        .sync-status.active {
-            background: #d1fae5;
-            color: #065f46;
-        }
-        
-        .sync-status.syncing {
-            background: #fef3c7;
-            color: #92400e;
-        }
+        .sync-status.active { background: #d1fae5; color: #065f46; }
+        .sync-status.syncing { background: #fef3c7; color: #92400e; }
         
         .product-mini-list {
-            max-height: 300px;
+            max-height: 250px;
             overflow-y: auto;
         }
         
@@ -633,55 +644,239 @@ $page_title = 'Stock-POS Integration - Inventory System';
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 12px;
-            border-bottom: 1px solid #f3f4f6;
+            padding: 8px 0;
+            border-bottom: 1px solid var(--border);
         }
         
-        .product-mini-item:last-child {
-            border-bottom: none;
-        }
-        
-        .product-mini-item:hover {
-            background: #f9fafb;
-        }
+        .product-mini-item:last-child { border-bottom: none; }
+        .product-mini-item:hover { background: #f8fafc; }
         
         .product-name {
             font-weight: 500;
-            color: #1f2937;
-            margin-bottom: 4px;
+            color: var(--text-main);
+            font-size: 13px;
+            margin-bottom: 2px;
         }
         
         .product-store {
-            font-size: 12px;
-            color: #6b7280;
+            font-size: 11px;
+            color: var(--text-secondary);
         }
         
         .quantity-badge {
-            padding: 6px 12px;
-            border-radius: 6px;
+            padding: 4px 8px;
+            border-radius: 4px;
             font-weight: 600;
-            font-size: 14px;
+            font-size: 12px;
         }
         
-        .quantity-badge.low {
-            background: #fef3c7;
-            color: #92400e;
-        }
-        
-        .quantity-badge.out {
-            background: #fee2e2;
-            color: #991b1b;
-        }
+        .quantity-badge.low { background: #fef3c7; color: #92400e; }
+        .quantity-badge.out { background: #fee2e2; color: #991b1b; }
         
         .quick-actions {
             display: flex;
-            gap: 10px;
-            margin-top: 20px;
+            gap: 8px;
+            margin-top: 15px;
         }
         
         .quick-actions .btn {
             flex: 1;
             text-align: center;
+            font-size: 13px;
+            padding: 8px;
+        }
+
+        /* Compact Form Elements */
+        .form-control-compact {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            font-size: 13px;
+        }
+
+        .product-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 10px;
+        }
+
+        .product-checkbox-label {
+            display: flex;
+            flex-direction: column;
+            padding: 10px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            cursor: pointer;
+            transition: all 0.2s;
+            background: white;
+            height: 100%;
+            position: relative;
+        }
+
+        .product-checkbox-label:hover {
+            background: #f8fafc;
+            border-color: var(--primary);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow);
+        }
+
+        .section-title {
+            font-size: 15px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--text-main);
+        }
+
+        @keyframes modalSlideIn {
+            from { transform: translateY(-20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        /* List View Styles */
+        .store-list-container {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 20px;
+            max-height: 500px;
+            overflow-y: auto;
+            padding-left: 10px; /* Added padding on left for scrollbar spacing */
+            direction: rtl; /* Moves scrollbar to the left */
+        }
+
+        /* Custom Scrollbar - More visible "slider" style */
+        .store-list-container::-webkit-scrollbar {
+            width: 10px;
+        }
+        .store-list-container::-webkit-scrollbar-track {
+            background: #f5f5f5;
+            border-radius: 5px;
+            border: 1px solid #e0e0e0;
+        }
+        .store-list-container::-webkit-scrollbar-thumb {
+            background-color: #a0a0a0;
+            border-radius: 5px;
+            border: 2px solid #f5f5f5; /* Creates padding around thumb */
+        }
+        .store-list-container::-webkit-scrollbar-thumb:hover {
+            background-color: #707070;
+        }
+
+        .store-list-item {
+            display: flex;
+            align-items: center;
+            padding: 10px 15px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            gap: 15px;
+            transition: all 0.2s;
+            direction: ltr; /* Reset direction for content */
+        }
+        
+        .store-list-item:hover {
+            box-shadow: var(--shadow);
+            border-color: var(--primary);
+        }
+        
+        .store-list-item.success {
+            border-left: 3px solid var(--success);
+            background: linear-gradient(to right, #f0fdf4, white 40%);
+        }
+
+        .store-info {
+            flex: 2;
+            min-width: 180px;
+        }
+
+        .store-name {
+            font-weight: 600;
+            color: var(--text-main);
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-badge {
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 8px;
+            background: #d1fae5;
+            color: #065f46;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .store-meta {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-top: 2px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .store-stats {
+            flex: 3;
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            border-left: 1px solid var(--border);
+            border-right: 1px solid var(--border);
+            padding: 0 15px;
+        }
+
+        .stat-box {
+            text-align: center;
+            min-width: 50px;
+        }
+
+        .stat-value {
+            font-weight: 700;
+            font-size: 14px;
+            color: var(--text-main);
+            line-height: 1.2;
+        }
+
+        .stat-label {
+            font-size: 9px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-top: 2px;
+        }
+
+        .store-actions {
+            flex: 2;
+            display: flex;
+            gap: 6px;
+            justify-content: flex-end;
+        }
+        
+        @media (max-width: 900px) {
+            .store-list-item {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 15px;
+            }
+            .store-stats {
+                border: none;
+                border-top: 1px solid var(--border);
+                border-bottom: 1px solid var(--border);
+                padding: 10px 0;
+                justify-content: space-around;
+            }
+            .store-actions {
+                justify-content: stretch;
+            }
+            .store-actions .btn {
+                flex: 1;
+            }
         }
     </style>
 </head>
@@ -712,266 +907,131 @@ $page_title = 'Stock-POS Integration - Inventory System';
             </div>
         </div>
 
-        <!-- Combined POS Store Management -->
-        <h2 style="margin-bottom: 15px; display: flex; align-items: center; gap: 10px;">
-            <i class="fas fa-store"></i> POS Store Management 
-            <span style="font-size: 14px; font-weight: 400; color: #6b7280; margin-left: 10px;">
-                (<?php echo count($posStores); ?> enabled / <?php echo count($allStores); ?> total)
-            </span>
-        </h2>
-        
-        <?php if (currentUserHasPermission('can_manage_stores')): ?>
-        <div class="integration-card" style="background: #f9fafb; border-left-color: #6366f1; margin-bottom: 20px;">
-            <p style="margin-bottom: 0; color: #4b5563; display: flex; align-items: start; gap: 8px;">
-                <i class="fas fa-info-circle" style="color: #6366f1; margin-top: 2px;"></i>
-                <span>
-                    <strong>POS System Requirements:</strong> Cash registers, barcode scanners, receipt printers. 
-                    Enable POS only for stores with the necessary hardware.
-                    <?php if (currentUserHasPermission('can_manage_stores')): ?>
-                    Click <strong>Configure</strong> to enable/disable POS for each store.
-                    <?php endif; ?>
-                </span>
-            </p>
-        </div>
-        <?php endif; ?>
-        
-        <?php if (empty($allStores)): ?>
-            <div class="integration-card" style="text-align: center; padding: 40px;">
-                <i class="fas fa-store-slash" style="font-size: 48px; color: #9ca3af; margin-bottom: 15px;"></i>
-                <h3 style="color: #6b7280;">No Stores Found</h3>
-                <p style="color: #9ca3af; margin-bottom: 20px;">Create stores first to enable POS functionality</p>
-                <a href="../stores/add.php" class="btn btn-primary">
-                    <i class="fas fa-plus-circle"></i> Add Store
-                </a>
-            </div>
-        <?php else: ?>
-        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 15px; margin-bottom: 30px;">
-            <?php foreach ($allStores as $store): 
-                $isEnabled = $store['has_pos'] == 1;
-                $storeData = null;
-                // Get store stats if POS is enabled
-                if ($isEnabled) {
-                    foreach ($posStores as $ps) {
-                        if ($ps['id'] == $store['id']) {
-                            $storeData = $ps;
-                            break;
-                        }
-                    }
-                }
-            ?>
-                <div class="integration-card <?php echo $isEnabled ? 'success' : ''; ?>" 
-                     style="margin: 0; border: 2px solid <?php echo $isEnabled ? '#10b981' : '#e5e7eb'; ?>; <?php echo $isEnabled ? 'background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);' : ''; ?>">
-                    
-                    <!-- Store Header -->
-                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid <?php echo $isEnabled ? '#86efac' : '#e5e7eb'; ?>;">
-                        <div style="flex: 1;">
-                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
-                                <h3 style="margin: 0; font-size: 17px; color: #1f2937;">
-                                    <?php echo htmlspecialchars($store['name']); ?>
-                                </h3>
-                            </div>
-                            <div style="display: flex; align-items: center; gap: 8px;">
-                                <span style="font-size: 12px; padding: 4px 10px; border-radius: 12px; font-weight: 600; background: <?php echo $isEnabled ? '#d1fae5' : '#f3f4f6'; ?>; color: <?php echo $isEnabled ? '#065f46' : '#6b7280'; ?>;">
-                                    <?php if ($isEnabled): ?>
-                                        <i class="fas fa-check-circle"></i> POS Active
-                                    <?php else: ?>
-                                        <i class="fas fa-circle"></i> POS Disabled
-                                    <?php endif; ?>
-                                </span>
-                            </div>
-                        </div>
-                        
-                        <?php if (currentUserHasPermission('can_manage_stores')): ?>
-                        <button onclick="togglePOSModal('<?php echo $store['id']; ?>', '<?php echo htmlspecialchars($store['name']); ?>', <?php echo $store['has_pos']; ?>, '<?php echo htmlspecialchars($store['pos_terminal_id']); ?>')" 
-                                class="btn btn-sm" 
-                                style="background: <?php echo $isEnabled ? '#059669' : '#6366f1'; ?>; color: white; padding: 8px 14px; white-space: nowrap;">
-                            <i class="fas fa-cog"></i> Configure
-                        </button>
-                        <?php endif; ?>
-                    </div>
-                    
-                    <?php if ($isEnabled && $storeData): ?>
-                        <!-- POS Stats -->
-                        <div class="stats-grid" style="grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 15px;">
-                            <div style="text-align: center; padding: 10px; background: rgba(255,255,255,0.7); border-radius: 8px;">
-                                <div style="font-size: 22px; font-weight: 700; color: #4f46e5;">
-                                    <?php echo number_format((int)($storeData['product_count'] ?? 0)); ?>
-                                </div>
-                                <div style="font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px;">Products</div>
-                            </div>
-                            <div style="text-align: center; padding: 10px; background: rgba(255,255,255,0.7); border-radius: 8px;">
-                                <div style="font-size: 22px; font-weight: 700; color: #10b981;">
-                                    <?php echo number_format((int)($storeData['total_stock'] ?? 0)); ?>
-                                </div>
-                                <div style="font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px;">Stock</div>
-                            </div>
-                            <div style="text-align: center; padding: 10px; background: rgba(255,255,255,0.7); border-radius: 8px;">
-                                <div style="font-size: 22px; font-weight: 700; color: #f59e0b;">
-                                    <?php echo number_format((int)($storeData['total_sales'] ?? 0)); ?>
-                                </div>
-                                <div style="font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px;">Sales</div>
-                            </div>
-                        </div>
-                        
-                        <!-- POS Info -->
-                        <?php if ($store['pos_terminal_id'] || $store['pos_enabled_at']): ?>
-                        <div style="font-size: 12px; color: #6b7280; padding: 10px; background: rgba(255,255,255,0.5); border-radius: 6px; margin-bottom: 15px;">
-                            <?php if ($store['pos_terminal_id']): ?>
-                                <div style="margin-bottom: 4px;">
-                                    <i class="fas fa-desktop" style="width: 16px;"></i> 
-                                    <strong>Terminal:</strong> <?php echo htmlspecialchars($store['pos_terminal_id']); ?>
-                                </div>
-                            <?php endif; ?>
-                            <?php if ($store['pos_enabled_at']): ?>
-                                <div>
-                                    <i class="fas fa-clock" style="width: 16px;"></i> 
-                                    <strong>Enabled:</strong> <?php echo date('M j, Y', strtotime($store['pos_enabled_at'])); ?>
-                                </div>
-                            <?php endif; ?>
-                        </div>
-                        <?php endif; ?>
-                        
-                        <!-- Quick Actions -->
-                        <div class="quick-actions" style="display: flex; gap: 8px;">
-                            <a href="terminal.php?store_id=<?php echo htmlspecialchars($store['id']); ?>" 
-                               class="btn btn-sm" 
-                               style="flex: 1; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 10px; text-align: center;">
-                                <i class="fas fa-cash-register"></i> Open POS
-                            </a>
-                            <a href="../stock/list.php?store=<?php echo htmlspecialchars($store['id']); ?>" 
-                               class="btn btn-sm btn-secondary" 
-                               style="flex: 1; padding: 10px; text-align: center;">
-                                <i class="fas fa-boxes"></i> Stock
-                            </a>
-                        </div>
-                    <?php else: ?>
-                        <!-- Disabled State Info -->
-                        <div style="text-align: center; padding: 20px; color: #9ca3af;">
-                            <i class="fas fa-power-off" style="font-size: 32px; margin-bottom: 8px; opacity: 0.5;"></i>
-                            <p style="margin: 0; font-size: 13px;">
-                                POS system is disabled for this store
-                            </p>
-                            <?php if (currentUserHasPermission('can_manage_stores')): ?>
-                            <p style="margin: 8px 0 0 0; font-size: 12px; color: #6b7280;">
-                                Click <strong>Configure</strong> to enable
-                            </p>
-                            <?php endif; ?>
-                        </div>
-                    <?php endif; ?>
-                </div>
-            <?php endforeach; ?>
-        </div>
-        <?php endif; ?>
+        <?php
+        $activePosStoresList = array_filter($allStores, function($s) { return $s['has_pos'] == 1; });
+        $inactivePosStoresList = array_filter($allStores, function($s) { return $s['has_pos'] == 0; });
+        ?>
 
-        <!-- Batch Add Products Section -->
-        <?php if (!empty($posStores)): ?>
-        <div style="margin-bottom: 30px;">
-            <h2 style="margin-bottom: 15px; display: flex; align-items: center; gap: 10px;">
-                <i class="fas fa-layer-group"></i> Batch Add Products to Store
-            </h2>
-            
-            <?php if (empty($allAvailableProducts)): ?>
-                <div class="integration-card" style="background: #fef3c7; border-left-color: #f59e0b; text-align: center; padding: 40px;">
-                    <i class="fas fa-exclamation-triangle" style="font-size: 48px; color: #f59e0b; margin-bottom: 15px;"></i>
-                    <h3 style="color: #92400e;">No Products Available</h3>
-                    <p style="color: #78350f; margin-bottom: 20px;">
-                        No products found in your inventory. Please add products to your stock first before assigning them to POS stores.
-                    </p>
-                    <div style="display: flex; gap: 10px; justify-content: center;">
-                        <a href="../stock/add.php" class="btn btn-primary" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);">
-                            <i class="fas fa-plus-circle"></i> Add Products to Stock
-                        </a>
-                        <a href="?debug=1" class="btn btn-secondary">
-                            <i class="fas fa-bug"></i> Debug Info
-                        </a>
+        <div style="display: flex; flex-direction: column; gap: 20px; margin-bottom: 20px;">
+            <!-- Active POS Terminals List -->
+            <div>
+                <?php if (!empty($activePosStoresList)): ?>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h2 class="section-title" style="margin-bottom: 0;">
+                        <i class="fas fa-cash-register"></i> Active POS Terminals
+                        <span style="font-size: 13px; font-weight: 400; color: var(--text-secondary); margin-left: 10px;">
+                            (<?php echo count($activePosStoresList); ?> active)
+                        </span>
+                    </h2>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <div style="position: relative;">
+                            <i class="fas fa-search" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-secondary);"></i>
+                            <input type="text" id="storeSearch" placeholder="Search stores..." 
+                                   style="padding: 8px 10px 8px 35px; border: 1px solid var(--border); border-radius: 20px; font-size: 13px; width: 180px; outline: none;"
+                                   onkeyup="filterStores()">
+                        </div>
+                        <button onclick="openBatchAddModal()" class="btn btn-sm btn-secondary" style="border-radius: 20px; padding: 8px 15px; font-size: 13px;">
+                            <i class="fas fa-layer-group"></i> Batch Add
+                        </button>
+                        <?php if (!empty($inactivePosStoresList)): ?>
+                        <button onclick="openAvailableStoresModal()" class="btn btn-sm btn-primary" style="border-radius: 20px; padding: 8px 15px; font-size: 13px;">
+                            <i class="fas fa-plus"></i> Add Terminal
+                        </button>
+                        <?php endif; ?>
                     </div>
                 </div>
-            <?php else: ?>
-            <div class="integration-card" style="background: #f0f9ff; border-left-color: #3b82f6;">
-                <p style="margin-bottom: 15px; color: #1e40af;">
-                    <strong>Add products from your inventory to POS-enabled stores.</strong> Select products below and choose the target store. 
-                    Products will be copied with 0 initial quantity - you'll need to stock them afterwards.
-                </p>
                 
-                <form method="POST" action="" id="batchAddForm">
-                    <input type="hidden" name="batch_add_products" value="1">
-                    
-                    <div style="margin-bottom: 20px;">
-                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #1f2937;">
-                            Select Target Store:
-                        </label>
-                        <select name="target_store_id" required 
-                                style="width: 100%; padding: 10px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px;">
-                            <option value="">-- Choose a POS-enabled store --</option>
-                            <?php foreach ($posStores as $store): ?>
-                                <option value="<?php echo htmlspecialchars($store['id']); ?>">
-                                    <?php echo htmlspecialchars($store['name']); ?> 
-                                    (<?php echo $store['product_count']; ?> products)
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    
-                    <div style="margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center;">
-                        <label style="font-weight: 600; color: #1f2937;">
-                            Select Products to Add:
-                        </label>
-                        <div style="display: flex; gap: 10px;">
-                            <button type="button" onclick="selectAllProducts()" class="btn btn-sm" style="background: #3b82f6; color: white; padding: 6px 12px;">
-                                Select All
-                            </button>
-                            <button type="button" onclick="deselectAllProducts()" class="btn btn-sm btn-secondary" style="padding: 6px 12px;">
-                                Deselect All
-                            </button>
-                        </div>
-                    </div>
-                    
-                    <div style="max-height: 400px; overflow-y: auto; border: 2px solid #e5e7eb; border-radius: 8px; padding: 10px; background: white;">
-                        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px;">
-                            <?php foreach ($allAvailableProducts as $product): ?>
-                                <label style="display: flex; align-items: start; gap: 10px; padding: 12px; border: 1px solid #e5e7eb; border-radius: 6px; cursor: pointer; transition: all 0.2s;" 
-                                       onmouseover="this.style.background='#f9fafb'; this.style.borderColor='#3b82f6'" 
-                                       onmouseout="this.style.background='white'; this.style.borderColor='#e5e7eb'">
-                                    <input type="checkbox" name="product_ids[]" value="<?php echo htmlspecialchars($product['id']); ?>" 
-                                           class="product-checkbox"
-                                           style="margin-top: 4px; width: 18px; height: 18px;">
-                                    <div style="flex: 1;">
-                                        <div style="font-weight: 600; font-size: 14px; color: #1f2937; margin-bottom: 4px;">
-                                            <?php echo htmlspecialchars($product['name']); ?>
-                                        </div>
-                                        <div style="font-size: 12px; color: #6b7280; margin-bottom: 2px;">
-                                            SKU: <?php echo htmlspecialchars($product['sku']); ?>
-                                        </div>
-                                        <div style="display: flex; gap: 10px; align-items: center; margin-top: 4px;">
-                                            <div style="font-size: 13px; color: #10b981; font-weight: 600;">
-                                                RM <?php echo number_format($product['price'], 2); ?>
-                                            </div>
-                                            <div style="font-size: 12px; color: #3b82f6; font-weight: 600;">
-                                                Qty: <?php echo number_format($product['quantity']); ?>
-                                            </div>
-                                        </div>
-                                        <div style="font-size: 11px; color: #9ca3af; margin-top: 4px;">
-                                            📦 <?php echo htmlspecialchars($product['category']); ?>
-                                        </div>
+                <div class="store-list-container" id="activeStoresList">
+                    <?php foreach ($activePosStoresList as $store): 
+                        $storeData = null;
+                        foreach ($posStores as $ps) {
+                            if ($ps['id'] == $store['id']) {
+                                $storeData = $ps;
+                                break;
+                            }
+                        }
+                    ?>
+                        <div class="store-list-item success" data-name="<?php echo strtolower(htmlspecialchars($store['name'])); ?>">
+                            <!-- Info Column -->
+                            <div class="store-info">
+                                <div class="store-name">
+                                    <?php echo htmlspecialchars($store['name']); ?>
+                                    <span class="status-badge"><i class="fas fa-check-circle"></i> Active</span>
+                                </div>
+                                <?php if ($store['pos_terminal_id'] || $store['pos_enabled_at']): ?>
+                                <div class="store-meta">
+                                    <?php if ($store['pos_terminal_id']): ?>
+                                        <span title="Terminal ID"><i class="fas fa-desktop"></i> <?php echo htmlspecialchars($store['pos_terminal_id']); ?></span>
+                                    <?php endif; ?>
+                                    <?php if ($store['pos_enabled_at']): ?>
+                                        <span title="Enabled Date" style="margin-left: 8px;"><i class="fas fa-clock"></i> <?php echo date('M j, Y', strtotime($store['pos_enabled_at'])); ?></span>
+                                    <?php endif; ?>
+                                </div>
+                                <?php endif; ?>
+                            </div>
+
+                            <!-- Stats Column -->
+                            <?php if ($storeData): ?>
+                            <div class="store-stats">
+                                <div class="stat-box">
+                                    <div class="stat-value" style="color: var(--primary);">
+                                        <?php echo number_format((int)($storeData['product_count'] ?? 0)); ?>
                                     </div>
-                                </label>
-                            <?php endforeach; ?>
+                                    <div class="stat-label">Products</div>
+                                </div>
+                                <div class="stat-box">
+                                    <div class="stat-value" style="color: var(--success);">
+                                        <?php echo number_format((int)($storeData['total_stock'] ?? 0)); ?>
+                                    </div>
+                                    <div class="stat-label">Stock</div>
+                                </div>
+                                <div class="stat-box">
+                                    <div class="stat-value" style="color: var(--warning);">
+                                        <?php echo number_format((int)($storeData['total_sales'] ?? 0)); ?>
+                                    </div>
+                                    <div class="stat-label">Sales</div>
+                                </div>
+                            </div>
+                            <?php else: ?>
+                            <div class="store-stats">
+                                <span style="color: var(--text-secondary); font-size: 12px;">No data available</span>
+                            </div>
+                            <?php endif; ?>
+
+                            <!-- Actions Column -->
+                            <div class="store-actions">
+                                <a href="terminal.php?store_id=<?php echo htmlspecialchars($store['id']); ?>" 
+                                   class="btn btn-sm" 
+                                   style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 6px 10px; font-size: 11px; white-space: nowrap;">
+                                    <i class="fas fa-cash-register"></i> POS
+                                </a>
+                                <a href="../stock/list.php?store=<?php echo htmlspecialchars($store['id']); ?>" 
+                                   class="btn btn-sm btn-secondary" 
+                                   style="padding: 6px 10px; font-size: 11px;"
+                                   title="View Stock">
+                                    <i class="fas fa-boxes"></i>
+                                </a>
+                                <button onclick="selectStoreForBatchAdd('<?php echo $store['id']; ?>')" 
+                                        class="btn btn-sm btn-secondary" 
+                                        style="padding: 6px 10px; font-size: 11px;"
+                                        title="Batch Add Products">
+                                    <i class="fas fa-cart-plus"></i>
+                                </button>
+                                <?php if (currentUserHasPermission('can_manage_stores')): ?>
+                                <button onclick="togglePOSModal('<?php echo $store['id']; ?>', '<?php echo htmlspecialchars($store['name']); ?>', 1, '<?php echo htmlspecialchars($store['pos_terminal_id']); ?>')" 
+                                        class="btn btn-sm btn-secondary" 
+                                        style="padding: 6px 10px; font-size: 11px;"
+                                        title="Configure POS Settings">
+                                    <i class="fas fa-cog"></i>
+                                </button>
+                                <?php endif; ?>
+                            </div>
                         </div>
-                    </div>
-                    
-                    <div style="margin-top: 20px; display: flex; gap: 10px; align-items: center; justify-content: space-between;">
-                        <div style="color: #6b7280; font-size: 14px;">
-                            <span id="selectedCount">0</span> product(s) selected
-                        </div>
-                        <button type="submit" class="btn btn-primary" style="background: linear-gradient(135deg, #3b82f6 0%, #1e40af 100%); padding: 12px 30px;">
-                            <i class="fas fa-plus-circle"></i> Add Selected Products to Store
-                        </button>
-                    </div>
-                </form>
+                    <?php endforeach; ?>
+                </div>
+                <?php endif; ?>
             </div>
-            <?php endif; ?>
         </div>
-        <?php endif; ?>
 
 
 
@@ -985,14 +1045,14 @@ $page_title = 'Stock-POS Integration - Inventory System';
                     </div>
                     <div>
                         <div class="card-title">Low Stock Alert</div>
-                        <small style="color: #6b7280;"><?php echo count($lowStockProducts); ?> items need reordering</small>
+                        <small style="color: var(--text-secondary); font-size: 11px;"><?php echo count($lowStockProducts); ?> items need reordering</small>
                     </div>
                 </div>
                 <div class="product-mini-list">
                     <?php if (empty($lowStockProducts)): ?>
-                        <div style="text-align: center; padding: 20px; color: #6b7280;">
-                            <i class="fas fa-check-circle" style="font-size: 48px; color: #10b981; margin-bottom: 10px;"></i>
-                            <p>All products are well stocked!</p>
+                        <div style="text-align: center; padding: 15px; color: var(--text-secondary);">
+                            <i class="fas fa-check-circle" style="font-size: 32px; color: var(--success); margin-bottom: 8px;"></i>
+                            <p style="font-size: 13px; margin: 0;">All products are well stocked!</p>
                         </div>
                     <?php else: ?>
                         <?php foreach ($lowStockProducts as $product): ?>
@@ -1016,14 +1076,14 @@ $page_title = 'Stock-POS Integration - Inventory System';
                     </div>
                     <div>
                         <div class="card-title">Out of Stock</div>
-                        <small style="color: #6b7280;"><?php echo count($outOfStockProducts); ?> items unavailable</small>
+                        <small style="color: var(--text-secondary); font-size: 11px;"><?php echo count($outOfStockProducts); ?> items unavailable</small>
                     </div>
                 </div>
                 <div class="product-mini-list">
                     <?php if (empty($outOfStockProducts)): ?>
-                        <div style="text-align: center; padding: 20px; color: #6b7280;">
-                            <i class="fas fa-check-circle" style="font-size: 48px; color: #10b981; margin-bottom: 10px;"></i>
-                            <p>No out of stock items!</p>
+                        <div style="text-align: center; padding: 15px; color: var(--text-secondary);">
+                            <i class="fas fa-check-circle" style="font-size: 32px; color: var(--success); margin-bottom: 8px;"></i>
+                            <p style="font-size: 13px; margin: 0;">No out of stock items!</p>
                         </div>
                     <?php else: ?>
                         <?php foreach ($outOfStockProducts as $product): ?>
@@ -1040,21 +1100,21 @@ $page_title = 'Stock-POS Integration - Inventory System';
             </div>
 
             <!-- Recent Sales -->
-            <div class="integration-card primary">
+            <div class="integration-card" style="border-left-color: var(--primary);">
                 <div class="card-header">
                     <div class="card-icon primary">
                         <i class="fas fa-receipt"></i>
                     </div>
                     <div>
                         <div class="card-title">Recent POS Sales</div>
-                        <small style="color: #6b7280;">Last <?php echo count($recentSales); ?> transactions</small>
+                        <small style="color: var(--text-secondary); font-size: 11px;">Last <?php echo count($recentSales); ?> transactions</small>
                     </div>
                 </div>
                 <div class="product-mini-list">
                     <?php if (empty($recentSales)): ?>
-                        <div style="text-align: center; padding: 20px; color: #6b7280;">
-                            <i class="fas fa-info-circle" style="font-size: 48px; color: #6b7280; margin-bottom: 10px;"></i>
-                            <p>No sales recorded yet</p>
+                        <div style="text-align: center; padding: 15px; color: var(--text-secondary);">
+                            <i class="fas fa-info-circle" style="font-size: 32px; color: var(--text-secondary); margin-bottom: 8px; opacity: 0.5;"></i>
+                            <p style="font-size: 13px; margin: 0;">No sales recorded yet</p>
                         </div>
                     <?php else: ?>
                         <?php foreach ($recentSales as $sale): ?>
@@ -1067,10 +1127,10 @@ $page_title = 'Stock-POS Integration - Inventory System';
                                 </div>
                             </div>
                             <div style="text-align: right;">
-                                <div style="font-weight: 600; color: #10b981;">
+                                <div style="font-weight: 600; color: var(--success); font-size: 13px;">
                                     $<?php echo number_format($sale['total_amount'], 2); ?>
                                 </div>
-                                <div style="font-size: 11px; color: #6b7280;">
+                                <div style="font-size: 10px; color: var(--text-secondary);">
                                     <?php echo date('M j, g:i A', strtotime($sale['created_at'])); ?>
                                 </div>
                             </div>
@@ -1081,8 +1141,9 @@ $page_title = 'Stock-POS Integration - Inventory System';
             </div>
         </div>
 
+
         <!-- Action Buttons -->
-        <div style="display: flex; gap: 15px; margin-top: 30px;">
+        <div style="display: flex; gap: 10px; margin-top: 20px;">
             <a href="../stock/list.php" class="btn btn-primary" style="flex: 1;">
                 <i class="fas fa-boxes"></i> View All Stock
             </a>
@@ -1096,10 +1157,184 @@ $page_title = 'Stock-POS Integration - Inventory System';
         </div>
     </div>
 
+    <!-- Available Stores Modal -->
+    <div id="availableStoresModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999; align-items: center; justify-content: center;">
+        <div style="background: var(--surface); border-radius: var(--radius); padding: 25px; max-width: 800px; width: 90%; max-height: 80vh; display: flex; flex-direction: column; box-shadow: 0 10px 25px rgba(0,0,0,0.2); animation: modalSlideIn 0.3s ease-out;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <div style="display: flex; align-items: center; gap: 15px; flex: 1;">
+                    <h2 style="margin: 0; font-size: 20px; color: var(--text-main); white-space: nowrap;">
+                        <i class="fas fa-store"></i> Available Stores
+                    </h2>
+                    <div style="position: relative; flex: 1; max-width: 300px;">
+                        <i class="fas fa-search" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-secondary);"></i>
+                        <input type="text" id="availableStoreSearch" placeholder="Search available stores..." 
+                               style="padding: 8px 10px 8px 35px; border: 1px solid var(--border); border-radius: 20px; font-size: 13px; width: 100%; outline: none;"
+                               onkeyup="filterAvailableStores()">
+                    </div>
+                </div>
+                <button onclick="closeAvailableStoresModal()" style="background: none; border: none; font-size: 20px; color: var(--text-secondary); cursor: pointer; margin-left: 15px;">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <div class="store-list-container" id="availableStoresList" style="flex: 1; margin-bottom: 0; max-height: none; overflow-y: auto;">
+                <?php foreach ($inactivePosStoresList as $store): ?>
+                    <div class="store-list-item" data-name="<?php echo strtolower(htmlspecialchars($store['name'])); ?>" style="border-left: 4px solid var(--text-secondary);">
+                        <!-- Info Column -->
+                        <div class="store-info">
+                            <div class="store-name">
+                                <?php echo htmlspecialchars($store['name']); ?>
+                                <span class="status-badge" style="background: var(--background); color: var(--text-secondary); border: 1px solid var(--border);"><i class="far fa-circle"></i> Not Configured</span>
+                            </div>
+                        </div>
+
+                        <!-- Stats Column (Empty for inactive) -->
+                        <div class="store-stats">
+                            <span style="color: var(--text-secondary); font-size: 12px;">Enable POS to view stats</span>
+                        </div>
+
+                        <!-- Actions Column -->
+                        <div class="store-actions">
+                            <?php if (currentUserHasPermission('can_manage_stores')): ?>
+                            <button onclick="togglePOSModal('<?php echo $store['id']; ?>', '<?php echo htmlspecialchars($store['name']); ?>', 0, '')" 
+                                    class="btn btn-sm btn-primary" 
+                                    style="padding: 6px 12px; font-size: 12px;">
+                                <i class="fas fa-plus"></i> Enable POS
+                            </button>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+                <?php if (empty($inactivePosStoresList)): ?>
+                    <div style="text-align: center; padding: 40px; color: var(--text-secondary);">
+                        <i class="fas fa-check-circle" style="font-size: 48px; margin-bottom: 15px; color: var(--success);"></i>
+                        <p>All stores have POS enabled!</p>
+                    </div>
+                <?php endif; ?>
+            </div>
+        </div>
+    </div>
+
+    <!-- Batch Add Products Modal -->
+    <div id="batchAddModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999; align-items: center; justify-content: center;">
+        <div style="background: var(--surface); border-radius: var(--radius); padding: 25px; max-width: 900px; width: 90%; max-height: 85vh; display: flex; flex-direction: column; box-shadow: 0 10px 25px rgba(0,0,0,0.2); animation: modalSlideIn 0.3s ease-out;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2 style="margin: 0; font-size: 20px; color: var(--text-main); display: flex; align-items: center; gap: 10px;">
+                    <i class="fas fa-layer-group"></i> Batch Add Products to Store
+                </h2>
+                <button onclick="closeBatchAddModal()" style="background: none; border: none; font-size: 20px; color: var(--text-secondary); cursor: pointer;">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <div style="flex: 1; overflow: hidden; display: flex; flex-direction: column;">
+                <p style="margin-bottom: 15px; color: var(--primary-dark); font-size: 13px;">
+                    <strong>Add products from your inventory to POS-enabled stores.</strong> Select products below and choose the target store. 
+                    Products will be copied with 0 initial quantity.
+                </p>
+                
+                <form method="POST" action="" id="batchAddForm" style="display: flex; flex-direction: column; flex: 1; overflow: hidden;">
+                    <input type="hidden" name="batch_add_products" value="1">
+                    
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 6px; font-weight: 600; color: var(--text-main); font-size: 13px;">
+                            Select Target Store:
+                        </label>
+                        <select name="target_store_id" required class="form-control-compact">
+                            <option value="">-- Choose a POS-enabled store --</option>
+                            <?php foreach ($posStores as $store): ?>
+                                <option value="<?php echo htmlspecialchars($store['id']); ?>">
+                                    <?php echo htmlspecialchars($store['name']); ?> 
+                                    (<?php echo $store['product_count']; ?> products)
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    
+                    <?php 
+                    $categories = array_unique(array_column($allAvailableProducts, 'category'));
+                    sort($categories);
+                    ?>
+                    <div style="margin-bottom: 10px;">
+                        <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                            <div style="position: relative; flex: 1;">
+                                <i class="fas fa-search" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-secondary); font-size: 12px;"></i>
+                                <input type="text" id="batchProductSearch" placeholder="Search products..." 
+                                       style="width: 100%; padding: 8px 10px 8px 30px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 12px; outline: none;"
+                                       onkeyup="filterBatchProducts()">
+                            </div>
+                            <select id="batchCategoryFilter" onchange="filterBatchProducts()" 
+                                    style="width: 120px; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 12px; outline: none;">
+                                <option value="">All Categories</option>
+                                <?php foreach ($categories as $cat): ?>
+                                    <option value="<?php echo htmlspecialchars($cat); ?>"><?php echo htmlspecialchars($cat); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <label style="font-weight: 600; color: var(--text-main); font-size: 13px;">
+                                Select Products:
+                            </label>
+                            <div style="display: flex; gap: 8px;">
+                                <button type="button" onclick="selectAllProducts()" class="btn btn-sm btn-primary" style="padding: 4px 10px; font-size: 11px;">
+                                    Select All
+                                </button>
+                                <button type="button" onclick="deselectAllProducts()" class="btn btn-sm btn-secondary" style="padding: 4px 10px; font-size: 11px;">
+                                    Deselect All
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div style="flex: 1; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; background: var(--background); min-height: 200px;">
+                        <div class="product-grid" id="batchProductList">
+                            <?php foreach ($allAvailableProducts as $product): ?>
+                                <label class="product-checkbox-label" 
+                                       data-name="<?php echo strtolower(htmlspecialchars($product['name'] . ' ' . $product['sku'])); ?>"
+                                       data-category="<?php echo htmlspecialchars($product['category']); ?>">
+                                    <div style="display: flex; justify-content: space-between; width: 100%; margin-bottom: 8px;">
+                                        <input type="checkbox" name="product_ids[]" value="<?php echo htmlspecialchars($product['id']); ?>" 
+                                               class="product-checkbox"
+                                               style="width: 16px; height: 16px;">
+                                        <div style="font-size: 12px; color: var(--success); font-weight: 600;">
+                                            RM <?php echo number_format($product['price'], 2); ?>
+                                        </div>
+                                    </div>
+                                    
+                                    <div style="flex: 1; width: 100%;">
+                                        <div style="font-weight: 600; font-size: 13px; color: var(--text-main); margin-bottom: 4px; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
+                                            <?php echo htmlspecialchars($product['name']); ?>
+                                        </div>
+                                        <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 4px;">
+                                            <?php echo htmlspecialchars($product['sku']); ?>
+                                        </div>
+                                        <div style="font-size: 10px; color: var(--primary); background: #e0e7ff; display: inline-block; padding: 2px 6px; border-radius: 4px;">
+                                            Qty: <?php echo number_format($product['quantity']); ?>
+                                        </div>
+                                    </div>
+                                </label>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                    
+                    <div style="margin-top: 15px; display: flex; gap: 10px; align-items: center; justify-content: space-between;">
+                        <div style="color: var(--text-secondary); font-size: 13px;">
+                            <span id="selectedCount" style="font-weight: 600; color: var(--primary);">0</span> product(s) selected
+                        </div>
+                        <button type="submit" class="btn btn-primary" style="padding: 8px 20px; font-size: 13px;">
+                            <i class="fas fa-plus-circle"></i> Add Selected Products
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <!-- POS Toggle Modal -->
     <div id="posModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999; align-items: center; justify-content: center;">
-        <div style="background: white; border-radius: 12px; padding: 30px; max-width: 500px; width: 90%;">
-            <h2 style="margin: 0 0 20px 0;">
+        <div style="background: var(--surface); border-radius: var(--radius); padding: 20px; max-width: 450px; width: 90%; box-shadow: 0 10px 25px rgba(0,0,0,0.2);">
+            <h2 style="margin: 0 0 15px 0; font-size: 18px; color: var(--text-main);">
                 <i class="fas fa-cog"></i> Configure POS System
             </h2>
             
@@ -1107,40 +1342,40 @@ $page_title = 'Stock-POS Integration - Inventory System';
                 <input type="hidden" name="toggle_pos" value="1">
                 <input type="hidden" name="store_id" id="modal_store_id">
                 
-                <div style="margin-bottom: 20px;">
-                    <label style="display: block; margin-bottom: 5px; font-weight: 600;">Store Name:</label>
-                    <div id="modal_store_name" style="padding: 10px; background: #f3f4f6; border-radius: 6px; color: #4b5563;"></div>
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 4px; font-weight: 600; font-size: 13px; color: var(--text-main);">Store Name:</label>
+                    <div id="modal_store_name" style="padding: 8px; background: var(--background); border-radius: var(--radius); color: var(--text-secondary); font-size: 13px;"></div>
                 </div>
                 
-                <div style="margin-bottom: 20px;">
-                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 15px; background: #f9fafb; border-radius: 8px; border: 2px solid #e5e7eb;">
-                        <input type="checkbox" name="enable_pos" value="1" id="modal_enable_pos" style="width: 20px; height: 20px;">
+                <div style="margin-bottom: 15px;">
+                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 10px; background: var(--background); border-radius: var(--radius); border: 1px solid var(--border);">
+                        <input type="checkbox" name="enable_pos" value="1" id="modal_enable_pos" style="width: 16px; height: 16px;">
                         <div>
-                            <strong>Enable POS System</strong>
-                            <div style="font-size: 13px; color: #6b7280; margin-top: 4px;">
+                            <strong style="font-size: 13px; color: var(--text-main);">Enable POS System</strong>
+                            <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">
                                 Allow this store to use the POS terminal for sales
                             </div>
                         </div>
                     </label>
                 </div>
                 
-                <div id="pos_settings" style="display: none; margin-bottom: 20px; padding: 15px; background: #f0fdf4; border-radius: 8px; border: 1px solid #86efac;">
-                    <label style="display: block; margin-bottom: 5px; font-weight: 600;">
+                <div id="pos_settings" style="display: none; margin-bottom: 15px; padding: 10px; background: #f0fdf4; border-radius: var(--radius); border: 1px solid var(--success);">
+                    <label style="display: block; margin-bottom: 4px; font-weight: 600; font-size: 13px; color: var(--text-main);">
                         Terminal ID (Optional):
                     </label>
                     <input type="text" name="pos_terminal_id" id="modal_terminal_id" 
                            placeholder="e.g., POS-001, CASH-REG-A" 
-                           style="width: 100%; padding: 10px; border: 1px solid #d1d5db; border-radius: 6px;">
-                    <small style="color: #6b7280; display: block; margin-top: 5px;">
+                           class="form-control-compact">
+                    <small style="color: var(--text-secondary); display: block; margin-top: 4px; font-size: 11px;">
                         Identifier for the physical POS hardware
                     </small>
                 </div>
                 
-                <div style="display: flex; gap: 10px; margin-top: 20px;">
-                    <button type="submit" class="btn btn-primary" style="flex: 1;">
+                <div style="display: flex; gap: 10px; margin-top: 15px;">
+                    <button type="submit" class="btn btn-primary" style="flex: 1; padding: 8px;">
                         <i class="fas fa-save"></i> Save Changes
                     </button>
-                    <button type="button" onclick="closePOSModal()" class="btn btn-secondary" style="flex: 1;">
+                    <button type="button" onclick="closePOSModal()" class="btn btn-secondary" style="flex: 1; padding: 8px;">
                         Cancel
                     </button>
                 </div>
@@ -1150,6 +1385,56 @@ $page_title = 'Stock-POS Integration - Inventory System';
 
     <script src="../../assets/js/main.js"></script>
     <script>
+        // Filter Stores Function
+        function filterStores() {
+            const input = document.getElementById('storeSearch');
+            const filter = input.value.toLowerCase();
+            const container = document.getElementById('activeStoresList');
+            const stores = container.getElementsByClassName('store-list-item');
+
+            for (let i = 0; i < stores.length; i++) {
+                const storeName = stores[i].getAttribute('data-name');
+                if (storeName.indexOf(filter) > -1) {
+                    stores[i].style.display = "";
+                } else {
+                    stores[i].style.display = "none";
+                }
+            }
+        }
+
+        // Filter Available Stores Function
+        function filterAvailableStores() {
+            const input = document.getElementById('availableStoreSearch');
+            const filter = input.value.toLowerCase();
+            const container = document.getElementById('availableStoresList');
+            const stores = container.getElementsByClassName('store-list-item');
+
+            for (let i = 0; i < stores.length; i++) {
+                const storeName = stores[i].getAttribute('data-name');
+                if (storeName.indexOf(filter) > -1) {
+                    stores[i].style.display = "";
+                } else {
+                    stores[i].style.display = "none";
+                }
+            }
+        }
+
+        // Available Stores Modal Functions
+        function openAvailableStoresModal() {
+            document.getElementById('availableStoresModal').style.display = 'flex';
+        }
+
+        function closeAvailableStoresModal() {
+            document.getElementById('availableStoresModal').style.display = 'none';
+        }
+
+        // Close modal when clicking outside
+        document.getElementById('availableStoresModal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                closeAvailableStoresModal();
+            }
+        });
+
         // Batch Add Products Functions
         function selectAllProducts() {
             document.querySelectorAll('.product-checkbox').forEach(cb => {
@@ -1200,6 +1485,63 @@ $page_title = 'Stock-POS Integration - Inventory System';
             });
         });
         
+        // Filter Batch Products
+        function filterBatchProducts() {
+            const searchInput = document.getElementById('batchProductSearch');
+            const categorySelect = document.getElementById('batchCategoryFilter');
+            const filterText = searchInput.value.toLowerCase();
+            const filterCategory = categorySelect.value;
+            
+            const container = document.getElementById('batchProductList');
+            const items = container.getElementsByClassName('product-checkbox-label');
+            
+            for (let i = 0; i < items.length; i++) {
+                const name = items[i].getAttribute('data-name');
+                const category = items[i].getAttribute('data-category');
+                
+                let show = true;
+                
+                if (filterText && name.indexOf(filterText) === -1) {
+                    show = false;
+                }
+                
+                if (filterCategory && category !== filterCategory) {
+                    show = false;
+                }
+                
+                items[i].style.display = show ? "" : "none";
+            }
+        }
+
+        // Batch Add Modal Functions
+        function openBatchAddModal() {
+            document.getElementById('batchAddModal').style.display = 'flex';
+        }
+
+        function closeBatchAddModal() {
+            document.getElementById('batchAddModal').style.display = 'none';
+        }
+
+        // Close modal when clicking outside
+        document.getElementById('batchAddModal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                closeBatchAddModal();
+            }
+        });
+
+        // Select Store for Batch Add
+        function selectStoreForBatchAdd(storeId) {
+            openBatchAddModal();
+            const select = document.querySelector('select[name="target_store_id"]');
+            if (select) {
+                select.value = storeId;
+                // Focus the search input to encourage adding products
+                setTimeout(() => {
+                    document.getElementById('batchProductSearch').focus();
+                }, 100);
+            }
+        }
+
         // POS Modal Functions
         function togglePOSModal(storeId, storeName, hasPos, terminalId) {
             document.getElementById('modal_store_id').value = storeId;

@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../config.php';
 require_once __DIR__ . '/../../functions.php';
+require_once __DIR__ . '/../../sql_db.php';
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
@@ -22,7 +23,32 @@ if ($id === '') {
 }
 
 // Fetch by Firestore document name
-$stock = fs_get_product_by_doc($id);
+$stock = null;
+
+// 1. Try SQL Loading (Primary)
+if ($id !== '') {
+    try {
+        $sqlDb = SQLDatabase::getInstance();
+        // If id looks like an integer, try ID lookup
+        if (ctype_digit($id)) {
+            $row = $sqlDb->fetch("SELECT * FROM products WHERE id = ?", [$id]);
+            if ($row) {
+                $stock = $row;
+                $stock['doc_id'] = (string)$row['id']; // Map ID to doc_id
+                // Ensure numeric types
+                $stock['quantity'] = (int)$stock['quantity'];
+                $stock['reorder_level'] = (int)$stock['reorder_level'];
+                $stock['price'] = (float)$stock['price'];
+            }
+        }
+    } catch (Exception $e) {
+        // SQL failed, ignore
+    }
+}
+
+// 2. Fallback to Firestore
+if (!$stock) $stock = fs_get_product_by_doc($id);
+
 if (!$stock) {
   http_response_code(404);
   exit('Stock not found');

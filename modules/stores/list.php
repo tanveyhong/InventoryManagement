@@ -127,11 +127,26 @@ $page_title = 'Store Management - Inventory System';
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     
     <style>
+        :root {
+            --primary: #4f46e5;
+            --primary-dark: #4338ca;
+            --secondary: #64748b;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --background: #f3f4f6;
+            --surface: #ffffff;
+            --text-main: #1f2937;
+            --text-light: #6b7280;
+            --border: #e5e7eb;
+        }
+
         body {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background-color: var(--background);
             min-height: 100vh;
             margin: 0;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: 'Inter', 'Segoe UI', sans-serif;
+            color: var(--text-main);
         }
         
         .container {
@@ -141,45 +156,73 @@ $page_title = 'Store Management - Inventory System';
         }
         
         .header {
-            background: white;
-            border-radius: 12px;
-            padding: 25px;
-            margin-bottom: 25px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-        }
-        
-        .header h1 {
-            margin: 0 0 10px 0;
-            color: #667eea;
-            font-size: 28px;
-        }
-        
-        .stats {
-            display: flex;
-            gap: 20px;
-            margin-top: 15px;
-        }
-        
-        .stat {
-            background: #f8f9fa;
-            padding: 10px 20px;
-            border-radius: 8px;
-            font-size: 14px;
-        }
-        
-        .stat strong {
-            color: #667eea;
-            font-size: 18px;
-        }
-        
-        .controls {
-            background: white;
+            background: var(--surface);
             border-radius: 12px;
             padding: 20px;
             margin-bottom: 20px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+        
+        .header-content h1 {
+            margin: 0 0 5px 0;
+            color: var(--text-main);
+            font-size: 24px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .header-content h1 i {
+            color: var(--primary);
+        }
+
+        .header-content p {
+            margin: 0;
+            color: var(--text-light);
+            font-size: 14px;
+        }
+        
+        .stats-container {
             display: flex;
             gap: 15px;
+        }
+        
+        .stat-card {
+            background: #f8fafc;
+            padding: 10px 15px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            min-width: 100px;
+        }
+        
+        .stat-card .value {
+            color: var(--primary);
+            font-size: 20px;
+            font-weight: 700;
+            line-height: 1.2;
+        }
+        
+        .stat-card .label {
+            color: var(--text-light);
+            font-size: 12px;
+            font-weight: 500;
+            margin-top: 2px;
+        }
+        
+        .controls {
+            background: var(--surface);
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 20px;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+            display: flex;
+            gap: 12px;
             align-items: center;
             flex-wrap: wrap;
         }
@@ -192,244 +235,419 @@ $page_title = 'Store Management - Inventory System';
         
         .search-box input {
             width: 100%;
-            padding: 12px 40px 12px 15px;
-            border: 2px solid #e1e4e8;
+            padding: 8px 40px 8px 15px;
+            border: 1px solid var(--border);
             border-radius: 8px;
             font-size: 14px;
+            transition: all 0.2s;
+            background: #f9fafb;
+        }
+
+        .search-box input:focus {
+            outline: none;
+            border-color: var(--primary);
+            background: white;
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
         }
         
         .search-box button {
             position: absolute;
-            right: 5px;
+            right: 8px;
             top: 50%;
             transform: translateY(-50%);
-            background: #667eea;
-            color: white;
+            background: transparent;
+            color: var(--text-light);
             border: none;
-            padding: 8px 15px;
-            border-radius: 6px;
+            padding: 6px;
             cursor: pointer;
+            transition: color 0.2s;
+        }
+
+        .search-box button:hover {
+            color: var(--primary);
         }
         
         .btn {
-            padding: 12px 20px;
+            padding: 8px 16px;
             border-radius: 8px;
             border: none;
             cursor: pointer;
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 600;
             text-decoration: none;
             display: inline-flex;
             align-items: center;
-            gap: 8px;
-            transition: all 0.3s;
+            gap: 6px;
+            transition: all 0.2s;
         }
         
         .btn-primary {
-            background: #667eea;
+            background: var(--primary);
             color: white;
+            box-shadow: 0 4px 6px -1px rgba(79, 70, 229, 0.2);
         }
         
         .btn-primary:hover {
-            background: #5568d3;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+            background: var(--primary-dark);
+            transform: translateY(-1px);
+            box-shadow: 0 6px 8px -1px rgba(79, 70, 229, 0.3);
+        }
+
+        .btn-secondary {
+            background: white;
+            color: var(--text-main);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover {
+            background: #f9fafb;
+            border-color: #d1d5db;
         }
         
         .stores-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
         }
         
         .store-card {
-            background: white;
+            background: var(--surface);
             border-radius: 12px;
-            padding: 20px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
-            transition: all 0.3s;
+            padding: 15px;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+            transition: all 0.3s ease;
+            border: 1px solid transparent;
+            display: flex;
+            flex-direction: column;
         }
         
         .store-card:hover {
-            transform: translateY(-4px);
-            box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            border-color: var(--primary);
         }
-        
+
         .store-header {
             display: flex;
             justify-content: space-between;
-            align-items: start;
+            align-items: flex-start;
             margin-bottom: 15px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid var(--border);
         }
         
         .store-name {
             font-size: 18px;
-            font-weight: bold;
-            color: #1f2937;
-            margin: 0;
+            font-weight: 700;
+            color: var(--text-main);
+            margin: 0 0 4px 0;
+            line-height: 1.3;
         }
         
         .store-code {
-            background: #667eea;
-            color: white;
+            background: #e0e7ff;
+            color: var(--primary);
             padding: 4px 10px;
-            border-radius: 6px;
-            font-size: 12px;
-            font-weight: 600;
+            border-radius: 15px;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
         }
         
         .store-info {
-            margin: 12px 0;
-            color: #6b7280;
-            font-size: 14px;
+            margin-bottom: 15px;
+            flex-grow: 1;
         }
         
-        .store-info i {
-            width: 20px;
-            color: #667eea;
+        .info-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+            color: var(--text-light);
+            font-size: 13px;
+        }
+        
+        .info-row i {
+            width: 16px;
+            color: var(--primary);
+            text-align: center;
         }
         
         .store-stats {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 10px;
-            margin: 15px 0;
+            margin-bottom: 15px;
+            background: #f8fafc;
+            padding: 10px;
+            border-radius: 8px;
         }
         
         .stat-item {
-            background: #f8f9fa;
-            padding: 10px;
-            border-radius: 6px;
             text-align: center;
         }
         
         .stat-item .value {
-            font-size: 20px;
-            font-weight: bold;
-            color: #667eea;
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--text-main);
         }
         
         .stat-item .label {
-            font-size: 12px;
-            color: #6b7280;
-            margin-top: 4px;
+            font-size: 11px;
+            color: var(--text-light);
+            margin-top: 2px;
         }
         
         .store-actions {
-            display: flex;
-            gap: 8px;
-            margin-top: 15px;
-            padding-top: 15px;
-            border-top: 1px solid #e5e7eb;
-        }
-        
-        .store-actions a {
-            flex: 1;
-            text-align: center;
-            padding: 8px;
-            border-radius: 6px;
-            text-decoration: none;
-            font-size: 13px;
-            font-weight: 600;
-            transition: all 0.2s;
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 10px;
         }
         
         .btn-view {
-            background: #e0e7ff;
-            color: #667eea;
+            background: var(--primary);
+            color: white;
+            text-align: center;
+            padding: 10px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.2s;
+            display: block;
         }
         
         .btn-view:hover {
-            background: #667eea;
+            background: var(--primary-dark);
+        }
+
+        .btn-delete {
+            background: #fee2e2;
+            color: #ef4444;
+            text-align: center;
+            padding: 10px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.2s;
+            display: block;
+            border: none;
+            cursor: pointer;
+            width: 100%;
+        }
+        
+        .btn-delete:hover {
+            background: #ef4444;
+            color: white;
+        }
+
+        .btn-inventory {
+            background: #d1fae5;
+            color: #059669;
+            text-align: center;
+            padding: 10px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.2s;
+            display: block;
+        }
+
+        .btn-inventory:hover {
+            background: #059669;
             color: white;
         }
         
-        .btn-edit {
-            background: #fef3c7;
-            color: #f59e0b;
+        .store-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
         }
-        
-        .btn-edit:hover {
-            background: #f59e0b;
-            color: white;
+
+        .store-actions.has-delete {
+            grid-template-columns: 1fr 1fr 1fr;
         }
         
         .pagination {
-            background: white;
-            border-radius: 12px;
-            padding: 20px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+            background: var(--surface);
+            border-radius: 16px;
+            padding: 20px 30px;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
             display: flex;
             justify-content: space-between;
             align-items: center;
-        }
-        
-        .pagination-info {
-            color: #6b7280;
-            font-size: 14px;
+            flex-wrap: wrap;
+            gap: 20px;
         }
         
         .pagination-links {
             display: flex;
-            gap: 8px;
+            gap: 6px;
         }
         
         .pagination-links a,
         .pagination-links span {
-            padding: 8px 12px;
-            border-radius: 6px;
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
             text-decoration: none;
             font-size: 14px;
             font-weight: 600;
+            transition: all 0.2s;
         }
         
         .pagination-links a {
-            background: #f3f4f6;
-            color: #667eea;
+            background: transparent;
+            color: var(--text-light);
+            border: 1px solid var(--border);
         }
         
         .pagination-links a:hover {
-            background: #667eea;
-            color: white;
+            background: #f3f4f6;
+            color: var(--primary);
+            border-color: var(--primary);
         }
         
         .pagination-links .current {
-            background: #667eea;
+            background: var(--primary);
             color: white;
-        }
-        
-        .message {
-            padding: 15px 20px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            font-weight: 500;
-        }
-        
-        .message.success {
-            background: #d1fae5;
-            color: #065f46;
-            border-left: 4px solid #10b981;
-        }
-        
-        .message.error {
-            background: #fee2e2;
-            color: #991b1b;
-            border-left: 4px solid #ef4444;
+            border: 1px solid var(--primary);
         }
         
         .no-stores {
-            background: white;
-            border-radius: 12px;
-            padding: 60px 20px;
+            background: var(--surface);
+            border-radius: 16px;
+            padding: 80px 20px;
             text-align: center;
-            color: #6b7280;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+        }
+
+        /* List Layout Styles */
+        .stores-grid.layout-list {
+            grid-template-columns: 1fr;
+            gap: 10px;
         }
         
-        .no-stores i {
-            font-size: 48px;
-            color: #d1d5db;
-            margin-bottom: 20px;
+        .stores-grid.layout-list .store-card {
+            flex-direction: row;
+            align-items: center;
+            gap: 20px;
+            padding: 15px 25px;
+        }
+        
+        .stores-grid.layout-list .store-header {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 0;
+            width: 250px;
+            flex-shrink: 0;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 5px;
+        }
+        
+        .stores-grid.layout-list .store-info {
+            margin-bottom: 0;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px 30px;
+            flex-grow: 1;
+        }
+        
+        .stores-grid.layout-list .store-stats {
+            margin-bottom: 0;
+            width: 200px;
+            flex-shrink: 0;
+            background: transparent;
+            padding: 0;
+            border: none;
+        }
+        
+        .stores-grid.layout-list .store-actions {
+            width: 150px;
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        
+        .stores-grid.layout-list .store-actions.has-delete {
+            grid-template-columns: 1fr;
+        }
+
+        .layout-toggles {
+            display: flex;
+            background: #f3f4f6;
+            padding: 4px;
+            border-radius: 8px;
+            gap: 4px;
+        }
+
+        .layout-btn {
+            padding: 6px 10px;
+            border: none;
+            background: transparent;
+            border-radius: 6px;
+            cursor: pointer;
+            color: var(--text-light);
+            transition: all 0.2s;
+        }
+
+        .layout-btn.active {
+            background: white;
+            color: var(--primary);
+            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        }
+
+        @media (max-width: 1024px) {
+            .stores-grid.layout-list .store-card {
+                flex-wrap: wrap;
+            }
+            .stores-grid.layout-list .store-info {
+                width: 100%;
+                order: 3;
+                margin-top: 15px;
+                padding-top: 15px;
+                border-top: 1px solid var(--border);
+            }
+            .stores-grid.layout-list .store-stats {
+                margin-left: auto;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            
+            .stats-container {
+                width: 100%;
+                overflow-x: auto;
+                padding-bottom: 10px;
+            }
+            
+            .stores-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .pagination {
+                flex-direction: column;
+                gap: 15px;
+                text-align: center;
+            }
+
+            .layout-toggles {
+                display: none; /* Hide layout toggle on mobile, force grid */
+            }
         }
     </style>
 </head>
@@ -439,20 +657,22 @@ $page_title = 'Store Management - Inventory System';
     <div class="container">
         <!-- Header -->
         <div class="header">
-            <h1><i class="fas fa-store"></i> Store Management</h1>
-            <p>Manage your retail locations</p>
-            <div class="stats">
-                <div class="stat">
-                    <div><strong><?php echo number_format($total_records); ?></strong></div>
-                    <div>Total Stores</div>
+            <div class="header-content">
+                <h1><i class="fas fa-store"></i> Store Management</h1>
+                <p>Manage your retail locations</p>
+            </div>
+            <div class="stats-container">
+                <div class="stat-card">
+                    <div class="value"><?php echo number_format($total_records); ?></div>
+                    <div class="label">Total Stores</div>
                 </div>
-                <div class="stat">
-                    <div><strong><?php echo number_format(array_sum(array_column($stores, 'product_count'))); ?></strong></div>
-                    <div>Total Products</div>
+                <div class="stat-card">
+                    <div class="value"><?php echo number_format(array_sum(array_column($stores, 'product_count'))); ?></div>
+                    <div class="label">Total Products</div>
                 </div>
-                <div class="stat">
-                    <div><strong><?php echo number_format(array_sum(array_column($stores, 'total_stock'))); ?></strong></div>
-                    <div>Total Stock</div>
+                <div class="stat-card">
+                    <div class="value"><?php echo number_format(array_sum(array_column($stores, 'total_stock'))); ?></div>
+                    <div class="label">Total Stock</div>
                 </div>
             </div>
         </div>
@@ -465,13 +685,22 @@ $page_title = 'Store Management - Inventory System';
                 <button type="submit"><i class="fas fa-search"></i></button>
             </form>
             
+            <div class="layout-toggles">
+                <button class="layout-btn active" onclick="switchLayout('grid')" title="Grid View">
+                    <i class="fas fa-th-large"></i>
+                </button>
+                <button class="layout-btn" onclick="switchLayout('list')" title="List View">
+                    <i class="fas fa-list"></i>
+                </button>
+            </div>
+
             <?php if (currentUserHasPermission('can_add_stores')): ?>
             <a href="add.php" class="btn btn-primary">
                 <i class="fas fa-plus"></i> Add New Store
             </a>
             <?php endif; ?>
             
-            <a href="list.php" class="btn" style="background: #f3f4f6; color: #6b7280;">
+            <a href="list.php" class="btn btn-secondary">
                 <i class="fas fa-sync-alt"></i> Refresh
             </a>
         </div>
@@ -496,13 +725,13 @@ $page_title = 'Store Management - Inventory System';
                 </div>
                 
                 <div class="store-info">
-                    <div><i class="fas fa-map-marker-alt"></i> <?php echo htmlspecialchars($store['address'] ?? 'N/A'); ?></div>
-                    <div><i class="fas fa-city"></i> <?php echo htmlspecialchars($store['city'] ?? 'N/A'); ?>, <?php echo htmlspecialchars($store['state'] ?? 'N/A'); ?></div>
+                    <div class="info-row"><i class="fas fa-map-marker-alt"></i> <?php echo htmlspecialchars($store['address'] ?? 'N/A'); ?></div>
+                    <div class="info-row"><i class="fas fa-city"></i> <?php echo htmlspecialchars($store['city'] ?? 'N/A'); ?>, <?php echo htmlspecialchars($store['state'] ?? 'N/A'); ?></div>
                     <?php if (!empty($store['phone'])): ?>
-                    <div><i class="fas fa-phone"></i> <?php echo htmlspecialchars($store['phone']); ?></div>
+                    <div class="info-row"><i class="fas fa-phone"></i> <?php echo htmlspecialchars($store['phone']); ?></div>
                     <?php endif; ?>
                     <?php if (!empty($store['manager_name'])): ?>
-                    <div><i class="fas fa-user-tie"></i> <?php echo htmlspecialchars($store['manager_name']); ?></div>
+                    <div class="info-row"><i class="fas fa-user-tie"></i> <?php echo htmlspecialchars($store['manager_name']); ?></div>
                     <?php endif; ?>
                 </div>
                 
@@ -517,14 +746,17 @@ $page_title = 'Store Management - Inventory System';
                     </div>
                 </div>
                 
-                <div class="store-actions">
+                <div class="store-actions <?php echo currentUserHasPermission('can_delete_stores') ? 'has-delete' : ''; ?>">
                     <a href="profile.php?id=<?php echo $store['id']; ?>" class="btn-view">
                         <i class="fas fa-eye"></i> View
                     </a>
-                    <?php if (currentUserHasPermission('can_edit_stores')): ?>
-                    <a href="edit.php?id=<?php echo $store['id']; ?>" class="btn-edit">
-                        <i class="fas fa-edit"></i> Edit
+                    <a href="../stock/list.php?store=<?php echo $store['id']; ?>" class="btn-inventory">
+                        <i class="fas fa-boxes"></i> Stock
                     </a>
+                    <?php if (currentUserHasPermission('can_delete_stores')): ?>
+                    <button onclick="confirmDeleteStore(<?php echo $store['id']; ?>, '<?php echo htmlspecialchars(addslashes($store['name'])); ?>', <?php echo $store['product_count']; ?>)" class="btn-delete">
+                        <i class="fas fa-trash"></i> Delete
+                    </button>
                     <?php endif; ?>
                 </div>
             </div>
@@ -586,8 +818,81 @@ $page_title = 'Store Management - Inventory System';
         <?php endif; ?>
     </div>
     
+    <!-- Delete Confirmation Modal -->
+    <div id="deleteModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
+        <div style="background: white; padding: 25px; border-radius: 12px; width: 90%; max-width: 400px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);">
+            <h3 style="margin-top: 0; color: var(--text-main); font-size: 1.25rem;">Delete Store</h3>
+            <p style="color: var(--text-light); margin-bottom: 20px;">
+                Are you sure you want to delete <strong id="deleteStoreName"></strong>?
+                <br><br>
+                <span id="deleteStoreWarning" style="color: var(--danger); font-size: 0.9em;"></span>
+            </p>
+            
+            <form id="deleteStoreForm" action="" method="POST" style="display: flex; gap: 10px; justify-content: flex-end;">
+                <input type="hidden" name="confirm_delete" value="1">
+                <button type="button" onclick="closeDeleteModal()" class="btn btn-secondary">Cancel</button>
+                <button type="submit" class="btn btn-delete" style="width: auto;">Delete Store</button>
+            </form>
+        </div>
+    </div>
+
     <!-- Offline Functionality for Stores List -->
     <script>
+        function confirmDeleteStore(id, name, productCount) {
+            const modal = document.getElementById('deleteModal');
+            const form = document.getElementById('deleteStoreForm');
+            const nameSpan = document.getElementById('deleteStoreName');
+            const warningSpan = document.getElementById('deleteStoreWarning');
+            
+            form.action = 'delete.php?id=' + id;
+            nameSpan.textContent = name;
+            
+            if (productCount > 0) {
+                warningSpan.textContent = `Warning: This store contains ${productCount} products. They will be unassigned from this store.`;
+            } else {
+                warningSpan.textContent = 'This action cannot be undone.';
+            }
+            
+            modal.style.display = 'flex';
+        }
+
+        function closeDeleteModal() {
+            document.getElementById('deleteModal').style.display = 'none';
+        }
+
+        // Close modal when clicking outside
+        document.getElementById('deleteModal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                closeDeleteModal();
+            }
+        });
+
+        function switchLayout(layout) {
+            const grid = document.querySelector('.stores-grid');
+            const btns = document.querySelectorAll('.layout-btn');
+            
+            if (layout === 'list') {
+                grid.classList.add('layout-list');
+                btns[0].classList.remove('active');
+                btns[1].classList.add('active');
+            } else {
+                grid.classList.remove('layout-list');
+                btns[0].classList.add('active');
+                btns[1].classList.remove('active');
+            }
+            
+            // Save preference
+            localStorage.setItem('store_layout_preference', layout);
+        }
+
+        // Load preference on start
+        document.addEventListener('DOMContentLoaded', function() {
+            const savedLayout = localStorage.getItem('store_layout_preference');
+            if (savedLayout === 'list') {
+                switchLayout('list');
+            }
+        });
+
         document.addEventListener('DOMContentLoaded', async function() {
             if (window.offlineManager) {
                 try {

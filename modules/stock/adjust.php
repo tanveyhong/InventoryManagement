@@ -1,6 +1,7 @@
 <?php
 require_once '../../config.php';
 require_once '../../functions.php';
+require_once '../../sql_db.php';
 require_once '../../firebase_config.php';
 require_once '../../firebase_rest_client.php';
 require_once '../../getDB.php';
@@ -74,7 +75,29 @@ function fs_resolve_low_stock_if_recovered(
 
 
 // Fetch product
-$product = fs_get_product_by_doc($docId);
+$product = null;
+
+// 1. Try SQL Loading (Primary)
+if ($docId !== '') {
+    try {
+        $sqlDb = SQLDatabase::getInstance();
+        // If docId looks like an integer, try ID lookup
+        if (ctype_digit($docId)) {
+            $row = $sqlDb->fetch("SELECT * FROM products WHERE id = ?", [$docId]);
+            if ($row) {
+                $product = $row;
+                $product['doc_id'] = (string)$row['id']; // Map ID to doc_id
+                $product['quantity'] = (int)$product['quantity']; // Ensure int
+            }
+        }
+    } catch (Exception $e) {
+        // SQL failed, ignore
+    }
+}
+
+// 2. Fallback to Firestore
+if (!$product) $product = fs_get_product_by_doc($docId);
+
 if (!$product) die('Product not found');
 
 // Handle AJAX update
@@ -111,41 +134,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $ok = false;
   $err = null;
   
-  // Update Firebase first (primary database)
+  // Update SQL (Primary)
+  try {
+      $sqlDb = SQLDatabase::getInstance();
+      if (ctype_digit((string)$docId)) {
+          $sqlDb->execute("UPDATE products SET quantity = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [$newQty, $docId]);
+          $ok = true;
+      }
+  } catch (Exception $e) {
+      error_log("SQL Update failed in adjust.php: " . $e->getMessage());
+      // If SQL fails, we might still want to try Firestore if it's a Firestore-only product
+  }
+
+  // Update Firestore (Secondary/Sync)
   if ($db && method_exists($db, 'update')) {
     try {
-      $ok = $db->update('products', $docId, [
+      $db->update('products', $docId, [
         'quantity'   => $newQty,
         'updated_at' => date('c'),
       ]);
+      if (!$ok) $ok = true; // If SQL failed but Firestore worked, consider it a success (or partial)
     } catch (Throwable $t) {
       $err = $t->getMessage();
-      $ok = false;
+      if (!$ok) $ok = false; // If both failed
     }
   } else {
-    $err = 'Database update not available.';
+     if (!$ok) $err = 'Database update not available.';
   }
   
-  // Also update SQL database if available (for POS consistency)
+  // Clear caches
   if ($ok) {
     try {
-      require_once __DIR__ . '/../../sql_db.php';
-      $sqlDb = getSQLDB();
-      
-      if ($sqlDb) {
-        $updateSql = "UPDATE products SET quantity = ?, updated_at = ? WHERE id = ?";
-        $sqlDb->execute($updateSql, [$newQty, date('c'), $docId]);
-        error_log("Stock adjusted in SQL: Product {$docId} quantity updated to {$newQty}");
-        
-        // Clear POS cache to reflect changes
+        // Clear POS cache
         $posCacheFile = __DIR__ . '/../../storage/cache/pos_products.cache';
-        if (file_exists($posCacheFile)) {
-          @unlink($posCacheFile);
-        }
-      }
+        if (file_exists($posCacheFile)) @unlink($posCacheFile);
+        
+        // Clear List cache
+        $listCacheFile = __DIR__ . '/../../storage/cache/stock_list_data.cache';
+        if (file_exists($listCacheFile)) @unlink($listCacheFile);
+        
     } catch (Throwable $sqlErr) {
-      error_log("SQL stock adjustment failed (non-critical): " . $sqlErr->getMessage());
-      // Don't fail the whole operation if SQL update fails
+      // ignore cache clear errors
     }
   }
 

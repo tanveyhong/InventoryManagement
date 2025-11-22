@@ -51,7 +51,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_delete'])) {
         }
         
         // Soft delete the store
-        $result = $sqlDb->execute("UPDATE stores SET active = FALSE, updated_at = NOW() WHERE id = ?", [$store_id]);
+        $result = $sqlDb->execute("UPDATE stores SET active = FALSE, deleted_at = NOW(), updated_at = NOW() WHERE id = ?", [$store_id]);
         
         if ($result) {
             addNotification('Store deleted successfully!', 'success');

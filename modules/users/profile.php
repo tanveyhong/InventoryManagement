@@ -262,8 +262,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <title><?= htmlspecialchars($pageTitle) ?> - Inventory System</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     
-    <!-- Dashboard Header Styles -->
-    <?php include '../../includes/dashboard_header.php'; ?>
+    <!-- Dashboard Header Styles removed from here to fix HTML structure -->
     
     <style>
         * {
@@ -1019,14 +1018,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </style>
 </head>
 <body>
-    <!-- Loading Overlay -->
-    <div id="refresh-loading-overlay">
-        <div class="loading-content">
-            <div class="loading-spinner"></div>
-            <h3 style="margin: 0 0 10px 0; color: #1f2937;">Refreshing Cache</h3>
-            <p style="margin: 0; color: #6b7280;">Fetching latest data from server...</p>
-        </div>
-    </div>
+    <?php include '../../includes/dashboard_header.php'; ?>
+
+    <!-- Loading Overlay removed -->
     
     <!-- Connectivity Indicator -->
     <div id="connectivity-indicator" class="online" style="display: none;">
@@ -1095,10 +1089,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </div>
             </div>
             <div style="margin-left: auto;">
-                <button id="refreshCacheBtn" class="btn" style="background: linear-gradient(135deg, #667eea, #764ba2); color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 8px;">
-                    <i class="fas fa-sync-alt" id="refreshIcon"></i> 
-                    <span id="refreshText">Refresh Cache</span>
-                </button>
+                <!-- Cache refresh button removed -->
             </div>
         </div>
         
@@ -1617,44 +1608,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     
                     // Load users for admin dropdown
                     if (isAdmin) {
-                        if (!window.usersListCache) {
-                            fetch('profile/api.php?action=get_all_users')
-                                .then(r => r.json())
-                                .then(result => {
-                                    if (result.success) {
-                                        window.usersListCache = result.data;
-                                        const select = document.getElementById('activity-user-filter');
-                                        if (select) {
-                                            result.data.forEach(u => {
-                                                if (u.id !== '<?= $_SESSION['user_id'] ?>') {
-                                                    const opt = document.createElement('option');
-                                                    opt.value = u.id;
-                                                    opt.textContent = u.username + ' (' + u.role + ')';
-                                                    select.appendChild(opt);
-                                                }
-                                            });
-                                            select.addEventListener('change', () => {
-                                                loadActivities(false, true);
-                                            });
+                        fetch('profile/api.php?action=get_all_users')
+                            .then(r => r.json())
+                            .then(result => {
+                                if (result.success) {
+                                    const select = document.getElementById('activity-user-filter');
+                                    if (select) {
+                                        // Clear existing options except first
+                                        while (select.options.length > 1) {
+                                            select.remove(1);
                                         }
+                                        
+                                        result.data.forEach(u => {
+                                            if (u.id !== '<?= $_SESSION['user_id'] ?>') {
+                                                const opt = document.createElement('option');
+                                                opt.value = u.id;
+                                                opt.textContent = u.username + ' (' + u.role + ')';
+                                                select.appendChild(opt);
+                                            }
+                                        });
+                                        
+                                        // Remove old listener to prevent duplicates (cloning)
+                                        const newSelect = select.cloneNode(true);
+                                        select.parentNode.replaceChild(newSelect, select);
+                                        
+                                        newSelect.addEventListener('change', () => {
+                                            loadActivities(false, true);
+                                        });
                                     }
-                                });
-                        } else {
-                            const select = document.getElementById('activity-user-filter');
-                            if (select && window.usersListCache) {
-                                window.usersListCache.forEach(u => {
-                                    if (u.id !== '<?= $_SESSION['user_id'] ?>') {
-                                        const opt = document.createElement('option');
-                                        opt.value = u.id;
-                                        opt.textContent = u.username + ' (' + u.role + ')';
-                                        select.appendChild(opt);
-                                    }
-                                });
-                                select.addEventListener('change', () => {
-                                    loadActivities(false, true);
-                                });
-                            }
-                        }
+                                }
+                            });
                     }
                 }, 100);
             }
@@ -1672,46 +1655,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
                 // Check if we need to load (only if not appending and not forced)
                 if (!append && !skipCache) {
-                    const lastLoadTime = localStorage.getItem('activities_last_load');
-                    const cachedData = localStorage.getItem('activities_cache');
-                    
-                    if (lastLoadTime && cachedData) {
-                        try {
-                            // Check if there are new records
-                            const checkResponse = await fetch(
-                                `profile/api.php?action=check_new_activities&since=${lastLoadTime}`,
-                                { signal: abortController?.signal }
-                            );
-                            const checkData = await checkResponse.json();
-                            
-                            if (checkData.success && !checkData.has_new) {
-                                console.log('No new activities, using cache');
-                                // Use cached data
-                                allActivitiesCache = JSON.parse(cachedData);
-                                
-                                // Hide loading, show content
-                                document.getElementById('activity-loading').style.display = 'none';
-                                document.getElementById('activity-content').style.display = 'block';
-                                
-                                // Add toolbar even when using cache
-                                const container = document.getElementById('activity-content');
-                                if (container && !container.querySelector('.activity-manager-toolbar')) {
-                                    addActivityManagerToolbar();
-                                }
-                                
-                                // Render cached activities
-                                renderActivities();
-                                updateActivityStats();
-                                
-                                loadingActivities = false;
-                                return;
-                            } else {
-                                console.log('New activities detected, loading...');
-                            }
-                        } catch (cacheError) {
-                            console.log('Cache check failed, loading fresh data:', cacheError);
-                        }
-                    }
+                    // Cache check removed
                 }
                 
                 if (!append) {
@@ -1757,14 +1701,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     } else {
                         allActivitiesCache = data.data;
                         
-                        // Store in localStorage for future loads
-                        try {
-                            localStorage.setItem('activities_cache', JSON.stringify(allActivitiesCache));
-                            localStorage.setItem('activities_last_load', new Date().toISOString());
-                            console.log('Activities cached successfully');
-                        } catch (storageError) {
-                            console.warn('Failed to cache activities:', storageError);
-                        }
+                        // LocalStorage cache removed
                     }
                     
                     const container = document.getElementById('activity-content');
@@ -1988,39 +1925,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         async function loadStores() {
             try {
-                // Check cache first
-                const lastLoadTime = localStorage.getItem('stores_last_load');
-                const cachedData = localStorage.getItem('stores_cache');
-                
-                if (lastLoadTime && cachedData) {
-                    const cacheAge = Date.now() - new Date(lastLoadTime).getTime();
-                    // Use cache if less than 5 minutes old
-                    if (cacheAge < 5 * 60 * 1000) {
-                        console.log('Using cached stores data');
-                        const data = JSON.parse(cachedData);
-                        
-                        document.getElementById('stores-loading').style.display = 'none';
-                        document.getElementById('stores-content').style.display = 'block';
-                        
-                        renderStores(data);
-                        return;
-                    }
-                }
+                // Cache check removed
                 
                 console.log('Loading fresh stores data');
                 const response = await fetch('profile/api.php?action=get_stores');
                 const data = await response.json();
                 
-                // Cache the data
-                if (data.success) {
-                    try {
-                        localStorage.setItem('stores_cache', JSON.stringify(data));
-                        localStorage.setItem('stores_last_load', new Date().toISOString());
-                        console.log('Stores cached successfully');
-                    } catch (storageError) {
-                        console.warn('Failed to cache stores:', storageError);
-                    }
-                }
+                // Cache storage removed
                 
                 document.getElementById('stores-loading').style.display = 'none';
                 document.getElementById('stores-content').style.display = 'block';
@@ -2234,8 +2145,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             isOffline: false
         };
         
-        // Store in sessionStorage for quick access
-        sessionStorage.setItem('profileData', JSON.stringify(profileData));
+        // SessionStorage cache removed
         
         // Wait for all components to be ready
         setTimeout(async () => {
@@ -2244,10 +2154,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 return;
             }
             
-            // Cache profile in IndexedDB
+            // Cache profile in IndexedDB removed
             try {
-                await window.profileOfflineStorage.cacheProfile('<?php echo $userId; ?>', profileData);
-                console.log('Profile cached in IndexedDB');
+                // Cache removed
+                console.log('Profile cache disabled');
             } catch (error) {
                 console.error('Failed to cache profile:', error);
             }
@@ -2327,103 +2237,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }, 500);
     });
     
-    // Manual cache refresh function - Make it globally accessible
-    // Updated: 2025-10-16 - Global function for button onclick
-    window.refreshCache = async function() {
-        console.log('=== REFRESH CACHE FUNCTION CALLED ===');
-        const btn = document.getElementById('refreshCacheBtn');
-        const icon = document.getElementById('refreshIcon');
-        const text = document.getElementById('refreshText');
-        const status = document.getElementById('cacheStatus');
-        const overlay = document.getElementById('refresh-loading-overlay');
-        
-        console.log('Refresh cache clicked');
-        console.log('Overlay element:', overlay);
-        
-        // Show loading overlay FIRST
-        if (overlay) {
-            overlay.classList.add('active');
-            console.log('Overlay activated, classes:', overlay.className);
-        } else {
-            console.error('Overlay element not found!');
-        }
-        
-        // Disable button and show loading state
-        btn.disabled = true;
-        btn.style.opacity = '0.6';
-        btn.style.cursor = 'not-allowed';
-        icon.classList.add('fa-spin');
-        text.textContent = 'Refreshing...';
-        
-        // Also change button background for extra visibility
-        const originalBg = btn.style.background;
-        btn.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
-        btn.style.filter = 'brightness(0.8)';
-        
-        try {
-            // Try AJAX refresh first for better UX
-            const currentUrl = new URL(window.location.href);
-            currentUrl.searchParams.set('refresh_cache', '1');
-            currentUrl.searchParams.set('ajax', '1');
-            
-            console.log('Fetching:', currentUrl.toString());
-            
-            const response = await fetch(currentUrl.toString(), {
-                method: 'GET',
-                headers: {
-                    'X-Requested-With': 'XMLHttpRequest'
-                }
-            });
-            
-            console.log('Response received:', response.ok);
-            
-            if (response.ok) {
-                // Success - update status and show notification
-                status.textContent = 'Cache: Updated just now';
-                text.textContent = 'Refresh Cache';
-                icon.classList.remove('fa-spin');
-                btn.disabled = false;
-                btn.style.opacity = '1';
-                btn.style.cursor = 'pointer';
-                btn.style.background = originalBg;
-                btn.style.filter = 'none';
-                
-                if (window.connectivityMonitor) {
-                    window.connectivityMonitor.showNotification(
-                        'Cache refreshed successfully!',
-                        'success'
-                    );
-                }
-                
-                // Keep overlay visible for 1.5 seconds to ensure user sees it
-                setTimeout(() => {
-                    console.log('Hiding overlay and reloading');
-                    if (overlay) {
-                        overlay.classList.remove('active');
-                    }
-                    setTimeout(() => {
-                        window.location.reload();
-                    }, 300);
-                }, 1500);
-            } else {
-                throw new Error('Refresh failed');
-            }
-        } catch (error) {
-            console.error('AJAX refresh failed, doing full page reload:', error);
-            
-            // Hide overlay
-            if (overlay) {
-                overlay.classList.remove('active');
-            }
-            
-            // Fallback to full page reload
-            const currentUrl = new URL(window.location.href);
-            currentUrl.searchParams.set('refresh_cache', '1');
-            window.location.href = currentUrl.toString();
-        }
-    };
+    // Manual cache refresh function removed
     
-    // Background auto-refresh (every 30 seconds when online)    // Background auto-refresh (every 30 seconds when online)
+    // Background auto-refresh removed
     let autoRefreshInterval = null;
     
     // Global user ID for API calls
@@ -2431,35 +2247,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     console.log('Global userId initialized:', userId);
     
     function startAutoRefresh() {
-        // Only auto-refresh if online
-        if (navigator.onLine) {
-            autoRefreshInterval = setInterval(() => {
-                if (navigator.onLine) {
-                    // Silently refresh cache in background using fetch
-                    fetch(window.location.href + (window.location.search ? '&' : '?') + 'refresh_cache=1&silent=1')
-                        .then(response => {
-                            if (response.ok) {
-                                console.log('Background cache refresh successful');
-                                // Update cache status display
-                                const status = document.getElementById('cacheStatus');
-                                if (status) {
-                                    status.textContent = 'Cache: Updated just now';
-                                }
-                            }
-                        })
-                        .catch(error => {
-                            console.log('Background refresh failed:', error);
-                        });
-                }
-            }, 30000); // 30 seconds
-        }
+        // Auto-refresh disabled
     }
     
     function stopAutoRefresh() {
-        if (autoRefreshInterval) {
-            clearInterval(autoRefreshInterval);
-            autoRefreshInterval = null;
-        }
+        // Auto-refresh disabled
     }
     
     // Load profile statistics
@@ -2728,9 +2520,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     // Refresh stores data
     async function refreshStores() {
-        // Clear cache
-        localStorage.removeItem('stores_cache');
-        localStorage.removeItem('stores_last_load');
+        // Cache clear removed
         
         // Show loading
         document.getElementById('stores-content').style.display = 'none';
@@ -3167,23 +2957,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         // Profile page now only contains personal info - no admin features to load
         console.log('Profile page initialized - personal view only');
-        
-        // Attach click handler to refresh button
-        const refreshBtn = document.getElementById('refreshCacheBtn');
-        if (refreshBtn) {
-            console.log('Attaching click handler to refresh button');
-            refreshBtn.addEventListener('click', function(e) {
-                e.preventDefault();
-                console.log('Refresh button clicked via event listener');
-                if (typeof window.refreshCache === 'function') {
-                    window.refreshCache();
-                } else {
-                    console.error('window.refreshCache is not a function!', typeof window.refreshCache);
-                }
-            });
-        } else {
-            console.error('Refresh button not found!');
-        }
         
         startAutoRefresh();
         

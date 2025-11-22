@@ -34,171 +34,24 @@ if (strpos($currentPath, 'modules/users/profile/') !== false) {
     $baseUrl = '';
 }
 
+// Determine active section for navigation highlighting
+$activeSection = '';
+if (strpos($currentPath, '/index.php') !== false && strpos($currentPath, '/modules/') === false) {
+    $activeSection = 'dashboard';
+} elseif (strpos($currentPath, '/modules/stock/') !== false || strpos($currentPath, '/modules/pos/') !== false) {
+    $activeSection = 'stock';
+} elseif (strpos($currentPath, '/modules/stores/') !== false) {
+    $activeSection = 'stores';
+} elseif (strpos($currentPath, '/modules/suppliers/') !== false || strpos($currentPath, '/modules/purchase_orders/') !== false) {
+    $activeSection = 'supply_chain';
+} elseif (strpos($currentPath, '/modules/reports/') !== false || strpos($currentPath, '/modules/forecasting/') !== false) {
+    $activeSection = 'reports';
+} elseif (strpos($currentPath, '/modules/alerts/') !== false) {
+    $activeSection = 'alerts';
+}
+
 ?>
 
-<!-- Modern Navigation Header -->
-<div class="dashboard-wrapper">
-    <!-- Top Navigation Bar -->
-    <nav class="top-navbar">
-        <div class="navbar-container">
-            <!-- Left Section: Brand -->
-            <div class="navbar-brand">
-                <a href="<?php echo $baseUrl . 'index.php'; ?>" class="brand-link">
-                    <div class="brand-icon">
-                        <i class="fas fa-cube"></i>
-                    </div>
-                    <div class="brand-text">
-                        <span class="brand-name">Inventory Pro</span>
-                        <span class="brand-subtitle">Management System</span>
-                    </div>
-                </a>
-            </div>
-
-            <!-- Center Section: Navigation Menu -->
-            <div class="navbar-menu">
-                <a href="<?php echo $baseUrl . 'index.php'; ?>" class="nav-item active">
-                    <i class="fas fa-home"></i>
-                    <span>Dashboard</span>
-                </a>
-                
-                <?php if (currentUserHasPermission('can_view_inventory') || currentUserHasPermission('can_use_pos') || currentUserHasPermission('can_add_inventory')): ?>
-                <div class="nav-dropdown">
-                    <a href="#" class="nav-item">
-                        <i class="fas fa-boxes"></i>
-                        <span>Stock</span>
-                        <i class="fas fa-chevron-down dropdown-arrow"></i>
-                    </a>
-                    <div class="dropdown-content">
-                        <a href="<?php echo $baseUrl . 'modules/stock/list.php'; ?>">
-                            <i class="fas fa-list"></i> Stock Listing
-                        </a>
-                        <?php if (currentUserHasPermission('can_add_inventory') || currentUserHasPermission('can_edit_inventory')): ?>
-                            <a href="<?php echo $baseUrl . 'modules/stock/add.php'; ?>">
-                                <i class="fas fa-plus"></i> Add Stock
-                            </a>
-                        <?php endif; ?>
-                        <a href="<?php echo $baseUrl . 'modules/stock/stockAuditHis.php'; ?>">
-                            <i class="fas fa-edit"></i> Stock Audit History
-                        </a>
-                        <?php if (currentUserHasPermission('can_manage_pos') || currentUserHasPermission('can_use_pos')): ?>
-                        <a href="<?php echo $baseUrl . 'modules/pos/stock_pos_integration.php'; ?>">
-                            <i class="fas fa-cash-register"></i> POS Integration
-                        </a>
-                        <?php endif; ?>
-                            <a href="<?php echo $baseUrl . 'modules/stock/mobileBarcodeScan.php'; ?>">
-                                <i class="fas fa-barcode"></i> Product Barcode Scanning
-                            </a>
-                    </div>
-                </div>
-                <?php endif; ?>
-                
-                <?php if (currentUserHasPermission('can_view_stores') || currentUserHasPermission('can_add_stores')): ?>
-                <div class="nav-dropdown">
-                    <a href="#" class="nav-item">
-                        <i class="fas fa-store"></i>
-                        <span>Stores</span>
-                        <i class="fas fa-chevron-down dropdown-arrow"></i>
-                    </a>
-                    <div class="dropdown-content">
-                        <a href="<?php echo $baseUrl . 'modules/stores/list.php'; ?>">
-                            <i class="fas fa-list"></i> Store List
-                        </a>
-                        <?php if (currentUserHasPermission('can_add_stores')): ?>
-                            <a href="<?php echo $baseUrl . 'modules/stores/add.php'; ?>">
-                                <i class="fas fa-plus"></i> Add Store
-                            </a>
-                        <?php endif; ?>
-                        <a href="<?php echo $baseUrl . 'modules/stores/map.php'; ?>">
-                            <i class="fas fa-map"></i> Store Map
-                        </a>
-                    </div>
-                </div>
-                <?php endif; ?>
-                
-                <?php if (currentUserHasPermission('can_view_reports')): ?>
-                <div class="nav-dropdown">
-                    <a href="#" class="nav-item">
-                        <i class="fas fa-chart-line"></i>
-                        <span>Reports</span>
-                        <i class="fas fa-chevron-down dropdown-arrow"></i>
-                    </a>
-                    <div class="dropdown-content">
-                        <a href="<?php echo $baseUrl . 'modules/reports/sales.php'; ?>">
-                            <i class="fas fa-dollar-sign"></i> Sales Reports
-                        </a>
-                        <a href="<?php echo $baseUrl . 'modules/reports/inventory_report.php'; ?>">
-                            <i class="fas fa-boxes"></i> Inventory Reports
-                        </a>
-                        <a href="<?php echo $baseUrl . 'modules/forecasting/index.php'; ?>">
-                            <i class="fas fa-chart-area"></i> Demand Forecast
-                        </a>
-                    </div>
-                </div>
-                <?php endif; ?>
-                
-                <?php if (currentUserHasPermission('can_view_inventory') || currentUserHasPermission('can_view_reports')): ?>
-                <div class="nav-dropdown">
-                    <a href="#" class="nav-item">
-                        <i class="fas fa-exclamation-triangle"></i>
-                        <span>Alerts</span>
-                        <i class="fas fa-chevron-down dropdown-arrow"></i>
-                    </a>
-                    <div class="dropdown-content">
-                        <a href="<?php echo $baseUrl . 'modules/alerts/expiry_alert.php'; ?>">
-                            <i class="fas fa-calendar-times"></i> Expiry Products
-                        </a>
-                        <a href="<?php echo $baseUrl . 'modules/alerts/alert_history.php'; ?>">
-                            <i class="fas fa-exclamation-circle"></i> Alert History
-                        </a>
-                    </div>
-                </div>
-                <?php endif; ?>
-            </div>
-
-            <!-- Right Section: User Actions -->
-            <div class="navbar-user">
-                <!-- Online/Offline Indicator -->
-                <div id="connection-status" class="connection-status online">
-                    <div class="status-dot"></div>
-                    <span class="status-text">Online</span>
-                </div>
-                
-                <div class="user-dropdown">
-                    <a href="#" class="user-profile">
-                        <div class="user-avatar">
-                            <i class="fas fa-user"></i>
-                        </div>
-                        <span class="user-name"><?php echo isset($_SESSION['username']) ? htmlspecialchars($_SESSION['username']) : 'User'; ?></span>
-                        <i class="fas fa-chevron-down dropdown-arrow"></i>
-                    </a>
-                    <div class="dropdown-content user-menu">
-                        <a href="<?php echo $baseUrl . 'modules/users/profile.php'; ?>">
-                            <i class="fas fa-user-circle"></i> Profile
-                        </a>
-                        <?php if (currentUserHasPermission('can_manage_users') || currentUserHasPermission('can_view_users')): ?>
-                        <a href="<?php echo $baseUrl . 'modules/users/management.php'; ?>">
-                            <i class="fas fa-users-cog"></i> User Management
-                        </a>
-                        <?php endif; ?>
-                        <a href="<?php echo $baseUrl . 'modules/users/logout.php'; ?>" class="logout-link">
-                            <i class="fas fa-sign-out-alt"></i> Logout
-                        </a>
-                    </div>
-                </div>
-                
-                <!-- Mobile menu toggle -->
-                <button class="mobile-menu-toggle">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                </button>
-            </div>
-        </div>
-    </nav>
-
-<!-- Page content should be rendered by the including page immediately after this include. -->
-
-<!-- Modern Header Styles -->
 <style>
 /* Reset and Base Styles */
 * {
@@ -1159,11 +1012,187 @@ body.compact-view .page-header {
     }
 }
 </style>
+<!-- Modern Navigation Header -->
+<div class="dashboard-wrapper">
+    <!-- Top Navigation Bar -->
+    <nav class="top-navbar">
+        <div class="navbar-container">
+            <!-- Left Section: Brand -->
+            <div class="navbar-brand">
+                <a href="<?php echo $baseUrl . 'index.php'; ?>" class="brand-link">
+                    <div class="brand-icon">
+                        <i class="fas fa-cube"></i>
+                    </div>
+                    <div class="brand-text">
+                        <span class="brand-name">Inventory Pro</span>
+                        <span class="brand-subtitle">Management System</span>
+                    </div>
+                </a>
+            </div>
 
+            <!-- Center Section: Navigation Menu -->
+            <div class="navbar-menu">
+                <a href="<?php echo $baseUrl . 'index.php'; ?>" class="nav-item <?php echo ($activeSection === 'dashboard') ? 'active' : ''; ?>">
+                    <i class="fas fa-home"></i>
+                    <span>Dashboard</span>
+                </a>
+                
+                <?php if (currentUserHasPermission('can_view_inventory') || currentUserHasPermission('can_use_pos') || currentUserHasPermission('can_add_inventory')): ?>
+                <div class="nav-dropdown">
+                    <a href="#" class="nav-item <?php echo ($activeSection === 'stock') ? 'active' : ''; ?>">
+                        <i class="fas fa-boxes"></i>
+                        <span>Stock</span>
+                        <i class="fas fa-chevron-down dropdown-arrow"></i>
+                    </a>
+                    <div class="dropdown-content">
+                        <a href="<?php echo $baseUrl . 'modules/stock/list.php'; ?>">
+                            <i class="fas fa-list"></i> Stock Listing
+                        </a>
+                        <?php if (currentUserHasPermission('can_add_inventory') || currentUserHasPermission('can_edit_inventory')): ?>
+                            <a href="<?php echo $baseUrl . 'modules/stock/add.php'; ?>">
+                                <i class="fas fa-plus"></i> Add Stock
+                            </a>
+                        <?php endif; ?>
+                        <a href="<?php echo $baseUrl . 'modules/stock/stockAuditHis.php'; ?>">
+                            <i class="fas fa-edit"></i> Stock Audit History
+                        </a>
+                        <?php if (currentUserHasPermission('can_manage_pos') || currentUserHasPermission('can_use_pos')): ?>
+                        <a href="<?php echo $baseUrl . 'modules/pos/stock_pos_integration.php'; ?>">
+                            <i class="fas fa-cash-register"></i> POS Integration
+                        </a>
+                        <?php endif; ?>
+                            <a href="<?php echo $baseUrl . 'modules/stock/mobileBarcodeScan.php'; ?>">
+                                <i class="fas fa-barcode"></i> Product Barcode Scanning
+                            </a>
+                    </div>
+                </div>
+                <?php endif; ?>
+                
+                <?php if (currentUserHasPermission('can_view_stores') || currentUserHasPermission('can_add_stores')): ?>
+                <div class="nav-dropdown">
+                    <a href="#" class="nav-item <?php echo ($activeSection === 'stores') ? 'active' : ''; ?>">
+                        <i class="fas fa-store"></i>
+                        <span>Stores</span>
+                        <i class="fas fa-chevron-down dropdown-arrow"></i>
+                    </a>
+                    <div class="dropdown-content">
+                        <a href="<?php echo $baseUrl . 'modules/stores/list.php'; ?>">
+                            <i class="fas fa-list"></i> Store List
+                        </a>
+                        <?php if (currentUserHasPermission('can_add_stores')): ?>
+                            <a href="<?php echo $baseUrl . 'modules/stores/add.php'; ?>">
+                                <i class="fas fa-plus"></i> Add Store
+                            </a>
+                        <?php endif; ?>
+                        <a href="<?php echo $baseUrl . 'modules/stores/map.php'; ?>">
+                            <i class="fas fa-map"></i> Store Map
+                        </a>
+                    </div>
+                </div>
+                <?php endif; ?>
 
+                <?php if (currentUserHasPermission('can_edit_inventory')): ?>
+                <div class="nav-dropdown">
+                    <a href="#" class="nav-item <?php echo ($activeSection === 'supply_chain') ? 'active' : ''; ?>">
+                        <i class="fas fa-truck"></i>
+                        <span>Supply Chain</span>
+                        <i class="fas fa-chevron-down dropdown-arrow"></i>
+                    </a>
+                    <div class="dropdown-content">
+                        <a href="<?php echo $baseUrl . 'modules/suppliers/list.php'; ?>">
+                            <i class="fas fa-building"></i> Suppliers
+                        </a>
+                        <a href="<?php echo $baseUrl . 'modules/purchase_orders/list.php'; ?>">
+                            <i class="fas fa-file-invoice"></i> Purchase Orders
+                        </a>
+                    </div>
+                </div>
+                <?php endif; ?>
+                
+                <?php if (currentUserHasPermission('can_view_reports')): ?>
+                <div class="nav-dropdown">
+                    <a href="#" class="nav-item <?php echo ($activeSection === 'reports') ? 'active' : ''; ?>">
+                        <i class="fas fa-chart-line"></i>
+                        <span>Reports</span>
+                        <i class="fas fa-chevron-down dropdown-arrow"></i>
+                    </a>
+                    <div class="dropdown-content">
+                        <a href="<?php echo $baseUrl . 'modules/reports/sales.php'; ?>">
+                            <i class="fas fa-dollar-sign"></i> Sales Reports
+                        </a>
+                        <a href="<?php echo $baseUrl . 'modules/reports/inventory_report.php'; ?>">
+                            <i class="fas fa-boxes"></i> Inventory Reports
+                        </a>
+                        <a href="<?php echo $baseUrl . 'modules/forecasting/index.php'; ?>">
+                            <i class="fas fa-chart-area"></i> Demand Forecast
+                        </a>
+                    </div>
+                </div>
+                <?php endif; ?>
+                
+                <?php if (currentUserHasPermission('can_view_inventory') || currentUserHasPermission('can_view_reports')): ?>
+                <div class="nav-dropdown">
+                    <a href="#" class="nav-item <?php echo ($activeSection === 'alerts') ? 'active' : ''; ?>">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <span>Alerts</span>
+                        <i class="fas fa-chevron-down dropdown-arrow"></i>
+                    </a>
+                    <div class="dropdown-content">
+                        <a href="<?php echo $baseUrl . 'modules/alerts/expiry_alert.php'; ?>">
+                            <i class="fas fa-calendar-times"></i> Expiry Products
+                        </a>
+                        <a href="<?php echo $baseUrl . 'modules/alerts/alert_history.php'; ?>">
+                            <i class="fas fa-exclamation-circle"></i> Alert History
+                        </a>
+                    </div>
+                </div>
+                <?php endif; ?>
+            </div>
 
+            <!-- Right Section: User Actions -->
+            <div class="navbar-user">
+                <!-- Online/Offline Indicator -->
+                <div id="connection-status" class="connection-status online">
+                    <div class="status-dot"></div>
+                    <span class="status-text">Online</span>
+                </div>
+                
+                <div class="user-dropdown">
+                    <a href="#" class="user-profile">
+                        <div class="user-avatar">
+                            <i class="fas fa-user"></i>
+                        </div>
+                        <span class="user-name"><?php echo isset($_SESSION['username']) ? htmlspecialchars($_SESSION['username']) : 'User'; ?></span>
+                        <i class="fas fa-chevron-down dropdown-arrow"></i>
+                    </a>
+                    <div class="dropdown-content user-menu">
+                        <a href="<?php echo $baseUrl . 'modules/users/profile.php'; ?>">
+                            <i class="fas fa-user-circle"></i> Profile
+                        </a>
+                        <?php if (currentUserHasPermission('can_manage_users') || currentUserHasPermission('can_view_users')): ?>
+                        <a href="<?php echo $baseUrl . 'modules/users/management.php'; ?>">
+                            <i class="fas fa-users-cog"></i> User Management
+                        </a>
+                        <?php endif; ?>
+                        <a href="<?php echo $baseUrl . 'modules/users/logout.php'; ?>" class="logout-link">
+                            <i class="fas fa-sign-out-alt"></i> Logout
+                        </a>
+                    </div>
+                </div>
+                
+                <!-- Mobile menu toggle -->
+                <button class="mobile-menu-toggle">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </button>
+            </div>
+        </div>
+    </nav>
 
+<!-- Page content should be rendered by the including page immediately after this include. -->
 
+<!-- Modern Header Styles -->
 
 <script>
 // Compact view toggle functionality

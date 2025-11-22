@@ -22,9 +22,11 @@ $db = getDB();
 $errors = [];
 $success = false;
 
-// Get stores and categories for dropdowns
-$stores = $db->fetchAll("SELECT id, name FROM stores WHERE is_active = 1 ORDER BY name");
+// Get categories for dropdowns
 $categories = $db->fetchAll("SELECT id, name FROM categories ORDER BY name");
+
+// Get suppliers for dropdowns
+$suppliers = $db->fetchAll("SELECT id, name FROM suppliers WHERE active = TRUE ORDER BY name");
 
 function alert_resolve_low_stock_if_recovered(PDO $db, string $pid, ?string $who = 'admin'): void
 {
@@ -50,16 +52,17 @@ function alert_resolve_low_stock_if_recovered(PDO $db, string $pid, ?string $who
 
 
 $CATEGORY_OPTIONS = [
+    'Skincare',
+    'Haircare',
+    'Body Care',
+    'Cosmetics',
+    'Fragrances',
+    'Oral Care',
+    'Personal Hygiene',
+    'Baby Care',
+    'Men\'s Grooming',
+    'Health & Wellness',
     'General',
-    'Foods',
-    'Beverages',
-    'Snacks',
-    'Personal Care',
-    'Furniture',
-    'Electronics',
-    'Stationery',
-    'Canned Foods',
-    'Frozen',
 ];
 
 // Keep the user’s selection on postback (default to General)
@@ -71,9 +74,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // --- 1) Gather & normalize ------------------------------------------------
     $name            = sanitizeInput($_POST['name'] ?? '');
     $sku             = strtoupper(trim((string)($_POST['sku'] ?? '')));   // <-- canonicalize
+    
+    // Auto-generate SKU if empty
+    if (empty($sku)) {
+        $base = 'PRD';
+        if (!empty($name)) {
+            // Extract uppercase letters and numbers
+            $clean = preg_replace('/[^A-Z0-9]/', '', strtoupper($name));
+            if (strlen($clean) >= 3) {
+                // Take up to first 6 characters of the name
+                $base = substr($clean, 0, 6);
+            }
+        }
+        // Add random suffix for uniqueness
+        $sku = $base . '-' . strtoupper(substr(md5(uniqid(mt_rand(), true)), 0, 6));
+    }
+
     $description     = sanitizeInput($_POST['description'] ?? '');
     $category        = sanitizeInput($_POST['category'] ?? 'General');    // string, not category_id
-    $store_id        = (int)($_POST['store_id'] ?? 0);
+    $store_id        = null; // Always NULL for main stock (central inventory)
+    $supplier_id     = !empty($_POST['supplier_id']) ? (int)$_POST['supplier_id'] : null;
     $quantity        = (int)($_POST['quantity'] ?? 0);
     $unit_price      = (float)($_POST['unit_price'] ?? 0);
     $min_stock_level = (int)($_POST['min_stock_level'] ?? 0);
@@ -152,9 +172,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $sql = "
                 INSERT INTO products
-                    (name, sku, description, category, store_id, quantity, price, reorder_level, created_at, updated_at)
+                    (name, sku, description, category, store_id, supplier_id, quantity, price, reorder_level, created_at, updated_at)
                 VALUES
-                    (?,    ?,   ?,           ?,        ?,        ?,        ?,     ?,             CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    (?,    ?,   ?,           ?,        ?,        ?,           ?,        ?,     ?,             CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             ";
             $sqlDb->execute($sql, [
                 $name,
@@ -162,6 +182,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $description !== '' ? $description : null,
                 $category,
                 $store_id > 0 ? $store_id : null,
+                $supplier_id,
                 $quantity,
                 $unit_price,
                 $min_stock_level,
@@ -335,8 +356,11 @@ $page_title = 'Add Product - Inventory System';
 
                                 <div class="form-group">
                                     <label for="sku">SKU:</label>
-                                    <input type="text" id="sku" name="sku" value="<?php echo htmlspecialchars($_POST['sku'] ?? ''); ?>" placeholder="e.g., WH-001">
-                                    <small>Stock Keeping Unit (optional, must be unique)</small>
+                                    <div style="display: flex; gap: 10px;">
+                                        <input type="text" id="sku" name="sku" value="<?php echo htmlspecialchars($_POST['sku'] ?? ''); ?>" placeholder="Auto-generated if empty">
+                                        <button type="button" onclick="generateSKU()" class="btn btn-secondary" style="padding: 0 15px; white-space: nowrap;">Generate</button>
+                                    </div>
+                                    <small>Stock Keeping Unit (unique identifier)</small>
                                 </div>
                             </div>
 
@@ -366,17 +390,16 @@ $page_title = 'Add Product - Inventory System';
                                 </div>
 
                                 <div class="form-group">
-                                    <label for="store_id">Store:</label>
-                                    <select id="store_id" name="store_id">
-                                        <option value="">Select Store</option>
-                                        <?php foreach ($stores as $store): ?>
-                                            <option value="<?php echo $store['id']; ?>"
-                                                <?php echo (isset($_POST['store_id']) && $_POST['store_id'] == $store['id']) ? 'selected' : ''; ?>>
-                                                <?php echo htmlspecialchars($store['name']); ?>
+                                    <label for="supplier_id">Supplier:</label>
+                                    <select id="supplier_id" name="supplier_id" class="form-control">
+                                        <option value="">-- Select Supplier --</option>
+                                        <?php foreach ($suppliers as $supplier): ?>
+                                            <option value="<?php echo $supplier['id']; ?>" <?php echo (isset($_POST['supplier_id']) && $_POST['supplier_id'] == $supplier['id']) ? 'selected' : ''; ?>>
+                                                <?php echo htmlspecialchars($supplier['name']); ?>
                                             </option>
                                         <?php endforeach; ?>
                                     </select>
-                                    <small>Store location for this product</small>
+                                    <small>Primary supplier for this product</small>
                                 </div>
                             </div>
                         </div>
@@ -386,12 +409,6 @@ $page_title = 'Add Product - Inventory System';
                             <h3>Stock Information</h3>
 
                             <div class="form-row">
-                                <div class="form-group required">
-                                    <label for="quantity">Initial Quantity:</label>
-                                    <input type="number" id="quantity" name="quantity" value="<?php echo htmlspecialchars($_POST['quantity'] ?? '0'); ?>" min="0" step="1">
-                                    <small>Starting inventory quantity</small>
-                                </div>
-
                                 <div class="form-group">
                                     <label for="min_stock_level">Minimum Stock Level:</label>
                                     <input type="number" id="min_stock_level" name="min_stock_level" value="<?php echo htmlspecialchars($_POST['min_stock_level'] ?? '5'); ?>" min="0" step="1">
@@ -425,9 +442,32 @@ $page_title = 'Add Product - Inventory System';
 
     <script src="../../assets/js/main.js"></script>
     <script>
+        // Generate SKU based on Product Name
+        function generateSKU() {
+            const name = document.getElementById('name').value;
+            let base = 'PRD';
+            
+            if (name) {
+                // Get first letters of words or just the name
+                const words = name.toUpperCase().replace(/[^A-Z0-9\s]/g, '').split(/\s+/).filter(w => w.length > 0);
+                if (words.length > 1) {
+                    // First 3 chars of first 2 words (e.g. "Super Widget" -> "SUPWID")
+                    base = words[0].substring(0, 3) + words[1].substring(0, 3);
+                } else if (words.length === 1) {
+                    // First 6 chars of first word (e.g. "SuperWidget" -> "SUPERW")
+                    base = words[0].substring(0, 6);
+                }
+            }
+            
+            // Add random suffix (e.g. "-X7Y8Z9")
+            const random = Math.random().toString(36).substring(2, 8).toUpperCase();
+            document.getElementById('sku').value = base + '-' + random;
+        }
+
         // Calculate total value
         function updateTotalValue() {
-            const quantity = parseInt(document.getElementById('quantity').value) || 0;
+            // Quantity is now always 0 initially
+            const quantity = 0;
             const unitPrice = parseFloat(document.getElementById('unit_price').value) || 0;
             const totalValue = quantity * unitPrice;
 
@@ -438,13 +478,13 @@ $page_title = 'Add Product - Inventory System';
             }
         }
 
-        document.getElementById('quantity').addEventListener('input', updateTotalValue);
+        // document.getElementById('quantity').addEventListener('input', updateTotalValue);
         document.getElementById('unit_price').addEventListener('input', updateTotalValue);
 
         // Form validation
         document.querySelector('.product-form').addEventListener('submit', function(e) {
             const name = document.getElementById('name').value.trim();
-            const quantity = parseInt(document.getElementById('quantity').value);
+            // const quantity = parseInt(document.getElementById('quantity').value);
             const unitPrice = parseFloat(document.getElementById('unit_price').value);
 
             if (!name) {
@@ -453,14 +493,16 @@ $page_title = 'Add Product - Inventory System';
                 return false;
             }
 
+            /*
             if (quantity <= 0) {
                 alert('Quantity cannot be empty or negative');
                 e.preventDefault();
                 return false;
             }
+            */
 
-            if (unitPrice <= 0) {
-                alert('Unit price cannot be empty or negative');
+            if (unitPrice < 0) {
+                alert('Unit price cannot be negative');
                 e.preventDefault();
                 return false;
             }

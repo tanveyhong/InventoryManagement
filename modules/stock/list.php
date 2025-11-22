@@ -120,7 +120,7 @@ try {
     $productRecords = $sqlDb->fetchAll("
         SELECT 
             p.id, p.name, p.sku, p.description, p.quantity, p.reorder_level, 
-            p.price, p.created_at, p.updated_at, p.category, p.store_id,
+            p.price, p.created_at, p.updated_at, p.category, p.store_id, p.supplier_id,
             s.name as store_name
         FROM products p
         LEFT JOIN stores s ON p.store_id = s.id
@@ -144,6 +144,7 @@ try {
             'category_name' => $r['category'] ?? null,
             'store_id' => $r['store_id'] ?? null,
             'store_name' => $r['store_name'] ?? null,
+            'supplier_id' => $r['supplier_id'] ?? null,
             'deleted_at' => null,
             'status_db' => 'active',
             '_raw' => $r,
@@ -365,8 +366,19 @@ foreach ($filtered_products as $product) {
 // Flatten back to list: main product followed by its variants
 $filtered_products = [];
 foreach ($productGroups as $baseSku => $group) {
+    // Calculate total system stock for the main product
+    $totalSystemStock = 0;
+    if ($group['main']) {
+        $totalSystemStock += (int)$group['main']['quantity'];
+    }
+    foreach ($group['variants'] as $variant) {
+        $totalSystemStock += (int)$variant['quantity'];
+    }
+
     // Add main product first (if exists)
     if ($group['main']) {
+        $group['main']['_total_system_stock'] = $totalSystemStock;
+        $group['main']['_group_key'] = $baseSku;
         $filtered_products[] = $group['main'];
     }
     
@@ -380,7 +392,9 @@ foreach ($productGroups as $baseSku => $group) {
         if (!$group['main'] && $variant === $group['variants'][0]) {
             $variant['_is_store_variant'] = false; // Treat as main
             $variant['_is_first_orphan'] = true; // Mark it as first orphan variant
+            $variant['_total_system_stock'] = $totalSystemStock;
         }
+        $variant['_group_key'] = $baseSku;
         $filtered_products[] = $variant;
     }
 }
@@ -485,6 +499,15 @@ $page_title = 'Stock Management - Inventory System';
     <link rel="stylesheet" href="../../assets/css/style.css">
     <!-- Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        .highlight-store-match {
+            background-color: #f0f9ff !important; /* Light blue background */
+            border-left: 4px solid #007bff !important;
+        }
+        .highlight-store-match td {
+            background-color: #f0f9ff !important;
+        }
+    </style>
 </head>
 
 <body>
@@ -515,6 +538,7 @@ $page_title = 'Stock Management - Inventory System';
                         }
                     }
                     ?>
+                    <button type="button" id="batchOrderBtn" class="btn btn-success" style="display: none; background-color: #2ecc71; color: white; margin-right: 10px;">Order Selected</button>
                     <button type="submit" form="batchDeleteForm" class="btn btn-danger" id="batchDeleteBtn" style="display: none; background-color: #dc3545; color: white; margin-right: 10px;">Delete Selected</button>
                     <a href="add.php" class="btn btn-addprod">Add Product</a>
                 </div>
@@ -634,6 +658,9 @@ $page_title = 'Stock Management - Inventory System';
                                 }
 
                                 $return = rawurlencode($_SERVER['REQUEST_URI']);
+                                
+                                // Calculate Base SKU for grouping in JS
+                                $groupKey = $product['_group_key'] ?? $product['sku'];
                                 ?>
 
 
@@ -642,6 +669,8 @@ $page_title = 'Stock Management - Inventory System';
                                     data-doc-id="<?php echo htmlspecialchars($linkId); ?>"
                                     data-name="<?php echo htmlspecialchars($product['name']); ?>"
                                     data-sku="<?php echo htmlspecialchars($product['sku']); ?>"
+                                    data-group-key="<?php echo htmlspecialchars($groupKey); ?>"
+                                    data-is-variant="<?php echo ($product['_is_store_variant'] ?? false) ? '1' : '0'; ?>"
                                     data-qty="<?php echo (int)$product['quantity']; ?>"
                                     data-min="<?php echo (int)$product['min_stock_level']; ?>"
                                     data-price="<?php echo (float)$product['unit_price']; ?>"
@@ -666,6 +695,9 @@ $page_title = 'Stock Management - Inventory System';
                                                     <span style="color: #3498db; font-size: 11px; font-weight: 600; background: #e8f4fd; padding: 2px 6px; border-radius: 3px; margin-left: 5px;">
                                                         <?php echo htmlspecialchars($product['_store_suffix'] ?? ''); ?>
                                                     </span>
+                                                    <span style="color: #fff; font-size: 10px; font-weight: 600; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 2px 6px; border-radius: 3px; margin-left: 3px; box-shadow: 0 1px 2px rgba(0,0,0,0.1);" title="Linked to POS System">
+                                                        <i class="fas fa-link" style="font-size: 9px;"></i> POS
+                                                    </span>
                                                     <?php if ($product['_malformed_sku'] ?? false): ?>
                                                         <span style="color: #e67e22; font-size: 10px; font-weight: 600; background: #ffeaa7; padding: 2px 6px; border-radius: 3px; margin-left: 3px;" title="SKU should include store suffix">
                                                             ⚠️ Needs Fix
@@ -686,6 +718,9 @@ $page_title = 'Stock Management - Inventory System';
                                             <span class="current-stock status-<?php echo $product['status']; ?>">
                                                 <?php echo number_format($product['quantity']); ?>
                                             </span>
+                                            <?php if (isset($product['_total_system_stock']) && $product['_total_system_stock'] > $product['quantity']): ?>
+                                                <br><small style="color: #2980b9; font-weight: 600;">Total: <?php echo number_format($product['_total_system_stock']); ?></small>
+                                            <?php endif; ?>
                                             <br><small>Min: <?php echo number_format($product['min_stock_level']); ?></small>
                                         </div>
                                     </td>
@@ -694,21 +729,27 @@ $page_title = 'Stock Management - Inventory System';
                                         <br><small>Total: RM <?php echo number_format($product['quantity'] * $product['unit_price'], 2); ?></small>
                                     </td>
                                     <td>
-                                        <span class="status-badge status-<?php echo $product['status']; ?>">
-                                            <?php
-                                            switch ($product['status']) {
-                                                case 'out_of_stock':
-                                                    echo 'Out of Stock';
-                                                    break;
-                                                case 'low_stock':
-                                                    echo 'Low Stock';
-                                                    break;
-                                                default:
-                                                    echo 'Normal';
-                                                    break;
-                                            }
-                                            ?>
-                                        </span>
+                                        <?php if (isset($product['_total_system_stock']) && $product['quantity'] == 0 && $product['_total_system_stock'] > 0): ?>
+                                            <span class="status-badge" style="background: #e3f2fd; color: #1976d2; border: 1px solid #bbdefb;">
+                                                In Stores
+                                            </span>
+                                        <?php else: ?>
+                                            <span class="status-badge status-<?php echo $product['status']; ?>">
+                                                <?php
+                                                switch ($product['status']) {
+                                                    case 'out_of_stock':
+                                                        echo 'Out of Stock';
+                                                        break;
+                                                    case 'low_stock':
+                                                        echo 'Low Stock';
+                                                        break;
+                                                    default:
+                                                        echo 'Normal';
+                                                        break;
+                                                }
+                                                ?>
+                                            </span>
+                                        <?php endif; ?>
                                     </td>
                                     <td>
                                         <?php if (!empty($product['updated_at'])): ?>
@@ -774,11 +815,19 @@ $page_title = 'Stock Management - Inventory System';
                                             <?php if (currentUserHasPermission('can_edit_inventory')): ?>
 
                                                 <a href="edit.php?id=<?php echo urlencode($linkId); ?>&return=<?php echo $return; ?>" class="btn btn-sm btn-primary" title="Edit Product Details">
-                                                    <i class="fas fa-edit"></i> Edit
+                                                    <i class="fas fa-edit"></i> Edit Info
                                                 </a>
-                                                <a href="adjust.php?id=<?php echo urlencode($linkId); ?>&return=<?php echo $return; ?>" class="btn btn-sm btn-warning" title="Adjust Stock Level" style="background-color: #f39c12; border-color: #e67e22;">
-                                                    <i class="fas fa-boxes"></i> Adjust
-                                                </a>
+                                                
+                                                <?php if (!empty($product['supplier_id'])): ?>
+                                                    <a href="../purchase_orders/create.php?supplier_id=<?php echo $product['supplier_id']; ?>&product_id=<?php echo $product['id']; ?>" class="btn btn-sm btn-success" title="Restock from Supplier" style="background-color: #2ecc71; border-color: #27ae60;">
+                                                        <i class="fas fa-truck"></i> Restock
+                                                    </a>
+                                                <?php else: ?>
+                                                    <a href="adjust.php?id=<?php echo urlencode($linkId); ?>&return=<?php echo $return; ?>" class="btn btn-sm btn-warning" title="Manual Stock Adjustment" style="background-color: #f39c12; border-color: #e67e22;">
+                                                        <i class="fas fa-boxes"></i> Stock
+                                                    </a>
+                                                <?php endif; ?>
+
                                             <?php endif; ?>
                                             <?php if (currentUserHasPermission('can_delete_inventory')): ?>
                                                 <a href="delete.php?id=<?php echo $product['id']; ?>" class="btn btn-sm btn-danger"
@@ -1549,6 +1598,18 @@ $page_title = 'Stock Management - Inventory System';
                 const category = categorySelect ? categorySelect.value : '';
                 const status = statusSelect ? statusSelect.value : '';
 
+                // First pass: If store is selected, find all group keys that have a variant in this store
+                const activeGroupKeysInStore = new Set();
+                if (store) {
+                    rows.forEach(row => {
+                        const rowStore = row.dataset.storeId || '';
+                        if (rowStore === store) {
+                            const gKey = row.dataset.groupKey;
+                            if (gKey) activeGroupKeysInStore.add(gKey);
+                        }
+                    });
+                }
+
                 let visibleCount = 0;
 
                 rows.forEach(row => {
@@ -1557,12 +1618,33 @@ $page_title = 'Stock Management - Inventory System';
                     const rowStore = row.dataset.storeId || '';
                     const rowCategory = row.dataset.category || '';
                     const rowStatus = row.dataset.status || '';
+                    const rowGroupKey = row.dataset.groupKey || '';
 
                     // Search match (Name or SKU)
                     const matchesSearch = !term || name.includes(term) || sku.includes(term);
                     
                     // Filter matches
-                    const matchesStore = !store || rowStore === store;
+                    let matchesStore = true;
+                    if (store) {
+                        // Show if it IS the store variant
+                        if (rowStore === store) {
+                            matchesStore = true;
+                            row.classList.add('highlight-store-match');
+                        } 
+                        // OR if it is the Main Product (no store) AND its group key is active in this store
+                        else if (rowStore === '' && activeGroupKeysInStore.has(rowGroupKey)) {
+                            matchesStore = true;
+                            row.classList.remove('highlight-store-match'); // It's main, not the specific store variant
+                        }
+                        else {
+                            matchesStore = false;
+                            row.classList.remove('highlight-store-match');
+                        }
+                    } else {
+                        matchesStore = true;
+                        row.classList.remove('highlight-store-match');
+                    }
+
                     const matchesCategory = !category || rowCategory === category;
                     const matchesStatus = !status || rowStatus === status;
 
@@ -1649,6 +1731,27 @@ $page_title = 'Stock Management - Inventory System';
                         if (valA < valB) return sort.dir === 'asc' ? -1 : 1;
                         if (valA > valB) return sort.dir === 'asc' ? 1 : -1;
                     }
+                    
+                    // Tie-breaker: Keep Main Product before Store Variant if they are in the same group
+                    // This ensures "Main, then Sub" order when names/values are identical
+                    const groupA = a.dataset.groupKey || '';
+                    const groupB = b.dataset.groupKey || '';
+                    
+                    if (groupA && groupA === groupB) {
+                        const isVarA = a.dataset.isVariant === '1';
+                        const isVarB = b.dataset.isVariant === '1';
+                        
+                        // Main (0) comes before Variant (1)
+                        if (isVarA !== isVarB) {
+                            return isVarA ? 1 : -1;
+                        }
+                        
+                        // If both are variants, sort by store name
+                        const storeA = a.dataset.storeName || '';
+                        const storeB = b.dataset.storeName || '';
+                        return storeA.localeCompare(storeB);
+                    }
+                    
                     return 0;
                 });
 
@@ -1667,6 +1770,51 @@ $page_title = 'Stock Management - Inventory System';
                 th.addEventListener('click', () => sortRows(th.dataset.sort));
             });
 
+
+            // Batch Order Logic
+            const batchOrderBtn = document.getElementById('batchOrderBtn');
+            const selectAllCheckbox = document.getElementById('selectAll');
+            const productCheckboxes = document.querySelectorAll('.product-checkbox');
+
+            function updateBatchButtons() {
+                const checkedCount = document.querySelectorAll('.product-checkbox:checked').length;
+                const batchDeleteBtn = document.getElementById('batchDeleteBtn');
+                
+                if (checkedCount > 0) {
+                    if (batchDeleteBtn) batchDeleteBtn.style.display = 'inline-block';
+                    if (batchOrderBtn) batchOrderBtn.style.display = 'inline-block';
+                } else {
+                    if (batchDeleteBtn) batchDeleteBtn.style.display = 'none';
+                    if (batchOrderBtn) batchOrderBtn.style.display = 'none';
+                }
+            }
+
+            if (selectAllCheckbox) {
+                selectAllCheckbox.addEventListener('change', function() {
+                    const isChecked = this.checked;
+                    document.querySelectorAll('.product-checkbox').forEach(cb => {
+                        // Only check visible rows
+                        if (cb.closest('tr').style.display !== 'none') {
+                            cb.checked = isChecked;
+                        }
+                    });
+                    updateBatchButtons();
+                });
+            }
+
+            productCheckboxes.forEach(cb => {
+                cb.addEventListener('change', updateBatchButtons);
+            });
+
+            if (batchOrderBtn) {
+                batchOrderBtn.addEventListener('click', function() {
+                    const selectedIds = Array.from(document.querySelectorAll('.product-checkbox:checked')).map(cb => cb.value);
+                    if (selectedIds.length === 0) return;
+                    
+                    // Redirect to Create PO with selected IDs
+                    window.location.href = '../purchase_orders/create.php?product_ids=' + selectedIds.join(',');
+                });
+            }
 
             // Clear Filters Button
             const clearBtn = document.getElementById('clearFiltersBtn');

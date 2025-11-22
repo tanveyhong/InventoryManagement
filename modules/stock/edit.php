@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../config.php';
 require_once __DIR__ . '/../../functions.php';
+require_once __DIR__ . '/../../sql_db.php';
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
@@ -107,7 +108,30 @@ $docId = isset($_GET['id']) ? trim((string)$_GET['id']) : '';
 $skuQ  = isset($_GET['sku']) ? norm_sku((string)$_GET['sku']) : '';
 
 $stock = null;
-if ($docId !== '') $stock = fs_get_product_by_doc($docId);
+
+// 1. Try SQL Loading (Primary)
+if ($docId !== '') {
+    try {
+        $sqlDb = SQLDatabase::getInstance();
+        // If docId looks like an integer, try ID lookup
+        if (ctype_digit($docId)) {
+            $row = $sqlDb->fetch("SELECT * FROM products WHERE id = ?", [$docId]);
+            if ($row) {
+                $stock = $row;
+                $stock['doc_id'] = (string)$row['id']; // Map ID to doc_id
+                // Ensure numeric types
+                $stock['quantity'] = (int)$stock['quantity'];
+                $stock['reorder_level'] = (int)$stock['reorder_level'];
+                $stock['price'] = (float)$stock['price'];
+            }
+        }
+    } catch (Exception $e) {
+        // SQL failed, ignore
+    }
+}
+
+// 2. Fallback to Firestore
+if (!$stock && $docId !== '') $stock = fs_get_product_by_doc($docId);
 if (!$stock && $skuQ !== '') $stock = fs_get_product($skuQ);
 
 if (!$stock) {
@@ -134,6 +158,15 @@ try {
   $stores = []; // keep safe
 }
 
+// Fetch suppliers
+$suppliers = [];
+try {
+    $sqlDb = SQLDatabase::getInstance();
+    $suppliers = $sqlDb->fetchAll("SELECT id, name FROM suppliers WHERE active = TRUE ORDER BY name");
+} catch (Exception $e) {
+    error_log('Load suppliers failed in edit.php: ' . $e->getMessage());
+}
+
 // ----- handle POST (save) -----
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $name          = trim((string)($_POST['name'] ?? $stock['name']));
@@ -145,6 +178,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $reorderLevel  = (int)($_POST['reorder_level'] ?? (int)$stock['reorder_level']);
   $price         = (float)($_POST['price'] ?? (float)$stock['price']);
   $storeId       = trim((string)($_POST['store_id'] ?? ($stock['store_id'] ?? '')));
+  $supplierId    = !empty($_POST['supplier_id']) ? (int)$_POST['supplier_id'] : null;
   $location      = trim((string)($_POST['location'] ?? ($stock['location'] ?? '')));
   $unit          = trim((string)($_POST['unit'] ?? ($stock['unit'] ?? '')));
   $barcode       = trim((string)($_POST['barcode'] ?? ($stock['barcode'] ?? '')));
@@ -264,7 +298,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       ] + $common);
     }
 
-
+    // --- Update SQL (Primary) ---
+    try {
+        $sqlDb = SQLDatabase::getInstance();
+        if (ctype_digit((string)$docId)) {
+            $sqlDb->execute("
+                UPDATE products SET
+                    name = ?,
+                    sku = ?,
+                    description = ?,
+                    category = ?,
+                    store_id = ?,
+                    supplier_id = ?,
+                    quantity = ?,
+                    price = ?,
+                    reorder_level = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ", [
+                $name,
+                $sku !== '' ? $sku : null,
+                $description,
+                $category,
+                $storeId !== '' ? $storeId : null,
+                $supplierId,
+                $quantity,
+                $price,
+                $reorderLevel,
+                $docId
+            ]);
+        }
+    } catch (Exception $e) {
+        error_log("SQL Update failed in edit.php: " . $e->getMessage());
+    }
 
 
     $db = db_obj();
@@ -316,16 +382,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // ---- UI ----
 $CATEGORY_OPTIONS = $CATEGORY_OPTIONS ?? [
+  'Skincare',
+  'Haircare',
+  'Body Care',
+  'Cosmetics',
+  'Fragrances',
+  'Oral Care',
+  'Personal Hygiene',
+  'Baby Care',
+  'Men\'s Grooming',
+  'Health & Wellness',
   'General',
-  'Foods',
-  'Beverages',
-  'Snacks',
-  'Personal Care',
-  'Furniture',
-  'Electronics',
-  'Stationery',
-  'Canned Foods',
-  'Frozen'
 ];
 
 function h($s)
@@ -345,6 +412,11 @@ if ($returnRaw !== '') {
   $backToView .= '&return=' . rawurlencode($returnRaw);
 }
 
+// Determine Cancel URL (prefer return param to go back to list, otherwise default to list.php)
+$cancelUrl = 'list.php';
+if ($returnRaw !== '') {
+    $cancelUrl = $returnRaw;
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -557,10 +629,23 @@ if ($returnRaw !== '') {
               ?>
             </select>
           </div>
+          <div class="field">
+            <label class="label">Supplier</label>
+            <select class="control" name="supplier_id">
+              <option value="">-- Select Supplier --</option>
+              <?php
+              $selSup = $stock['supplier_id'] ?? '';
+              foreach ($suppliers as $supplier) {
+                $s = ($supplier['id'] == $selSup) ? 'selected' : '';
+                echo '<option ' . $s . ' value="' . h($supplier['id']) . '">' . h($supplier['name']) . '</option>';
+              }
+              ?>
+            </select>
+          </div>
           <div class="form-group">
-            <label for="store_id" class="label">Store:</label>
-            <select id="store_id" name="store_id">
-              <option value="">Select Store</option>
+            <label for="store_id" class="label">Store (Read-only)</label>
+            <select id="store_id" name="store_id" class="control" disabled style="background-color: #f0f0f0; cursor: not-allowed;">
+              <option value="">Main Stock (Warehouse)</option>
               <?php
               // POST value (after validation error) or the product’s current store_id
               $selectedStoreId = isset($_POST['store_id'])
@@ -578,13 +663,15 @@ if ($returnRaw !== '') {
                 </option>
               <?php endforeach; ?>
             </select>
+            <div class="hint">Store assignment cannot be changed here.</div>
           </div>
         </div>
 
         <div class="grid grid-2">
           <div class="field">
-            <label class="label">Quantity</label>
-            <input class="control" type="number" min="0" step="1" name="quantity" value="<?php echo h((string)$stock['quantity']); ?>">
+            <label class="label">Quantity (Read-only)</label>
+            <input class="control" type="number" name="quantity" value="<?php echo h((string)$stock['quantity']); ?>" readonly style="background-color: #f0f0f0; cursor: not-allowed;">
+            <div class="hint">Use "Restock" or "Adjustments" to change quantity.</div>
           </div>
           <div class="field">
             <label class="label">Reorder level</label>
@@ -603,7 +690,7 @@ if ($returnRaw !== '') {
         </div>
 
         <div class="toolbar">
-          <a href="<?php echo htmlspecialchars($backToView, ENT_QUOTES); ?>" class="btn btn-outline">Cancel</a>
+          <a href="<?php echo htmlspecialchars($cancelUrl, ENT_QUOTES); ?>" class="btn btn-outline">Cancel</a>
           <button class="btn btn-primary" type="submit">Save Changes</button>
         </div>
       </form>
