@@ -569,33 +569,8 @@ $page_title = 'Dashboard - Inventory Management System';
             opacity: 1 !important;
         }
     </style>
-    <script>
-        // Clear any stale offline data from localStorage before page renders
-        (function() {
-            try {
-                // Remove offline-related localStorage items
-                const keysToRemove = [];
-                for (let i = 0; i < localStorage.length; i++) {
-                    const key = localStorage.key(i);
-                    if (key && (key.includes('offline') || key.includes('serviceWorker') || key.includes('sw-'))) {
-                        keysToRemove.push(key);
-                    }
-                }
-                keysToRemove.forEach(key => localStorage.removeItem(key));
-                
-                // Unregister any service workers
-                if ('serviceWorker' in navigator) {
-                    navigator.serviceWorker.getRegistrations().then(function(registrations) {
-                        for(let registration of registrations) {
-                            registration.unregister();
-                        }
-                    });
-                }
-            } catch(e) {
-                console.error('Error clearing offline data:', e);
-            }
-        })();
-    </script>
+    <!-- Offline Module Initialization -->
+    <script src="modules/offline/init.js"></script>
 </head>
 <body>
     <!-- Dashboard Header -->

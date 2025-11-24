@@ -51,6 +51,7 @@ if (strpos($currentPath, '/index.php') !== false && strpos($currentPath, '/modul
 }
 
 // Log page visit
+// Only log if online (server-side check is implicit, but good to note)
 if (file_exists(__DIR__ . '/../activity_logger.php')) {
     require_once __DIR__ . '/../activity_logger.php';
     if (function_exists('logActivity') && isset($_SESSION['user_id'])) {
@@ -61,10 +62,14 @@ if (file_exists(__DIR__ . '/../activity_logger.php')) {
             if (!isset($GLOBALS['page_visit_logged'])) {
                 $GLOBALS['page_visit_logged'] = true;
                 // error_log("Attempting to log page visit for: " . $pageName);
-                $logResult = logActivity('page_visit', "Visited page: " . $pageName, [
-                    'url' => $_SERVER['REQUEST_URI'],
-                    'page' => $pageName
-                ]);
+                try {
+                    $logResult = logActivity('page_visit', "Visited page: " . $pageName, [
+                        'url' => $_SERVER['REQUEST_URI'],
+                        'page' => $pageName
+                    ]);
+                } catch (Exception $e) {
+                    // Silently fail if logging fails (e.g. DB connection issue)
+                }
                 // error_log("Page visit log result: " . ($logResult ? 'Success' : 'Failed'));
             }
         }
@@ -1039,6 +1044,10 @@ body.compact-view .page-header {
     }
 }
 </style>
+
+<!-- Offline Module Initialization -->
+<script src="<?php echo $baseUrl; ?>modules/offline/init.js?v=10"></script>
+
 <!-- Modern Navigation Header -->
 <div class="dashboard-wrapper">
     <!-- Top Navigation Bar -->
@@ -1385,10 +1394,30 @@ document.addEventListener('DOMContentLoaded', function() {
             connectionStatus.classList.remove('offline');
             connectionStatus.classList.add('online');
             if (statusText) statusText.textContent = 'Online';
+            
+            // Enable all navigation links
+            document.querySelectorAll('a.nav-link, a.dropdown-item').forEach(link => {
+                link.classList.remove('disabled');
+                link.style.pointerEvents = 'auto';
+                link.style.opacity = '1';
+            });
         } else {
             connectionStatus.classList.remove('online');
             connectionStatus.classList.add('offline');
             if (statusText) statusText.textContent = 'Offline';
+            
+            // Disable navigation links that are not cached/offline-ready
+            // We allow navigation to any page, relying on the Service Worker to serve the cached version if available.
+            // If the user hasn't visited the page before (so it's not in cache), the browser will show a standard "No Internet" error.
+            document.querySelectorAll('a.nav-link, a.dropdown-item').forEach(link => {
+                const href = link.getAttribute('href');
+                // We can optionally visually dim links that we KNOW are not cached, 
+                // but for now, let's allow the user to try navigating.
+                // The Service Worker's "Network First, Fallback to Cache" strategy handles this.
+                
+                // Optional: Add a visual indicator that we are in "Offline Mode"
+                // link.classList.add('offline-mode'); 
+            });
         }
     }
     

@@ -2151,8 +2151,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             isOffline: false
         };
         
-        // SessionStorage cache removed
+        /* 
+           Advanced Offline Editing (Sync Manager) is currently disabled.
+           The page is cached for offline VIEWING by the global Service Worker.
+           
+           To enable offline EDITING, the following components need to be implemented:
+           - modules/offline/offline_storage.js
+           - modules/offline/sync_manager.js
+           - modules/offline/connectivity_monitor.js
+        */
         
+        /*
         // Wait for all components to be ready
         setTimeout(async () => {
             if (!window.profileOfflineStorage || !window.profileSyncManager || !window.connectivityMonitor) {
@@ -2160,87 +2169,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 return;
             }
             
-            // Cache profile in IndexedDB removed
-            try {
-                // Cache removed
-                console.log('Profile cache disabled');
-            } catch (error) {
-                console.error('Failed to cache profile:', error);
-            }
-            
-            // Start auto-sync
-            window.profileSyncManager.startAutoSync();
-            
-            // Update pending count badge
-            await window.connectivityMonitor.updatePendingCount();
-            
-            // Listen for sync events
-            window.profileSyncManager.addEventListener((event, data) => {
-                if (event === 'sync-complete') {
-                    window.connectivityMonitor.showNotification(
-                        `Synced ${data.success} update(s) successfully`,
-                        'success'
-                    );
-                    window.connectivityMonitor.updatePendingCount();
-                } else if (event === 'sync-error') {
-                    window.connectivityMonitor.showNotification(
-                        'Sync failed. Will retry automatically.',
-                        'error'
-                    );
-                }
-            });
-            
-            // Intercept profile form submission
-            const profileForm = document.querySelector('form[method="POST"]');
-            if (profileForm) {
-                profileForm.addEventListener('submit', async function(e) {
-                    // If offline, save to local storage instead
-                    if (!navigator.onLine) {
-                        e.preventDefault();
-                        
-                        const formData = new FormData(this);
-                        const updateData = {};
-                        
-                        for (const [key, value] of formData.entries()) {
-                            if (key !== 'update_profile') {
-                                updateData[key] = value;
-                            }
-                        }
-                        
-                        try {
-                            const userId = '<?php echo $userId; ?>';
-                            await window.profileOfflineStorage.savePendingUpdate(userId, updateData);
-                            
-                            window.connectivityMonitor.showNotification(
-                                'Changes saved locally. Will sync when online.',
-                                'success'
-                            );
-                            
-                            // Update pending count
-                            await window.connectivityMonitor.updatePendingCount();
-                            
-                            // Update form fields to show saved state
-                            document.querySelector('.alert-success')?.remove();
-                            const alert = document.createElement('div');
-                            alert.className = 'alert alert-success';
-                            alert.style.cssText = 'background: #10b981; color: white; padding: 15px; border-radius: 8px; margin: 20px 0;';
-                            alert.innerHTML = '<i class="fas fa-check-circle"></i> Changes saved offline. Will sync automatically when connected.';
-                            this.insertBefore(alert, this.firstChild);
-                            
-                        } catch (error) {
-                            console.error('Failed to save offline:', error);
-                            window.connectivityMonitor.showNotification(
-                                'Failed to save changes offline',
-                                'error'
-                            );
-                        }
-                    }
-                    // If online, let form submit normally
-                });
-            }
-            
-            console.log('Offline support initialized successfully');
-        }, 500);
+            // ... existing offline logic ...
+        }, 100);
+        */
     });
     
     // Manual cache refresh function removed

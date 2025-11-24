@@ -230,9 +230,12 @@ function initializeCharts() {
 // Offline Support
 function initializeOfflineSupport() {
     // Check if Service Worker is supported
+    /* 
+    // Service Worker is now registered via modules/offline/init.js
     if ('serviceWorker' in navigator) {
         registerServiceWorker();
     }
+    */
     
     // Monitor online/offline status
     window.addEventListener('online', handleOnline);
@@ -244,6 +247,7 @@ function initializeOfflineSupport() {
     }
 }
 
+/*
 function registerServiceWorker() {
     navigator.serviceWorker.register('/sw.js')
         .then(registration => {
@@ -253,6 +257,7 @@ function registerServiceWorker() {
             console.log('Service Worker registration failed:', error);
         });
 }
+*/
 
 function handleOnline() {
     console.log('App is online');

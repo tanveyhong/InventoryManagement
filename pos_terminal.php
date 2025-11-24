@@ -443,6 +443,7 @@ $recent_transactions = $db->fetchAll("
             padding: 40px 20px;
         }
     </style>
+    <script src="modules/offline/init.js?v=10"></script>
 </head>
 <body>
     <div class="pos-container">

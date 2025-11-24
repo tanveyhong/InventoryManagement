@@ -1400,7 +1400,20 @@ $pageTitle = 'User Management';
                 // Always send user_id param, even if 'all', so API doesn't default to current user
                 const userParam = `&user_id=${userFilter}`;
                 
-                const response = await fetch(`profile/api.php?action=get_activities&limit=1000${userParam}`);
+                // Try to fetch with specific params first
+                let response;
+                try {
+                    response = await fetch(`profile/api.php?action=get_activities&limit=1000${userParam}`);
+                } catch (e) {
+                    // If offline and specific fetch fails, try to fallback to the generic cached version
+                    if (!navigator.onLine && userFilter === 'all') {
+                        console.log('Offline: Falling back to cached activities...');
+                        response = await fetch(`profile/api.php?action=get_activities&limit=1000&user_id=all`);
+                    } else {
+                        throw e;
+                    }
+                }
+                
                 const data = await response.json();
                 
                 if (data.success) {
@@ -2215,7 +2228,23 @@ $pageTitle = 'User Management';
             
             try {
                 console.log('📤 Fetching permissions from API...');
-                const response = await fetch(`profile/api.php?action=get_permissions&user_id=${userId}`);
+                let response;
+                try {
+                    response = await fetch(`profile/api.php?action=get_permissions&user_id=${userId}`);
+                } catch (e) {
+                    // Fallback for offline mode - if we can't get specific user permissions, 
+                    // try to get the generic cached permissions if it's the current user
+                    if (!navigator.onLine) {
+                        if (userId == currentUserId) {
+                             response = await fetch(`profile/api.php?action=get_permissions`);
+                        } else {
+                             throw new Error("Offline Mode: You can only view your own permissions. Managing other users requires an internet connection.");
+                        }
+                    } else {
+                        throw e;
+                    }
+                }
+                
                 console.log('📥 Response status:', response.status);
                 
                 const data = await response.json();
@@ -2801,7 +2830,21 @@ $pageTitle = 'User Management';
                 const url = `profile/api.php?action=get_stores&user_id=${userId}`;
                 console.log('Fetching stores from:', url);
                 
-                const response = await fetch(url);
+                let response;
+                try {
+                    response = await fetch(url);
+                } catch (e) {
+                    if (!navigator.onLine) {
+                        if (userId == currentUserId) {
+                            response = await fetch(`profile/api.php?action=get_stores`);
+                        } else {
+                            throw new Error("Offline Mode: You can only view your own store access. Managing other users requires an internet connection.");
+                        }
+                    } else {
+                        throw e;
+                    }
+                }
+                
                 console.log('Response status:', response.status);
                 console.log('Response OK:', response.ok);
                 
