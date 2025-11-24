@@ -19,6 +19,9 @@ WORKDIR /var/www/html
 # Copy application files
 COPY . .
 
+# Setup configuration
+RUN cp config.production.php config.php
+
 # Install PHP dependencies
 RUN composer install --no-dev --optimize-autoloader
 
