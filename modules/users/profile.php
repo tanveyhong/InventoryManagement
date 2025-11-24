@@ -2127,11 +2127,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     </script>
     
-    <!-- Offline Support Scripts -->
+    <!-- Offline Support Scripts - Disabled for refactoring
     <script src="../offline/offline_storage.js?v=2"></script>
     <script src="../offline/sync_manager.js?v=2"></script>
     <script src="../offline/connectivity_monitor.js?v=2"></script>
     <script src="../offline/conflict_resolver.js?v=2"></script>
+    -->
     
     <script>
     // Initialize offline support for profile

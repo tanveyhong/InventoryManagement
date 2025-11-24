@@ -215,12 +215,12 @@ function timeAgo($datetime)
 {
     if (empty($datetime)) return 'unknown';
     
-    // Database stores in UTC, so we treat the input string as UTC
-    $ts = @strtotime($datetime . ' UTC');
+    // Database stores in Local Time (Asia/Kuala_Lumpur), so we parse as is
+    $ts = @strtotime($datetime);
     
     if ($ts === false || $ts === -1) {
-        // Fallback
-        $ts = @strtotime($datetime);
+        // Fallback for other formats
+        $ts = @strtotime($datetime . ' UTC');
     }
     
     if ($ts === false || $ts === -1) return 'unknown';

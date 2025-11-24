@@ -310,6 +310,7 @@ function syncPendingData() {
 }
 
 function syncChange(change) {
+    /* Offline sync disabled for refactoring
     fetch('/modules/offline/sync.php', {
         method: 'POST',
         headers: {
@@ -329,6 +330,8 @@ function syncChange(change) {
     .catch(error => {
         console.error('Sync failed:', error);
     });
+    */
+    console.log('Offline sync disabled: ', change);
 }
 
 function addPendingChange(type, operation, data) {
