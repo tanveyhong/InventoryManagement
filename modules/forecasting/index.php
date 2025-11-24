@@ -71,22 +71,24 @@ $page_title = 'Demand Forecasting';
         }
         
         .forecast-container {
-            max-width: 1600px;
+            max-width: 1200px;
             margin: 0 auto;
-            padding: 30px 20px;
+            padding: 15px;
         }
         
-        /* Modern Page Header */
+        /* Compact Page Header */
         .forecast-container .page-header {
             background: white !important;
-            border-radius: 24px !important;
-            padding: 40px 50px !important;
-            margin-bottom: 35px !important;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1) !important;
+            border-radius: 12px !important;
+            padding: 15px 20px !important;
+            margin-bottom: 15px !important;
+            box-shadow: var(--card-shadow) !important;
             position: relative !important;
             overflow: hidden !important;
-            border: 1px solid rgba(102, 126, 234, 0.1) !important;
-            display: block !important;
+            border: 1px solid #e2e8f0 !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: space-between !important;
         }
 
         .forecast-container .page-header::before {
@@ -100,86 +102,69 @@ $page_title = 'Demand Forecasting';
         }
         
         .forecast-container .page-header h1 {
-            margin: 0 0 12px 0 !important;
-            color: #1a202c !important;
-            font-size: 42px !important;
-            font-weight: 800 !important;
+            margin: 0 !important;
+            color: #1e293b !important;
+            font-size: 20px !important;
+            font-weight: 700 !important;
             display: flex !important;
             align-items: center !important;
-            gap: 20px !important;
-            letter-spacing: -0.5px !important;
+            gap: 10px !important;
         }
         
         .forecast-container .page-header h1 i {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            font-size: 48px;
+            color: #667eea;
+            font-size: 22px;
+            background: none;
+            -webkit-text-fill-color: initial;
         }
         
         .forecast-container .page-header p {
             margin: 0 !important;
             color: #64748b !important;
-            font-size: 18px !important;
+            font-size: 13px !important;
             font-weight: 500 !important;
-            padding-left: 68px !important;
         }
         
-        /* Modern Filter Section */
+        /* Compact Filter Section */
         .forecast-container .filter-section {
             background: white !important;
-            padding: 40px !important;
-            border-radius: 20px !important;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1) !important;
-            margin-bottom: 35px !important;
-            border: 1px solid rgba(102, 126, 234, 0.1) !important;
-            position: relative !important;
-            overflow: hidden !important;
-        }
-
-        .forecast-container .filter-section::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 5px;
-            height: 100%;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 15px !important;
+            border-radius: 12px !important;
+            box-shadow: var(--card-shadow) !important;
+            margin-bottom: 15px !important;
+            border: 1px solid #e2e8f0 !important;
         }
 
         .forecast-container .filter-section h3 {
-            margin: 0 0 30px 0 !important;
-            color: #1a202c !important;
-            font-size: 24px !important;
-            font-weight: 700 !important;
+            margin: 0 0 10px 0 !important;
+            color: #1e293b !important;
+            font-size: 15px !important;
+            font-weight: 600 !important;
             display: flex !important;
             align-items: center !important;
-            gap: 12px !important;
-            letter-spacing: -0.3px !important;
+            gap: 8px !important;
         }
 
         .forecast-container .filter-section h3 i {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            font-size: 26px;
+            color: #667eea;
+            font-size: 16px;
+            background: none;
+            -webkit-text-fill-color: initial;
         }
         
         .filter-grid {
             display: grid;
             grid-template-columns: 2fr 1.5fr 1fr;
-            gap: 28px;
-            margin-bottom: 28px;
+            gap: 15px;
+            margin-bottom: 15px;
         }
         
         .form-group label {
             display: block;
-            font-weight: 700;
-            margin-bottom: 12px;
-            color: #334155;
-            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 4px;
+            color: #475569;
+            font-size: 11px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
@@ -192,56 +177,31 @@ $page_title = 'Demand Forecasting';
         
         .form-group select {
             width: 100%;
-            padding: 16px 20px;
-            border: 2px solid #e2e8f0;
-            border-radius: 14px;
-            font-size: 15px;
-            font-weight: 600;
-            transition: var(--transition);
-            background: white;
-            color: #1a202c;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+            padding: 6px 10px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            font-size: 13px;
+            height: 34px;
         }
 
-        .form-group select:hover {
-            border-color: #667eea;
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
-            transform: translateY(-2px);
-        }
-
-        .form-group select:focus {
-            outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1), 0 4px 12px rgba(102, 126, 234, 0.2);
-        }
-
-        /* Modern Select2 Customization */
+        /* Compact Select2 */
         .select2-container--default .select2-selection--single {
-            height: 54px !important;
-            border: 2px solid #e2e8f0 !important;
-            border-radius: 14px !important;
-            padding: 10px 20px !important;
+            height: 34px !important;
+            border: 1px solid #cbd5e1 !important;
+            border-radius: 6px !important;
+            padding: 2px 8px !important;
             background: white !important;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
-            transition: var(--transition) !important;
-        }
-
-        .select2-container--default .select2-selection--single:hover {
-            border-color: #667eea !important;
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15) !important;
-            transform: translateY(-2px) !important;
         }
 
         .select2-container--default .select2-selection--single .select2-selection__rendered {
-            line-height: 34px !important;
-            color: #1a202c !important;
-            font-size: 15px !important;
-            font-weight: 600 !important;
+            line-height: 28px !important;
+            color: #334155 !important;
+            font-size: 13px !important;
         }
 
         .select2-container--default .select2-selection--single .select2-selection__arrow {
-            height: 52px !important;
-            right: 20px !important;
+            height: 32px !important;
+            right: 5px !important;
         }
 
         .select2-container--default.select2-container--focus .select2-selection--single {
@@ -281,128 +241,88 @@ $page_title = 'Demand Forecasting';
             background: var(--primary-gradient) !important;
         }
         
-        /* Modern Generate Button */
+        /* Compact Generate Button */
         .btn-generate {
             background: var(--primary-gradient);
             color: white;
-            padding: 16px 40px;
+            padding: 8px 20px;
             border: none;
-            border-radius: 14px;
-            font-weight: 700;
+            border-radius: 6px;
+            font-weight: 600;
             cursor: pointer;
-            font-size: 17px;
+            font-size: 14px;
             display: inline-flex;
             align-items: center;
-            gap: 12px;
+            gap: 8px;
             transition: var(--transition);
-            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
-            width: 100%;
-            justify-content: center;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            position: relative;
-            overflow: hidden;
+            box-shadow: 0 2px 5px rgba(102, 126, 234, 0.3);
+            height: 34px;
         }
 
-        .btn-generate::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
-            transition: left 0.5s;
-        }
-
-        .btn-generate:hover::before {
-            left: 100%;
-        }
-        
         .btn-generate:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 12px 30px rgba(102, 126, 234, 0.4);
-        }
-
-        .btn-generate:active {
             transform: translateY(-1px);
-            box-shadow: 0 6px 15px rgba(102, 126, 234, 0.3);
+            box-shadow: 0 4px 10px rgba(102, 126, 234, 0.4);
         }
 
         .btn-generate i {
-            font-size: 20px;
+            font-size: 14px;
         }
 
-        /* Modern Quick Filters */
+        /* Compact Quick Filters */
         .quick-filters {
             display: flex;
-            gap: 12px;
+            gap: 8px;
             flex-wrap: wrap;
-            margin-bottom: 25px;
-            padding: 24px;
-            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-            border-radius: 16px;
-            border: 2px solid #e2e8f0;
+            margin-bottom: 15px;
+            padding: 8px 12px;
+            background: #f8fafc;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
             align-items: center;
         }
 
         .quick-filter-label {
-            font-weight: 700;
-            color: #475569;
-            font-size: 14px;
+            font-weight: 600;
+            color: #64748b;
+            font-size: 11px;
             text-transform: uppercase;
-            letter-spacing: 0.8px;
-            display: flex;
-            align-items: center;
-            margin-right: 8px;
+            margin-right: 5px;
         }
 
         .quick-filter-btn {
-            padding: 10px 20px;
-            border: 2px solid #e2e8f0;
+            padding: 4px 10px;
+            border: 1px solid #cbd5e1;
             background: white;
-            border-radius: 24px;
+            border-radius: 12px;
             cursor: pointer;
-            font-size: 14px;
+            font-size: 11px;
             font-weight: 600;
-            transition: var(--transition);
             color: #64748b;
-            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
-        }
-
-        .quick-filter-btn:hover {
-            border-color: #667eea;
-            color: #667eea;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
         }
 
         .quick-filter-btn.active {
             border-color: #667eea;
             background: var(--primary-gradient);
             color: white;
-            transform: translateY(-2px);
-            box-shadow: 0 6px 16px rgba(102, 126, 234, 0.35);
         }
         
-        /* Modern Stats Grid */
+        /* Compact Stats Grid */
         .forecast-container .stats-grid {
             display: grid !important;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)) !important;
-            gap: 24px !important;
-            margin-bottom: 35px !important;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)) !important;
+            gap: 15px !important;
+            margin-bottom: 15px !important;
         }
         
-        /* Modern Stat Cards with Glassmorphism */
+        /* Compact Stat Cards */
         .forecast-container .stat-card {
             background: white !important;
-            padding: 32px !important;
-            border-radius: 20px !important;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1) !important;
-            border: 1px solid rgba(102, 126, 234, 0.1) !important;
+            padding: 15px !important;
+            border-radius: 10px !important;
+            box-shadow: var(--card-shadow) !important;
+            border: 1px solid #e2e8f0 !important;
             position: relative !important;
             overflow: hidden !important;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
         }
 
         .forecast-container .stat-card::before {
@@ -410,54 +330,40 @@ $page_title = 'Demand Forecasting';
             position: absolute;
             top: 0;
             left: 0;
-            width: 5px;
-            height: 100%;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        .forecast-container .stat-card:hover {
-            transform: translateY(-5px) !important;
-            box-shadow: 0 15px 50px rgba(0, 0, 0, 0.15) !important;
-        }
-
-        .forecast-container .stat-card:hover::before {
-            width: 100%;
-            opacity: 0.05;
+            bottom: 0;
+            width: 3px;
+            background: linear-gradient(180deg, #667eea 0%, #764ba2 100%);
         }
         
         .forecast-container .stat-card h3 {
-            margin: 0 0 15px 0 !important;
-            font-size: 13px !important;
+            margin: 0 0 5px 0 !important;
+            font-size: 11px !important;
             color: #64748b !important;
             text-transform: uppercase !important;
-            font-weight: 700 !important;
-            letter-spacing: 1px !important;
+            font-weight: 600 !important;
             display: flex !important;
             align-items: center !important;
-            gap: 8px !important;
+            gap: 5px !important;
         }
 
         .forecast-container .stat-card h3 i {
             color: #667eea !important;
-            font-size: 15px !important;
+            font-size: 12px !important;
         }
         
         .forecast-container .stat-value {
-            font-size: 42px !important;
-            font-weight: 800 !important;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            margin-bottom: 8px !important;
+            font-size: 24px !important;
+            font-weight: 700 !important;
+            color: #1e293b !important;
+            background: none !important;
+            -webkit-text-fill-color: initial !important;
+            margin-bottom: 2px !important;
             line-height: 1.2 !important;
         }
         
         .forecast-container .stat-label {
-            font-size: 14px !important;
+            font-size: 11px !important;
             color: #94a3b8 !important;
-            font-weight: 500 !important;
         }
         
         /* Modern Status Badges */
@@ -491,14 +397,14 @@ $page_title = 'Demand Forecasting';
             color: white; 
         }
         
-        /* Modern Chart Container */
+        /* Compact Chart Container */
         .forecast-container .chart-container {
             background: white !important;
-            padding: 30px !important;
-            border-radius: 20px !important;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1) !important;
-            margin-bottom: 35px !important;
-            border: 1px solid rgba(102, 126, 234, 0.1) !important;
+            padding: 15px !important;
+            border-radius: 12px !important;
+            box-shadow: var(--card-shadow) !important;
+            margin-bottom: 15px !important;
+            border: 1px solid #e2e8f0 !important;
             position: relative !important;
             overflow: hidden !important;
         }
@@ -514,13 +420,10 @@ $page_title = 'Demand Forecasting';
         }
         
         .forecast-container .chart-container h2 {
-            margin: 0 0 20px 0 !important;
-            color: #1a202c !important;
-            font-size: 22px !important;
-            font-weight: 700 !important;
-            display: flex !important;
-            align-items: center !important;
-            gap: 12px !important;
+            margin: 0 0 10px 0 !important;
+            color: #1e293b !important;
+            font-size: 16px !important;
+            font-weight: 600 !important;
         }
 
         .forecast-container .chart-container h2 i {
@@ -531,14 +434,14 @@ $page_title = 'Demand Forecasting';
         }
 
         .forecast-container .chart-container > div {
-            height: 450px !important;
-            max-height: 450px !important;
+            height: 300px !important;
+            max-height: 300px !important;
             position: relative !important;
         }
 
         .forecast-container #forecastChart {
             height: 100% !important;
-            max-height: 450px !important;
+            max-height: 300px !important;
         }
 
         /* Better grid layout for main content */
@@ -567,17 +470,15 @@ $page_title = 'Demand Forecasting';
             }
         }
         
-        /* Modern Recommendations Section */
+        /* Compact Recommendations */
         .forecast-container .recommendations {
             background: white !important;
-            padding: 30px !important;
-            border-radius: 20px !important;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1) !important;
-            border: 1px solid rgba(102, 126, 234, 0.1) !important;
-            position: relative !important;
-            overflow: visible !important;
+            padding: 15px !important;
+            border-radius: 12px !important;
+            box-shadow: var(--card-shadow) !important;
+            border: 1px solid #e2e8f0 !important;
             height: fit-content !important;
-            max-height: 550px !important;
+            max-height: 400px !important;
         }
 
         .forecast-container .recommendations::before {
@@ -636,18 +537,14 @@ $page_title = 'Demand Forecasting';
             background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
         }
         
-        /* Modern Recommendation Items */
+        /* Compact Recommendation Items */
         .forecast-container .recommendation-item {
-            padding: 18px !important;
-            border-radius: 14px !important;
-            margin-bottom: 12px !important;
+            padding: 10px !important;
+            border-radius: 8px !important;
+            margin-bottom: 8px !important;
             display: flex !important;
-            gap: 14px !important;
-            align-items: start !important;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-            border: 2px solid transparent !important;
-            position: relative !important;
-            overflow: hidden !important;
+            gap: 10px !important;
+            border: 1px solid transparent !important;
         }
 
         .forecast-container .recommendation-item::before {
@@ -728,17 +625,15 @@ $page_title = 'Demand Forecasting';
             font-weight: 500 !important;
         }
         
-        /* Modern Empty State */
+        /* Compact Empty State */
         .empty-state {
             text-align: center;
-            padding: 100px 40px;
+            padding: 40px 20px;
             color: #64748b;
             background: white;
-            border-radius: 24px;
+            border-radius: 12px;
             box-shadow: var(--card-shadow);
-            border: 1px solid rgba(102, 126, 234, 0.1);
-            position: relative;
-            overflow: hidden;
+            border: 1px solid #e2e8f0;
         }
 
         .empty-state::before {
@@ -752,8 +647,8 @@ $page_title = 'Demand Forecasting';
         }
         
         .empty-state i {
-            font-size: 96px;
-            margin-bottom: 30px;
+            font-size: 48px;
+            margin-bottom: 15px;
             background: var(--primary-gradient);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
@@ -763,19 +658,18 @@ $page_title = 'Demand Forecasting';
 
         .empty-state h3 {
             color: #1a202c;
-            font-size: 28px;
-            margin: 0 0 20px 0;
-            font-weight: 800;
-            letter-spacing: -0.5px;
+            font-size: 20px;
+            margin: 0 0 10px 0;
+            font-weight: 700;
         }
 
         .empty-state p {
-            font-size: 17px;
-            margin: 0 0 40px 0;
-            max-width: 600px;
+            font-size: 14px;
+            margin: 0 0 20px 0;
+            max-width: 500px;
             margin-left: auto;
             margin-right: auto;
-            line-height: 1.8;
+            line-height: 1.5;
             font-weight: 500;
             color: #64748b;
         }
@@ -790,7 +684,7 @@ $page_title = 'Demand Forecasting';
         }
 
         .empty-state-feature {
-            padding: 28px;
+            padding: 20px;
             background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
             border-radius: 16px;
             border: 2px solid #e2e8f0;
@@ -846,30 +740,13 @@ $page_title = 'Demand Forecasting';
                 grid-template-columns: 1fr;
             }
             .stats-grid {
-                grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             }
         }
 
         @media (max-width: 768px) {
             .forecast-container {
-                padding: 20px 15px;
-            }
-            .page-header {
-                padding: 30px 25px;
-            }
-            .page-header h1 {
-                font-size: 32px;
-            }
-            .filter-section,
-            .chart-container,
-            .recommendations {
-                padding: 30px 25px;
-            }
-            .empty-state {
-                padding: 60px 30px;
-            }
-            .empty-state i {
-                font-size: 72px;
+                padding: 10px;
             }
             .empty-state-features {
                 grid-template-columns: 1fr;

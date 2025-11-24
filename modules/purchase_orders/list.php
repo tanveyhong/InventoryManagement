@@ -100,6 +100,10 @@ $page_title = 'Purchase Orders';
             margin-right: 20px;
             flex-shrink: 0;
         }
+
+        .stat-icon i {
+            color: inherit;
+        }
         
         .stat-info h3 {
             margin: 0;
@@ -116,10 +120,10 @@ $page_title = 'Purchase Orders';
             font-weight: 500;
         }
         
-        .bg-blue { background: #e3f2fd; color: #1976d2; }
-        .bg-green { background: #e8f5e9; color: #2e7d32; }
-        .bg-orange { background: #fff3e0; color: #f57c00; }
-        .bg-purple { background: #f3e5f5; color: #7b1fa2; }
+        .bg-blue { background: #e3f2fd; color: #1976d2 !important; }
+        .bg-green { background: #e8f5e9; color: #2e7d32 !important; }
+        .bg-orange { background: #fff3e0; color: #f57c00 !important; }
+        .bg-purple { background: #f3e5f5; color: #7b1fa2 !important; }
         
         .content-card {
             background: white;

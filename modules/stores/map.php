@@ -183,11 +183,10 @@ $page_title = 'Interactive Store Map - Inventory System';
         }
         
         body {
-            background: #f0f2f5;
-            height: 100vh;
+            background: #f1f5f9;
+            min-height: 100vh;
             margin: 0;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            overflow: hidden; /* Prevent body scroll */
         }
         
         /* Dashboard header compatibility */
@@ -195,61 +194,56 @@ $page_title = 'Interactive Store Map - Inventory System';
             display: none; /* Hide default header if present to maximize space */
         }
         
-        /* Override Dashboard Wrapper to be full height flex container */
+        /* Override Dashboard Wrapper */
         .dashboard-wrapper {
-            display: flex !important;
-            flex-direction: column !important;
-            height: 100vh !important;
+            display: block !important;
             min-height: 100vh !important;
-            overflow: hidden !important;
         }
         
-        /* Ensure Navbar stays at top and doesn't shrink */
+        /* Ensure Navbar stays at top */
         .top-navbar {
-            flex-shrink: 0 !important;
-            position: relative !important; /* Override sticky if needed */
+            position: relative !important;
             z-index: 1000;
+            margin-bottom: 15px;
         }
 
         .container {
             width: 100% !important;
-            max-width: none !important; /* Override global max-width */
-            flex: 1;
-            margin: 0 !important;
+            max-width: 1200px !important;
+            margin: 0 auto !important;
             padding: 15px !important;
             display: flex;
             flex-direction: column;
-            overflow: hidden;
             gap: 15px;
         }
         
         /* Compact Header */
         .page-header {
             background: white;
-            padding: 8px 15px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            padding: 15px 20px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
             display: flex;
             justify-content: space-between;
             align-items: center;
             z-index: 10;
-            flex-shrink: 0;
-            height: 50px;
             border-radius: 12px;
             border: 1px solid #e2e8f0;
+            margin-bottom: 0;
         }
         
         .page-header h1 {
             margin: 0;
-            color: #2d3748;
-            font-size: 16px;
-            font-weight: 600;
+            color: #1e293b;
+            font-size: 20px;
+            font-weight: 700;
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 10px;
         }
         
         .page-header h1 i {
             color: #667eea;
+            font-size: 22px;
         }
         
         /* Inline Stats in Header */
@@ -287,43 +281,40 @@ $page_title = 'Interactive Store Map - Inventory System';
             font-size: 12px;
         }
         
-        /* Map Section - Takes remaining height */
+        /* Map Section - Fixed Height */
         .map-section {
-            flex: 1;
+            height: 600px;
             display: flex;
             flex-direction: column;
             overflow: hidden;
             position: relative;
             border-radius: 12px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
             border: 1px solid #e2e8f0;
             background: white;
         }
         
         .map-toolbar {
             background: white;
-            padding: 8px 15px;
+            padding: 10px 15px;
             border-bottom: 1px solid #e2e8f0;
             display: flex;
             justify-content: space-between;
             align-items: center;
             flex-shrink: 0;
-            height: 50px;
+            height: auto;
+            min-height: 50px;
             border-radius: 12px 12px 0 0;
-        }
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-shrink: 0;
-            height: 50px;
         }
         
         .map-toolbar h2 {
-            font-size: 14px;
-            color: #4a5568;
+            font-size: 16px;
+            font-weight: 600;
+            color: #1e293b;
             display: flex;
             align-items: center;
-            gap: 6px;
+            gap: 8px;
+            margin: 0;
         }
         
         .filter-controls {
