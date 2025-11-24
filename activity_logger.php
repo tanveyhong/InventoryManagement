@@ -5,11 +5,10 @@
  */
 
 require_once __DIR__ . '/config.php';
-require_once __DIR__ . '/db.php';
-require_once __DIR__ . '/getDB.php';
+require_once __DIR__ . '/sql_db.php';
 
 /**
- * Log user activity to Firebase
+ * Log user activity to PostgreSQL
  * 
  * @param string $action Action type (e.g., 'store_created', 'profile_updated', 'product_added')
  * @param string $description Human-readable description of the activity
@@ -24,56 +23,33 @@ function logActivity($action, $description, $metadata = []) {
             return false;
         }
         
-        $db = getDB();
+        $sqlDb = SQLDatabase::getInstance();
         $userId = $_SESSION['user_id'];
-        
-        // Get user info for username
-        $user = $db->read('users', $userId);
-        
-        // Try to get username from multiple sources
-        $username = 'Unknown User';
-        if ($user && is_array($user)) {
-            if (isset($user['username'])) {
-                $username = $user['username'];
-            } elseif (isset($user['first_name']) && isset($user['last_name'])) {
-                $username = trim($user['first_name'] . ' ' . $user['last_name']);
-            } elseif (isset($user['email'])) {
-                $username = $user['email'];
-            }
-        } elseif (isset($_SESSION['username'])) {
-            // Fallback to session username
-            $username = $_SESSION['username'];
-        }
-        
-        error_log("logActivity called: action={$action}, user={$userId}, username={$username}, desc={$description}");
         
         // Convert metadata to JSON string if it's an array
         if (is_array($metadata)) {
             $metadata = json_encode($metadata);
         }
         
-        // Prepare activity data
-        $activityData = [
-            'user_id' => $userId,
-            'username' => $username,
-            'action' => $action,
-            'action_type' => $action, // For compatibility with activity_manager display
-            'description' => $description,
-            'metadata' => $metadata,
-            'ip_address' => $_SERVER['REMOTE_ADDR'] ?? 'unknown',
-            'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? 'unknown',
-            'timestamp' => date('c'), // ISO 8601 format
-            'created_at' => date('c')
-        ];
+        $ip_address = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+        $user_agent = $_SERVER['HTTP_USER_AGENT'] ?? 'unknown';
+        $created_at = date('Y-m-d H:i:s');
         
-        error_log("Activity data prepared: " . json_encode($activityData));
+        // Save to PostgreSQL
+        $sql = "INSERT INTO user_activities (user_id, action, description, metadata, ip_address, user_agent, created_at) 
+                VALUES (?, ?, ?, ?, ?, ?, ?)";
+                
+        $result = $sqlDb->execute($sql, [
+            $userId,
+            $action,
+            $description,
+            $metadata,
+            $ip_address,
+            $user_agent,
+            $created_at
+        ]);
         
-        // Save to Firebase
-        $result = $db->create('user_activities', $activityData);
-        
-        error_log("Firebase create result: " . var_export($result, true));
-        
-        return $result !== false;
+        return $result;
         
     } catch (Exception $e) {
         error_log("Activity logging error: " . $e->getMessage());

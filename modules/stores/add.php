@@ -129,10 +129,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ]);
             
             if ($result) {
+                $storeId = $sqlDb->lastInsertId();
                 // Log the activity
                 error_log("Store created - Name: {$name}, User: {$_SESSION['user_id']}");
                 
-                $activityResult = logStoreActivity('created', $name, $name);
+                $activityResult = logStoreActivity('created', $storeId, $name);
                 error_log("Activity logging result: " . ($activityResult ? 'SUCCESS' : 'FAILED'));
                 
                 addNotification('Store created successfully!' . ($has_pos ? ' POS integration enabled.' : ''), 'success');

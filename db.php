@@ -73,8 +73,21 @@ class Database {
                 $limit = 100; // Safe default to prevent fetching thousands of documents
             }
             
+            // Prepare orderBy string for Firestore
+            $orderByString = null;
+            if ($orderBy !== null) {
+                if (is_array($orderBy)) {
+                    // Handle ['field', 'DESC'] format
+                    $field = $orderBy[0] ?? 'created_at';
+                    $direction = isset($orderBy[1]) && strtoupper($orderBy[1]) === 'DESC' ? 'desc' : 'asc';
+                    $orderByString = "{$field} {$direction}";
+                } elseif (is_string($orderBy)) {
+                    $orderByString = $orderBy;
+                }
+            }
+            
             // REST client has limited query support for now
-            $results = $this->restClient->queryCollection($collection, $limit);
+            $results = $this->restClient->queryCollection($collection, $limit, $orderByString);
             
             // Apply basic filtering if conditions are provided
             if (!empty($conditions) && !empty($results)) {

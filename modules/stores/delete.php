@@ -4,6 +4,7 @@ require_once '../../config.php';
 require_once '../../db.php';
 require_once '../../sql_db.php';
 require_once '../../functions.php';
+require_once '../../activity_logger.php';
 
 session_start();
 
@@ -54,6 +55,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_delete'])) {
         $result = $sqlDb->execute("UPDATE stores SET active = FALSE, deleted_at = NOW(), updated_at = NOW() WHERE id = ?", [$store_id]);
         
         if ($result) {
+            logStoreActivity('deleted', $store_id, $store['name']);
             addNotification('Store deleted successfully!', 'success');
             header('Location: list.php');
             exit;

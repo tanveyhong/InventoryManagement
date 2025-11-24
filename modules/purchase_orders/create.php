@@ -4,6 +4,7 @@ require_once '../../config.php';
 session_start();
 require_once '../../functions.php';
 require_once '../../sql_db.php';
+require_once '../../activity_logger.php';
 
 if (!isset($_SESSION['user_id'])) {
     header('Location: ../users/login.php');
@@ -56,7 +57,7 @@ if (!empty($_GET['product_id'])) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $supplier_id = $_POST['supplier_id'];
     $store_id = !empty($_POST['store_id']) ? $_POST['store_id'] : null;
-    $expected_date = !empty($_POST['expected_date']) ? $_POST['expected_date'] : null;
+    $expected_date = !empty($_POST['expected_date']) ? $_POST['expected_date'] : date('Y-m-d', strtotime('+1 day'));
     $notes = $_POST['notes'];
     $batch_ids_str = $_POST['batch_product_ids'] ?? '';
 
@@ -89,6 +90,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $sqlDb->execute("UPDATE purchase_orders SET total_amount = (SELECT SUM(total_cost) FROM purchase_order_items WHERE po_id = ?) WHERE id = ?", [$po_id, $po_id]);
         }
 
+        logActivity('po_created', "Created Purchase Order: $po_number", ['po_id' => $po_id, 'po_number' => $po_number]);
+
         $redirectUrl = "edit.php?id=$po_id";
         if (!empty($_GET['product_id'])) {
             $redirectUrl .= "&pre_product_id=" . urlencode($_GET['product_id']);
@@ -100,6 +103,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = "Error creating PO: " . $e->getMessage();
     }
 }
+
+// Auto-generate meaningful notes
+$u_note = $sqlDb->fetch("SELECT username FROM users WHERE id = ?", [$_SESSION['user_id']]);
+$current_user = $u_note['username'] ?? 'Staff';
+$default_notes = "Restock request created by $current_user.";
+
+if (!empty($_GET['product_id'])) {
+    $p_note = $sqlDb->fetch("SELECT name, sku FROM products WHERE id = ?", [$_GET['product_id']]);
+    if ($p_note) {
+        $default_notes .= "\nItem: " . $p_note['name'] . " (" . $p_note['sku'] . ")";
+    }
+} elseif (!empty($batch_product_ids)) {
+    $default_notes .= "\nBulk replenishment for " . count($batch_product_ids) . " items.";
+}
+
+if ($pre_store_id) {
+    foreach ($stores as $s) {
+        if ($s['id'] == $pre_store_id) {
+            $default_notes .= "\nDestination: " . $s['name'];
+            break;
+        }
+    }
+}
+
+$default_notes .= "\nPlease include packing slip with delivery.";
 ?>
 
 <!DOCTYPE html>
@@ -166,12 +194,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                             <div class="form-group">
                                 <label>Expected Date</label>
-                                <input type="date" name="expected_date" class="form-control">
+                                <input type="date" name="expected_date" class="form-control" value="<?php echo date('Y-m-d', strtotime('+1 day')); ?>">
+                                <small style="color: #6c757d;">Auto-set to tomorrow</small>
                             </div>
 
                             <div class="form-group">
                                 <label>Notes</label>
-                                <textarea name="notes" class="form-control" rows="3"></textarea>
+                                <textarea name="notes" class="form-control" rows="3"><?php echo htmlspecialchars($default_notes); ?></textarea>
+                                <small style="color: #6c757d;">Auto-generated. You can edit this.</small>
                             </div>
                         </div>
                     </div>

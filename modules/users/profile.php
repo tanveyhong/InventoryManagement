@@ -111,6 +111,13 @@ if (!$user) {
 // User data loaded successfully
 error_log("User profile loaded successfully for: " . ($user['username'] ?? $userId));
 
+// Normalize user data (PostgreSQL uses full_name, legacy uses first_name/last_name)
+if (isset($user['full_name']) && !isset($user['first_name'])) {
+    $nameParts = explode(' ', trim($user['full_name']), 2);
+    $user['first_name'] = $nameParts[0] ?? '';
+    $user['last_name'] = $nameParts[1] ?? '';
+}
+
 $pageTitle = 'My Profile';
 
 // Get role info
@@ -1048,7 +1055,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="profile-header">
             <div class="profile-avatar" id="profileAvatar">
                 <?php if (!empty($user['profile_picture'])): ?>
-                    <img src="<?= htmlspecialchars($user['profile_picture']) ?>" alt="Profile" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">
+                    <?php 
+                        $profilePic = $user['profile_picture'];
+                        if (!preg_match('/^https?:\/\//', $profilePic)) {
+                            $profilePic = '../../' . $profilePic;
+                        }
+                    ?>
+                    <img src="<?= htmlspecialchars($profilePic) ?>" alt="Profile" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">
                 <?php else: ?>
                     <?php
                     // Get initials from full_name or fallback to first/last name
@@ -1372,6 +1385,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     const userBadge = (isAdmin && activity.user_name) ? `
                         <span style="background: #667eea; color: white; padding: 2px 8px; border-radius: 4px; font-size: 12px; margin-left: 10px;">
                             ${escapeHtml(activity.user_name)}
+                            ${activity.user_role ? `<span style="opacity: 0.8; font-size: 10px;">(${escapeHtml(activity.user_role)})</span>` : ''}
                         </span>
                     ` : '';
                     
@@ -1541,15 +1555,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <div style="background: #f8f9fa; padding: 15px; border-radius: 10px; margin-bottom: 20px;">
                             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
                                 <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                                    <button onclick="exportActivities('csv')" class="btn" style="background: #10b981; color: white; padding: 8px 16px; font-size: 14px;">
-                                        <i class="fas fa-file-csv"></i> Export CSV
-                                    </button>
-                                    <button onclick="exportActivities('json')" class="btn" style="background: #3b82f6; color: white; padding: 8px 16px; font-size: 14px;">
-                                        <i class="fas fa-file-code"></i> Export JSON
-                                    </button>
-                                    <button onclick="exportActivities('pdf')" class="btn" style="background: #f59e0b; color: white; padding: 8px 16px; font-size: 14px;">
-                                        <i class="fas fa-file-pdf"></i> Export PDF
-                                    </button>
                                     ${isAdmin ? `
                                     <button onclick="if(confirm('⚠️ This will permanently clear all activity history for the selected user. Are you sure?')) clearActivities()" class="btn" style="background: #ef4444; color: white; padding: 8px 16px; font-size: 14px;">
                                         <i class="fas fa-trash-alt"></i> Clear History
@@ -3146,7 +3151,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </h2>
                         <p style="margin: 5px 0 0 0; color: #6b7280;">Insights and patterns from ${allActivitiesCache.length.toLocaleString()} activities</p>
                     </div>
-                    <button onclick="this.closest('div').parentElement.remove()" style="background: #ef4444; color: white; border: none; width: 36px; height: 36px; border-radius: 50%; cursor: pointer; font-size: 18px;">
+                    <button onclick="this.closest('div').parentElement.parentElement.remove()" style="background: #ef4444; color: white; border: none; width: 36px; height: 36px; border-radius: 50%; cursor: pointer; font-size: 18px;">
                         <i class="fas fa-times"></i>
                     </button>
                 </div>
@@ -3219,6 +3224,68 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         await originalLoadActivities.apply(this, args);
         updateActivityStats();
     };
+    
+    // Profile Picture Upload Handler
+    async function handleAvatarUpload(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        // Validate file type
+        const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+        if (!allowedTypes.includes(file.type)) {
+            alert('Invalid file type. Only JPG, PNG, GIF, and WebP are allowed.');
+            return;
+        }
+        
+        // Validate file size (max 5MB)
+        if (file.size > 5 * 1024 * 1024) {
+            alert('File size too large. Max 5MB allowed.');
+            return;
+        }
+        
+        const formData = new FormData();
+        formData.append('avatar', file);
+        
+        // Show loading state
+        const avatarContainer = document.getElementById('profileAvatar');
+        const originalContent = avatarContainer.innerHTML;
+        avatarContainer.innerHTML = '<div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: white;"><i class="fas fa-spinner fa-spin fa-3x"></i></div>';
+        
+        try {
+            const response = await fetch('upload_profile_picture.php', {
+                method: 'POST',
+                body: formData
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                // Reload page to update all instances of the avatar
+                window.location.reload();
+            } else {
+                alert('Failed to upload profile picture: ' + (data.error || 'Unknown error'));
+                avatarContainer.innerHTML = originalContent;
+                const newInput = document.getElementById('avatarUpload');
+                if (newInput) {
+                    newInput.addEventListener('change', handleAvatarUpload);
+                }
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('An error occurred while uploading the profile picture.');
+            avatarContainer.innerHTML = originalContent;
+            const newInput = document.getElementById('avatarUpload');
+            if (newInput) {
+                newInput.addEventListener('change', handleAvatarUpload);
+            }
+        }
+    }
+
+    // Attach listener
+    const avatarInput = document.getElementById('avatarUpload');
+    if (avatarInput) {
+        avatarInput.addEventListener('change', handleAvatarUpload);
+    }
     
     </script>
 </body>

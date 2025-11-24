@@ -45,53 +45,52 @@ $limit        = isset($_GET['limit'])  ? max(10, (int)$_GET['limit']) : 200;
 
 $records = [];
 try {
-    $db = getDB();
-    // If your wrapper doesn’t support Firestore queries with ordering, just read and sort in PHP:
-    $rows = $db->readAll('stock_audits', [], null, 2000); // cap to keep it light
-    foreach ($rows as $r) {
-        // normalize
-        $rec = [
-            'id'              => $r['id'] ?? ($r['doc_id'] ?? null),
-            'created_at'      => $r['created_at'] ?? null,
-            'action'          => $r['action'] ?? 'unknown',
-            'product_id'      => $r['product_id'] ?? null,
-            'sku'             => isset($r['sku']) ? strtoupper((string)$r['sku']) : null,
-            'product_name'    => $r['product_name'] ?? '(unknown)',
-            'store_id'        => $r['store_id'] ?? null,
-            'quantity_before' => $r['quantity_before'] ?? null,
-            'quantity_after'  => $r['quantity_after'] ?? null,
-            'quantity_delta'  => isset($r['quantity_delta']) ? (int)$r['quantity_delta'] : (
-                (isset($r['quantity_before'], $r['quantity_after']))
-                ? ((int)$r['quantity_after'] - (int)$r['quantity_before'])
-                : null
-            ),
-            'description_before' => $r['description_before'] ?? null,
-            'description_after' => $r['description_after'] ?? null,
-            'reorder_before'  => $r['reorder_before'] ?? null,
-            'reorder_after'   => $r['reorder_after'] ?? null,
-            'changed_by'      => $r['changed_by'] ?? null,
-            'changed_name'    => $r['changed_name'] ?? null,
-        ];
-
-        // filters
-        if ($actionFilter !== '' && strcasecmp($rec['action'], $actionFilter) !== 0) continue;
-        if ($skuFilter !== '' && strtoupper((string)$rec['sku']) !== $skuFilter) continue;
-        if ($pidFilter !== '' && (string)$rec['product_id'] !== $pidFilter) continue;
-
-        $records[] = $rec;
+    require_once __DIR__ . '/../../sql_db.php';
+    $sqlDb = SQLDatabase::getInstance();
+    
+    $query = "SELECT * FROM stock_audits WHERE 1=1";
+    $params = [];
+    
+    if ($actionFilter !== '') {
+        $query .= " AND action = ?";
+        $params[] = $actionFilter;
     }
-
-    // Sort newest first
-    usort($records, function ($a, $b) {
-        return strcmp($b['created_at'] ?? '', $a['created_at'] ?? '');
-    });
-
-    // Limit
-    if (count($records) > $limit) {
-        $records = array_slice($records, 0, $limit);
+    if ($skuFilter !== '') {
+        $query .= " AND sku = ?";
+        $params[] = $skuFilter;
+    }
+    if ($pidFilter !== '') {
+        $query .= " AND product_id = ?";
+        $params[] = $pidFilter;
+    }
+    
+    $query .= " ORDER BY created_at DESC LIMIT ?";
+    $params[] = $limit;
+    
+    $rows = $sqlDb->fetchAll($query, $params);
+    
+    foreach ($rows as $r) {
+        $records[] = [
+            'id'              => $r['id'],
+            'created_at'      => $r['created_at'],
+            'action'          => $r['action'],
+            'product_id'      => $r['product_id'],
+            'sku'             => $r['sku'],
+            'product_name'    => $r['product_name'],
+            'store_id'        => $r['store_id'],
+            'quantity_before' => $r['quantity_before'],
+            'quantity_after'  => $r['quantity_after'],
+            'quantity_delta'  => $r['quantity_delta'],
+            'description_before' => $r['description_before'],
+            'description_after' => $r['description_after'],
+            'reorder_before'  => $r['reorder_before'],
+            'reorder_after'   => $r['reorder_after'],
+            'changed_by'      => $r['changed_by'],
+            'changed_name'    => $r['changed_name'],
+        ];
     }
 } catch (Throwable $t) {
-    error_log('load stock_audits failed: ' . $t->getMessage());
+    error_log('load stock_audits SQL failed: ' . $t->getMessage());
 }
 
 ?>

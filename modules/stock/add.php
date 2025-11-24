@@ -3,6 +3,7 @@
 require_once '../../config.php';
 require_once '../../db.php';
 require_once '../../functions.php';
+require_once '../../activity_logger.php';
 
 session_start();
 
@@ -95,6 +96,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $store_id        = null; // Always NULL for main stock (central inventory)
     $supplier_id     = !empty($_POST['supplier_id']) ? (int)$_POST['supplier_id'] : null;
     $quantity        = (int)($_POST['quantity'] ?? 0);
+    $cost_price      = (float)($_POST['cost_price'] ?? 0);
     $unit_price      = (float)($_POST['unit_price'] ?? 0);
     $min_stock_level = (int)($_POST['min_stock_level'] ?? 0);
 
@@ -103,6 +105,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // --- 2) Basic validation --------------------------------------------------
     if ($name === '') $errors[] = 'Product name is required';
     if ($quantity < 0) $errors[] = 'Quantity cannot be negative';
+    if ($cost_price < 0) $errors[] = 'Cost price cannot be negative';
     if ($unit_price < 0) $errors[] = 'Unit price cannot be negative';
     if ($min_stock_level < 0) $errors[] = 'Minimum stock level cannot be negative';
 
@@ -130,6 +133,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'category'      => $row['category']      ?? 'General',
                         'store_id'      => isset($row['store_id']) ? (int)$row['store_id'] : null,
                         'quantity'      => isset($row['quantity']) ? (int)$row['quantity'] : 0,
+                        'cost_price'    => isset($row['cost_price']) ? (float)$row['cost_price'] : 0.0,
                         'price'         => isset($row['price']) ? (float)$row['price'] : 0.0,
                         'reorder_level' => isset($row['reorder_level']) ? (int)$row['reorder_level'] : 0,
                         'created_at'    => date('c'),
@@ -172,9 +176,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $sql = "
                 INSERT INTO products
-                    (name, sku, description, category, store_id, supplier_id, quantity, price, reorder_level, created_at, updated_at)
+                    (name, sku, description, category, store_id, supplier_id, quantity, cost_price, price, selling_price, reorder_level, created_at, updated_at)
                 VALUES
-                    (?,    ?,   ?,           ?,        ?,        ?,           ?,        ?,     ?,             CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    (?,    ?,   ?,           ?,        ?,        ?,           ?,        ?,          ?,     ?,             ?,             CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             ";
             $sqlDb->execute($sql, [
                 $name,
@@ -184,11 +188,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $store_id > 0 ? $store_id : null,
                 $supplier_id,
                 $quantity,
+                $cost_price,
                 $unit_price,
+                $unit_price, // selling_price
                 $min_stock_level,
             ]);
 
             $product_id = $sqlDb->lastInsertId();
+
+            logActivity('product_added', "Added new product: $name (SKU: $sku)", ['product_id' => $product_id, 'sku' => $sku]);
 
             // Optional initial stock movement
             if ($quantity > 0) {
@@ -215,6 +223,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'category'      => $category,
                     'store_id'      => $store_id > 0 ? $store_id : null,
                     'quantity'      => $quantity,
+                    'cost_price'    => $cost_price,
                     'price'         => $unit_price,
                     'reorder_level' => $min_stock_level,
                     'created_at'    => date('c'),
@@ -423,9 +432,15 @@ $page_title = 'Add Product - Inventory System';
 
                             <div class="form-row">
                                 <div class="form-group required">
+                                    <label for="cost_price">Cost Price ($):</label>
+                                    <input type="number" id="cost_price" name="cost_price" value="<?php echo htmlspecialchars($_POST['cost_price'] ?? '0.00'); ?>" min="0" step="0.01">
+                                    <small>Cost per unit from supplier</small>
+                                </div>
+
+                                <div class="form-group required">
                                     <label for="unit_price">Unit Price ($):</label>
                                     <input type="number" id="unit_price" name="unit_price" value="<?php echo htmlspecialchars($_POST['unit_price'] ?? '0.00'); ?>" min="0" step="0.01">
-                                    <small>Selling price per unit</small>
+                                    <small>Selling price per unit (Auto-calc: Cost / 0.7)</small>
                                 </div>
                             </div>
                         </div>
@@ -477,6 +492,17 @@ $page_title = 'Add Product - Inventory System';
                 totalElement.textContent = '$' + totalValue.toFixed(2);
             }
         }
+
+        // Auto-calculate Selling Price based on Cost
+        document.getElementById('cost_price').addEventListener('input', function() {
+            const cost = parseFloat(this.value) || 0;
+            if (cost > 0) {
+                // Formula: Cost = Price * 0.70  =>  Price = Cost / 0.70
+                const price = cost / 0.70;
+                document.getElementById('unit_price').value = price.toFixed(2);
+                updateTotalValue();
+            }
+        });
 
         // document.getElementById('quantity').addEventListener('input', updateTotalValue);
         document.getElementById('unit_price').addEventListener('input', updateTotalValue);

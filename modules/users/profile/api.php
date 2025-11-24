@@ -74,35 +74,41 @@ try {
                 $targetUserId = $userId;
             }
             
-            // Build PostgreSQL query
-            $sql = "SELECT * FROM user_activities WHERE deleted_at IS NULL";
+            // Build PostgreSQL query with JOIN to get user details
+            $sql = "SELECT ua.*, u.username, u.full_name, u.role 
+                    FROM user_activities ua 
+                    LEFT JOIN users u ON ua.user_id = u.id 
+                    WHERE ua.deleted_at IS NULL";
             $params = [];
             
             if ($targetUserId !== 'all') {
                 // Match by both PostgreSQL id and firebase_id in user_activities table
-                $sql .= " AND (user_id = ? OR user_id IN (SELECT id FROM users WHERE firebase_id = ?))";
+                $sql .= " AND (ua.user_id = ? OR ua.user_id IN (SELECT id FROM users WHERE firebase_id = ?))";
                 $params[] = $targetUserId;
                 $params[] = $targetUserId;
             } elseif (!$isAdmin && !$canManageUsers) {
                 // Non-admin/non-manager can only see their own
-                $sql .= " AND (user_id = ? OR user_id IN (SELECT id FROM users WHERE firebase_id = ?))";
+                $sql .= " AND (ua.user_id = ? OR ua.user_id IN (SELECT id FROM users WHERE firebase_id = ?))";
                 $params[] = $userId;
                 $params[] = $userId;
             }
             
-            $sql .= " ORDER BY created_at DESC LIMIT ? OFFSET ?";
+            $sql .= " ORDER BY ua.created_at DESC LIMIT ? OFFSET ?";
             $params[] = $limit;
             $params[] = $offset;
             
             $activities = $sqlDb->fetchAll($sql, $params);
             
-            // Enrich with user info for admin view
-            if ($isAdmin && $targetUserId === 'all') {
-                foreach ($activities as &$activity) {
-                    if (!empty($activity['user_id'])) {
-                        $activityUser = $sqlDb->fetch("SELECT username FROM users WHERE id = ?", [$activity['user_id']]);
-                        $activity['user_name'] = $activityUser['username'] ?? 'Unknown';
-                    }
+            // Format user name for display
+            foreach ($activities as &$activity) {
+                $userName = $activity['username'] ?? 'Unknown';
+                if (!empty($activity['full_name'])) {
+                    $userName = $activity['full_name'];
+                }
+                $activity['user_name'] = $userName;
+                // Add role for clarity
+                if (!empty($activity['role'])) {
+                    $activity['user_role'] = ucfirst($activity['role']);
                 }
             }
             
@@ -164,7 +170,7 @@ try {
             
             // Get all users from PostgreSQL
             $whereClause = $includeDeleted ? "" : "WHERE deleted_at IS NULL";
-            $users = $sqlDb->fetchAll("SELECT id, firebase_id, username, email, full_name, role, created_at, last_login, status, deleted_at FROM users {$whereClause} ORDER BY username ASC");
+            $users = $sqlDb->fetchAll("SELECT id, firebase_id, username, email, full_name, role, created_at, last_login, status, deleted_at, profile_picture FROM users {$whereClause} ORDER BY username ASC");
             
             $userList = [];
             foreach ($users as $user) {
@@ -191,7 +197,8 @@ try {
                     'status' => $user['status'] ?? 'active',
                     'created_at' => $user['created_at'] ?? '',
                     'last_login' => $user['last_login'] ?? '',
-                    'deleted_at' => $user['deleted_at'] ?? null
+                    'deleted_at' => $user['deleted_at'] ?? null,
+                    'profile_picture' => $user['profile_picture'] ?? null
                 ];
             }
             

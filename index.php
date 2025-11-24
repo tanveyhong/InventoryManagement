@@ -3,6 +3,7 @@
 require_once 'config.php';
 require_once 'functions.php';
 require_once 'sql_db.php';
+require_once 'activity_logger.php';
 
 session_start();
 
@@ -112,6 +113,10 @@ try {
     exit;
 }
 
+// Log dashboard visit activity
+logActivity('page_visit', 'Visited Dashboard');
+$GLOBALS['page_visit_logged'] = true; // Prevent duplicate logging in header
+
 // Get dashboard statistics - OPTIMIZED: Direct PostgreSQL queries (no caching needed - queries are <5ms)
 $stats = getAllDashboardStats();
 
@@ -120,6 +125,53 @@ $weekly_sales = getWeeklySalesData();
 
 // Get recent activity
 $recent_activity = [];
+try {
+    $sql = "SELECT ua.*, u.username, u.full_name, u.role 
+            FROM user_activities ua 
+            LEFT JOIN users u ON ua.user_id = u.id 
+            WHERE ua.deleted_at IS NULL AND ua.user_id = ?
+            ORDER BY ua.created_at DESC 
+            LIMIT 10";
+    $raw_activities = $sqlDb->fetchAll($sql, [$_SESSION['user_id']]);
+    
+    foreach ($raw_activities as $act) {
+        // Determine icon and color based on action
+        $icon = 'circle';
+        $color = 'info';
+        
+        if (strpos($act['action'], 'login') !== false) { $icon = 'sign-in-alt'; $color = 'success'; }
+        elseif (strpos($act['action'], 'logout') !== false) { $icon = 'sign-out-alt'; $color = 'secondary'; }
+        elseif (strpos($act['action'], 'error') !== false) { $icon = 'exclamation-triangle'; $color = 'danger'; }
+        elseif (strpos($act['action'], 'delete') !== false) { $icon = 'trash'; $color = 'danger'; }
+        elseif (strpos($act['action'], 'update') !== false) { $icon = 'edit'; $color = 'warning'; }
+        elseif (strpos($act['action'], 'create') !== false) { $icon = 'plus'; $color = 'success'; }
+        elseif (strpos($act['action'], 'add') !== false) { $icon = 'plus'; $color = 'success'; }
+        elseif (strpos($act['action'], 'page_visit') !== false) { $icon = 'eye'; $color = 'info'; }
+        
+        // Format user name
+        $userName = $act['username'] ?? 'Unknown User';
+        if (!empty($act['full_name'])) {
+            $userName = $act['full_name'];
+        }
+        
+        // Add role to clarify identity
+        $userRole = ucfirst($act['role'] ?? 'user');
+        
+        // Format time
+        $timeAgo = timeAgo($act['created_at']);
+        
+        $recent_activity[] = [
+            'message' => $act['description'],
+            'user' => $userName,
+            'role' => $userRole,
+            'time' => $timeAgo,
+            'icon' => $icon,
+            'color' => $color
+        ];
+    }
+} catch (Exception $e) {
+    error_log("Dashboard activity fetch error: " . $e->getMessage());
+}
 
 $page_title = 'Dashboard - Inventory Management System';
 ?>
@@ -322,22 +374,28 @@ $page_title = 'Dashboard - Inventory Management System';
         
         .activity-feed {
             background: white;
-            padding: 25px;
+            padding: 0;
             border-radius: 16px;
             box-shadow: 0 4px 20px rgba(0,0,0,0.08);
             height: 350px; /* Match chart container height */
             overflow-y: auto; /* Allow scrolling if content is too long */
+            position: relative;
         }
         
         .activity-feed h3 {
-            margin: 0 0 15px 0;
+            margin: 0;
             color: #2c3e50;
             font-size: 1.3rem;
             position: sticky;
             top: 0;
             background: white;
-            padding-bottom: 10px;
+            padding: 25px 25px 15px 25px;
             border-bottom: 1px solid #f1f5f9;
+            z-index: 10;
+        }
+        
+        #activity-list {
+            padding: 10px 25px 25px 25px;
         }
         
         .quick-actions-grid {
@@ -701,33 +759,32 @@ $page_title = 'Dashboard - Inventory Management System';
                 <div class="activity-feed">
                     <h3><i class="fas fa-clock"></i> Recent Activity</h3>
                     <div id="activity-list">
-                        <div class="notification-item">
-                            <div class="notification-icon info">
-                                <i class="fas fa-plus"></i>
+                        <?php if (empty($recent_activity)): ?>
+                            <div class="notification-item">
+                                <div class="notification-icon secondary">
+                                    <i class="fas fa-info"></i>
+                                </div>
+                                <div>
+                                    <strong>No recent activity</strong><br>
+                                    <small>Check back later</small>
+                                </div>
                             </div>
-                            <div>
-                                <strong>New product added</strong><br>
-                                <small>2 minutes ago</small>
-                            </div>
-                        </div>
-                        <div class="notification-item">
-                            <div class="notification-icon alert">
-                                <i class="fas fa-exclamation"></i>
-                            </div>
-                            <div>
-                                <strong>Low stock alert</strong><br>
-                                <small>15 minutes ago</small>
-                            </div>
-                        </div>
-                        <div class="notification-item">
-                            <div class="notification-icon info">
-                                <i class="fas fa-sync"></i>
-                            </div>
-                            <div>
-                                <strong>Inventory synced</strong><br>
-                                <small>1 hour ago</small>
-                            </div>
-                        </div>
+                        <?php else: ?>
+                            <?php foreach ($recent_activity as $activity): ?>
+                                <div class="notification-item">
+                                    <div class="notification-icon <?php echo $activity['color']; ?>">
+                                        <i class="fas fa-<?php echo $activity['icon']; ?>"></i>
+                                    </div>
+                                    <div>
+                                        <strong><?php echo htmlspecialchars($activity['message']); ?></strong><br>
+                                        <small>
+                                            <i class="fas fa-user-circle"></i> <?php echo htmlspecialchars($activity['user']); ?> <span style="color: #6b7280;">(<?php echo htmlspecialchars($activity['role']); ?>)</span> &bull; 
+                                            <?php echo $activity['time']; ?>
+                                        </small>
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>

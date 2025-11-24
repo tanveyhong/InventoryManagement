@@ -2,6 +2,7 @@
 require_once '../../config.php';
 require_once '../../sql_db.php';
 require_once '../../functions.php';
+require_once '../../activity_logger.php';
 session_start();
 
 // Auth check - redirect to login if not authenticated
@@ -13,6 +14,36 @@ if (!isset($_SESSION['user_id'])) {
 if (!currentUserHasPermission('can_view_inventory') && !currentUserHasPermission('can_use_pos') && !currentUserHasPermission('can_view_reports')) {
     $_SESSION['error'] = 'You do not have permission to access inventory';
     header('Location: ../../index.php');
+    exit;
+}
+
+// Handle Link Store Action
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'link_store') {
+    if (!currentUserHasPermission('can_edit_inventory')) {
+        $_SESSION['error'] = 'Permission denied';
+        header('Location: list.php');
+        exit;
+    }
+    
+    $product_id = $_POST['product_id'] ?? '';
+    $store_id = $_POST['store_id'] ?? null;
+    
+    if ($product_id) {
+        try {
+            $sqlDb = SQLDatabase::getInstance();
+            // If store_id is empty, set it to NULL (unlink)
+            $store_val = empty($store_id) ? null : $store_id;
+            
+            $sqlDb->execute("UPDATE products SET store_id = ?, updated_at = NOW() WHERE id = ?", [$store_val, $product_id]);
+            
+            $_SESSION['success'] = 'Product linked to store successfully';
+            logActivity('product_linked_store', "Linked product #$product_id to store " . ($store_val ?? 'None'), ['product_id' => $product_id, 'store_id' => $store_val]);
+        } catch (Exception $e) {
+            $_SESSION['error'] = 'Error linking product: ' . $e->getMessage();
+        }
+    }
+    
+    header('Location: list.php');
     exit;
 }
 
@@ -120,7 +151,7 @@ try {
     $productRecords = $sqlDb->fetchAll("
         SELECT 
             p.id, p.name, p.sku, p.description, p.quantity, p.reorder_level, 
-            p.price, p.created_at, p.updated_at, p.category, p.store_id, p.supplier_id,
+            p.price, p.cost_price, p.created_at, p.updated_at, p.category, p.store_id, p.supplier_id,
             s.name as store_name
         FROM products p
         LEFT JOIN stores s ON p.store_id = s.id
@@ -138,6 +169,7 @@ try {
             'quantity' => isset($r['quantity']) ? intval($r['quantity']) : 0,
             'min_stock_level' => isset($r['reorder_level']) ? intval($r['reorder_level']) : 0,
             'unit_price' => isset($r['price']) ? floatval($r['price']) : 0.0,
+            'cost_price' => isset($r['cost_price']) ? floatval($r['cost_price']) : 0.0,
             'expiry_date' => null,
             'created_at' => $r['created_at'] ?? null,
             'updated_at' => $r['updated_at'] ?? null,
@@ -379,6 +411,19 @@ foreach ($productGroups as $baseSku => $group) {
     if ($group['main']) {
         $group['main']['_total_system_stock'] = $totalSystemStock;
         $group['main']['_group_key'] = $baseSku;
+        
+        // Update status based on total stock for main product
+        // This ensures parent products show correct status based on aggregated stock
+        $qty = $totalSystemStock;
+        $min = isset($group['main']['min_stock_level']) ? (int)$group['main']['min_stock_level'] : 0;
+        $status = 'normal';
+        if ($qty === 0) {
+            $status = 'out_of_stock';
+        } elseif ($min > 0 && $qty <= $min) {
+            $status = 'low_stock';
+        }
+        $group['main']['status'] = $status;
+
         $filtered_products[] = $group['main'];
     }
     
@@ -630,7 +675,8 @@ $page_title = 'Stock Management - Inventory System';
                                 <th style="width: 40px; text-align: center;"><input type="checkbox" id="selectAll"></th>
                                 <th class="sortable" data-sort="name">Product Details <span class="sort-icon"></span></th>
                                 <th class="sortable" data-sort="qty">Stock Level <span class="sort-icon"></span></th>
-                                <th class="sortable" data-sort="price">Price <span class="sort-icon"></span></th>
+                                <th class="sortable" data-sort="cost">Cost Price <span class="sort-icon"></span></th>
+                                <th class="sortable" data-sort="price">Selling Price <span class="sort-icon"></span></th>
                                 <th class="sortable" data-sort="status">Status <span class="sort-icon"></span></th>
                                 <th class="sortable" data-sort="updated">Last Updated <span class="sort-icon"></span></th>
                                 <th class="sortable" data-sort="created">Added On <span class="sort-icon"></span></th>
@@ -673,6 +719,7 @@ $page_title = 'Stock Management - Inventory System';
                                     data-is-variant="<?php echo ($product['_is_store_variant'] ?? false) ? '1' : '0'; ?>"
                                     data-qty="<?php echo (int)$product['quantity']; ?>"
                                     data-min="<?php echo (int)$product['min_stock_level']; ?>"
+                                    data-cost="<?php echo (float)$product['cost_price']; ?>"
                                     data-price="<?php echo (float)$product['unit_price']; ?>"
                                     data-updated="<?php echo !empty($product['updated_at']) ? strtotime($product['updated_at']) : 0; ?>"
                                     data-created="<?php echo !empty($product['created_at']) ? strtotime($product['created_at']) : 0; ?>"
@@ -716,17 +763,30 @@ $page_title = 'Stock Management - Inventory System';
                                     <td>
                                         <div class="stock-info">
                                             <span class="current-stock status-<?php echo $product['status']; ?>">
-                                                <?php echo number_format($product['quantity']); ?>
+                                                <?php 
+                                                // Show total system stock for parent products
+                                                if (isset($product['_total_system_stock']) && $product['_total_system_stock'] > $product['quantity']) {
+                                                    echo number_format($product['_total_system_stock']);
+                                                } else {
+                                                    echo number_format($product['quantity']);
+                                                }
+                                                ?>
                                             </span>
                                             <?php if (isset($product['_total_system_stock']) && $product['_total_system_stock'] > $product['quantity']): ?>
-                                                <br><small style="color: #2980b9; font-weight: 600;">Total: <?php echo number_format($product['_total_system_stock']); ?></small>
+                                                <br><small style="color: #2980b9; font-weight: 600;">Total Stock</small>
                                             <?php endif; ?>
                                             <br><small>Min: <?php echo number_format($product['min_stock_level']); ?></small>
                                         </div>
                                     </td>
                                     <td>
-                                        <span class="price">RM <?php echo number_format($product['unit_price'], 2); ?></span>
-                                        <br><small>Total: RM <?php echo number_format($product['quantity'] * $product['unit_price'], 2); ?></small>
+                                        <span class="cost" style="font-weight: 600; color: #555;">RM <?php echo number_format($product['cost_price'], 2); ?></span>
+                                        <br><small style="color: #95a5a6;">Unit Cost</small>
+                                        <br><small style="color: #7f8c8d;">Total Cost: RM <?php echo number_format($product['quantity'] * $product['cost_price'], 2); ?></small>
+                                    </td>
+                                    <td>
+                                        <span class="price" style="font-weight: 600; color: #2c3e50;">RM <?php echo number_format($product['unit_price'], 2); ?></span>
+                                        <br><small style="color: #95a5a6;">Unit Price</small>
+                                        <br><small style="color: #7f8c8d;">Total Value: RM <?php echo number_format($product['quantity'] * $product['unit_price'], 2); ?></small>
                                     </td>
                                     <td>
                                         <?php if (isset($product['_total_system_stock']) && $product['quantity'] == 0 && $product['_total_system_stock'] > 0): ?>
@@ -817,6 +877,10 @@ $page_title = 'Stock Management - Inventory System';
                                                 <a href="edit.php?id=<?php echo urlencode($linkId); ?>&return=<?php echo $return; ?>" class="btn btn-sm btn-primary" title="Edit Product Details">
                                                     <i class="fas fa-edit"></i> Edit Info
                                                 </a>
+                                                
+                                                <button type="button" class="btn btn-sm btn-info" onclick="openLinkStoreModal('<?php echo $product['id']; ?>', '<?php echo htmlspecialchars($product['name'], ENT_QUOTES); ?>', '<?php echo $product['store_id'] ?? ''; ?>')" title="Link to Store" style="background-color: #17a2b8; border-color: #17a2b8; color: white;">
+                                                    <i class="fas fa-store"></i> Link
+                                                </button>
                                                 
                                                 <?php if (!empty($product['supplier_id'])): ?>
                                                     <a href="../purchase_orders/create.php?supplier_id=<?php echo $product['supplier_id']; ?>&product_id=<?php echo $product['id']; ?>" class="btn btn-sm btn-success" title="Restock from Supplier" style="background-color: #2ecc71; border-color: #27ae60;">
@@ -1730,6 +1794,7 @@ $page_title = 'Stock Management - Inventory System';
 
                         if (valA < valB) return sort.dir === 'asc' ? -1 : 1;
                         if (valA > valB) return sort.dir === 'asc' ? 1 : -1;
+
                     }
                     
                     // Tie-breaker: Keep Main Product before Store Variant if they are in the same group
@@ -1842,6 +1907,64 @@ $page_title = 'Stock Management - Inventory System';
             // Run on load to apply any pre-filled values
             filterProducts();
         });
+    </script>
+
+    <!-- Link Store Modal -->
+    <div id="linkStoreModal" class="modal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4);">
+        <div class="modal-content" style="background-color: #fefefe; margin: 15% auto; padding: 20px; border: 1px solid #888; width: 400px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <h3 style="margin: 0;">Link Product to Store</h3>
+                <span class="close" onclick="closeLinkStoreModal()" style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer;">&times;</span>
+            </div>
+            
+            <form method="POST" action="list.php">
+                <input type="hidden" name="action" value="link_store">
+                <input type="hidden" id="link_product_id" name="product_id">
+                
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">Product:</label>
+                    <div id="link_product_name" style="padding: 8px; background: #f8f9fa; border-radius: 4px;"></div>
+                </div>
+                
+                <div style="margin-bottom: 20px;">
+                    <label for="link_store_id" style="display: block; margin-bottom: 5px; font-weight: bold;">Select Store:</label>
+                    <select id="link_store_id" name="store_id" class="form-control" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                        <option value="">-- No Store (Unlink) --</option>
+                        <?php foreach ($stores as $store): ?>
+                            <option value="<?php echo htmlspecialchars($store['id']); ?>">
+                                <?php echo htmlspecialchars($store['name']); ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                
+                <div style="text-align: right;">
+                    <button type="button" onclick="closeLinkStoreModal()" class="btn btn-secondary" style="margin-right: 10px;">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+    function openLinkStoreModal(productId, productName, currentStoreId) {
+        document.getElementById('link_product_id').value = productId;
+        document.getElementById('link_product_name').textContent = productName;
+        document.getElementById('link_store_id').value = currentStoreId;
+        document.getElementById('linkStoreModal').style.display = 'block';
+    }
+
+    function closeLinkStoreModal() {
+        document.getElementById('linkStoreModal').style.display = 'none';
+    }
+
+    // Close modal when clicking outside
+    window.onclick = function(event) {
+        const modal = document.getElementById('linkStoreModal');
+        if (event.target == modal) {
+            modal.style.display = "none";
+        }
+    }
     </script>
 </body>
 

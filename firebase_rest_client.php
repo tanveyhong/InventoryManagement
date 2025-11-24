@@ -202,7 +202,7 @@ class FirebaseRestClient {
         }
     }
     
-    public function queryCollection($collection, $limit = null) {
+    public function queryCollection($collection, $limit = null, $orderBy = null) {
         $url = $this->baseUrl . '/' . $collection;
         
         // IMPORTANT: Set a default limit to prevent reading ALL documents
@@ -211,8 +211,17 @@ class FirebaseRestClient {
             $limit = 100; // Safe default limit
         }
         
+        $params = [];
         if ($limit) {
-            $url .= '?pageSize=' . $limit;
+            $params[] = 'pageSize=' . $limit;
+        }
+        
+        if ($orderBy) {
+            $params[] = 'orderBy=' . urlencode($orderBy);
+        }
+        
+        if (!empty($params)) {
+            $url .= '?' . implode('&', $params);
         }
         
         try {

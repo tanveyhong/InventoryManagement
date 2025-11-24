@@ -5,8 +5,9 @@
  */
 
 require_once '../../config.php';
-require_once '../../db.php';
+require_once '../../sql_db.php';
 require_once '../../functions.php';
+require_once '../../activity_logger.php';
 
 session_start();
 
@@ -16,11 +17,11 @@ if (!isLoggedIn()) {
     exit;
 }
 
-$db = getDB();
+$sqlDb = SQLDatabase::getInstance();
 $currentUserId = $_SESSION['user_id'];
 
 // Get user info for permission checking
-$currentUser = $db->read('users', $currentUserId);
+$currentUser = $sqlDb->fetch("SELECT * FROM users WHERE id = ?", [$currentUserId]);
 $isAdmin = ($currentUser['role'] ?? '') === 'admin';
 
 // Handle POST actions
@@ -42,27 +43,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             
             try {
-                $activities = $db->readAll('user_activities', [['user_id', '==', $targetUserId]]);
-                $count = 0;
-                foreach ($activities as $act) {
-                    if (isset($act['id'])) {
-                        $db->update('user_activities', $act['id'], ['deleted_at' => date('c')]);
-                        $count++;
-                    }
-                }
+                // Soft delete activities
+                $sqlDb->execute("UPDATE user_activities SET deleted_at = NOW() WHERE user_id = ? AND deleted_at IS NULL", [$targetUserId]);
+                $count = $sqlDb->rowCount(); // Assuming rowCount() is available or we can just say "Activities cleared"
                 
                 // Log the action
-                $db->create('user_activities', [
-                    'user_id' => $currentUserId,
-                    'action_type' => 'activity_cleared',
-                    'description' => "Cleared {$count} activity entries",
-                    'metadata' => json_encode(['target_user' => $targetUserId, 'count' => $count]),
-                    'ip_address' => $_SERVER['REMOTE_ADDR'] ?? 'unknown',
-                    'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? 'unknown',
-                    'created_at' => date('c')
-                ]);
+                logActivity('activity_cleared', "Cleared activity entries", ['target_user' => $targetUserId]);
                 
-                $message = "Successfully cleared {$count} activity entries";
+                $message = "Successfully cleared activity entries";
                 $messageType = 'success';
             } catch (Exception $e) {
                 error_log('Clear activity error: ' . $e->getMessage());
@@ -76,10 +64,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $format = $_POST['format'] ?? 'csv';
             
             try {
-                $activities = $db->readAll('user_activities', [
-                    ['user_id', '==', $userId],
-                    ['deleted_at', '==', null]
-                ], ['created_at', 'DESC']);
+                $activities = $sqlDb->fetchAll("SELECT * FROM user_activities WHERE user_id = ? AND deleted_at IS NULL ORDER BY created_at DESC", [$userId]);
                 
                 if ($format === 'csv') {
                     header('Content-Type: text/csv');
@@ -91,7 +76,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     foreach ($activities as $act) {
                         fputcsv($output, [
                             $act['created_at'] ?? '',
-                            $act['action_type'] ?? '',
+                            $act['action'] ?? '',
                             $act['description'] ?? '',
                             $act['ip_address'] ?? '',
                             $act['user_agent'] ?? ''
@@ -123,61 +108,70 @@ $filterDateTo = $_GET['date_to'] ?? '';
 $page = (int)($_GET['page'] ?? 1);
 $perPage = 50;
 
-// Build filter conditions
-$conditions = [['deleted_at', '==', null]];
+// Build query
+$where = ["deleted_at IS NULL"];
+$params = [];
 
 if (!$isAdmin) {
     // Non-admin users can only see their own activity
-    $conditions[] = ['user_id', '==', $currentUserId];
+    $where[] = "user_id = ?";
+    $params[] = $currentUserId;
     $filterUser = $currentUserId;
 } else {
     if (!empty($filterUser) && $filterUser !== 'all') {
-        $conditions[] = ['user_id', '==', $filterUser];
+        $where[] = "user_id = ?";
+        $params[] = $filterUser;
     }
 }
 
+if (!empty($filterAction)) {
+    $where[] = "action = ?";
+    $params[] = $filterAction;
+}
+
+if (!empty($filterDateFrom)) {
+    $where[] = "created_at >= ?";
+    $params[] = $filterDateFrom . ' 00:00:00';
+}
+
+if (!empty($filterDateTo)) {
+    $where[] = "created_at <= ?";
+    $params[] = $filterDateTo . ' 23:59:59';
+}
+
+$whereClause = implode(' AND ', $where);
+
 // Fetch activities
 try {
-    $allActivities = $db->readAll('user_activities', $conditions, ['created_at', 'DESC']);
+    // Count total
+    $countSql = "SELECT COUNT(*) as count FROM user_activities WHERE $whereClause";
+    $totalResult = $sqlDb->fetch($countSql, $params);
+    $totalActivities = $totalResult['count'] ?? 0;
     
-    // Apply additional filters
-    $filteredActivities = $allActivities;
-    
-    if (!empty($filterAction)) {
-        $filteredActivities = array_filter($filteredActivities, function($act) use ($filterAction) {
-            return ($act['action_type'] ?? '') === $filterAction;
-        });
-    }
-    
-    if (!empty($filterDateFrom)) {
-        $filteredActivities = array_filter($filteredActivities, function($act) use ($filterDateFrom) {
-            return strtotime($act['created_at'] ?? '') >= strtotime($filterDateFrom);
-        });
-    }
-    
-    if (!empty($filterDateTo)) {
-        $filteredActivities = array_filter($filteredActivities, function($act) use ($filterDateTo) {
-            return strtotime($act['created_at'] ?? '') <= strtotime($filterDateTo . ' 23:59:59');
-        });
-    }
-    
-    $totalActivities = count($filteredActivities);
     $totalPages = ceil($totalActivities / $perPage);
     $page = max(1, min($page, $totalPages ?: 1));
-    
-    // Paginate
     $offset = ($page - 1) * $perPage;
-    $activities = array_slice($filteredActivities, $offset, $perPage);
     
-    // Get user info for activities
-    $userCache = [];
+    // Fetch page data
+    $sql = "SELECT ua.*, u.username, u.full_name, u.role 
+            FROM user_activities ua 
+            LEFT JOIN users u ON ua.user_id = u.id 
+            WHERE $whereClause 
+            ORDER BY ua.created_at DESC 
+            LIMIT $perPage OFFSET $offset";
+            
+    $activities = $sqlDb->fetchAll($sql, $params);
+    
+    // Format for display
     foreach ($activities as &$act) {
-        $uid = $act['user_id'] ?? '';
-        if ($uid && !isset($userCache[$uid])) {
-            $user = $db->read('users', $uid);
-            $userCache[$uid] = $user ? ($user['first_name'] . ' ' . $user['last_name']) : 'Unknown User';
+        $act['action_type'] = $act['action']; // Map for compatibility
+        $act['user_name'] = $act['username'] ?? 'Unknown User';
+        if (!empty($act['full_name'])) {
+            $act['user_name'] = $act['full_name'];
         }
-        $act['user_name'] = $userCache[$uid] ?? 'Unknown User';
+        if (!empty($act['role'])) {
+            $act['user_name'] .= ' (' . ucfirst($act['role']) . ')';
+        }
     }
     
 } catch (Exception $e) {
@@ -191,16 +185,20 @@ try {
 $allUsers = [];
 if ($isAdmin) {
     try {
-        $allUsers = $db->readAll('users', [], ['first_name', 'ASC']);
+        $allUsers = $sqlDb->fetchAll("SELECT id, username, full_name FROM users ORDER BY full_name ASC");
     } catch (Exception $e) {
         error_log('Fetch users error: ' . $e->getMessage());
     }
 }
 
 // Get unique action types for filter
-$actionTypes = ['login', 'logout', 'profile_updated', 'password_changed', 'user_created', 
+$actionTypes = ['login', 'logout', 'page_visit', 'profile_updated', 'password_changed', 'user_created', 
                 'permission_changed', 'store_access_updated', 'activity_cleared', 
-                'inventory_added', 'inventory_updated', 'inventory_deleted'];
+                'inventory_added', 'inventory_updated', 'inventory_deleted',
+                'store_created', 'store_updated', 'store_deleted', 'store_viewed',
+                'supplier_added', 'supplier_updated', 'supplier_deleted',
+                'po_created', 'po_updated', 'po_deleted', 'po_received',
+                'product_added', 'product_updated', 'stock_adjusted'];
 
 $page_title = 'Activity Management - Inventory System';
 ?>

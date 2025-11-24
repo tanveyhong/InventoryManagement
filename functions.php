@@ -214,8 +214,17 @@ function formatDate($date, $format = 'Y-m-d H:i:s')
 function timeAgo($datetime)
 {
     if (empty($datetime)) return 'unknown';
-    $ts = @strtotime($datetime);
+    
+    // Database stores in UTC, so we treat the input string as UTC
+    $ts = @strtotime($datetime . ' UTC');
+    
+    if ($ts === false || $ts === -1) {
+        // Fallback
+        $ts = @strtotime($datetime);
+    }
+    
     if ($ts === false || $ts === -1) return 'unknown';
+    
     $time = time() - $ts;
 
     if ($time < 60) return 'just now';
@@ -223,7 +232,7 @@ function timeAgo($datetime)
     if ($time < 86400) return floor($time / 3600) . ' hr ago';
     if ($time < 2592000) return floor($time / 86400) . ' days ago';
 
-    return date('M j, Y', strtotime($datetime));
+    return date('M j, Y', $ts);
 }
 
 // Dashboard Statistics Functions (without caching)
@@ -777,47 +786,92 @@ function fs_sku_exists(string $sku): ?array
     return null;
 }
 
-// Log a stock change/audit into Firestore (collection: stock_audits)
+// Log a stock change/audit into PostgreSQL (table: stock_audits)
 function log_stock_audit(array $opts): void
 {
+    // who did it
+    $user_id = $opts['user_id'] ?? ($_SESSION['user_id'] ?? null);
+    $username = $opts['username'] ?? ($_SESSION['username'] ?? null);
+    if (!$username && $user_id) {
+        // fallback to users collection
+        $u = getUserInfo($user_id);
+        if (is_array($u)) $username = $u['username'] ?? ($u['email'] ?? null);
+    }
+
+    $doc = [
+        'action'          => $opts['action'] ?? 'update',
+        'product_id'      => (string)($opts['product_id'] ?? ''),
+        'sku'             => $opts['sku'] ?? null,
+        'product_name'    => $opts['product_name'] ?? null,
+        'store_id'        => $opts['store_id'] ?? null,
+
+        'quantity_before' => isset($opts['before']['quantity']) ? (int)$opts['before']['quantity'] : null,
+        'quantity_after'  => isset($opts['after']['quantity'])  ? (int)$opts['after']['quantity']  : null,
+        'description_before' => $opts['before']['description'] ?? null,
+        'description_after'  => $opts['after']['description']  ?? null,
+        'reorder_before'  => isset($opts['before']['reorder_level']) ? (int)$opts['before']['reorder_level'] : null,
+        'reorder_after'   => isset($opts['after']['reorder_level'])  ? (int)$opts['after']['reorder_level']  : null,
+
+        'changed_by'      => $user_id,
+        'changed_name'    => $username,
+        'created_at'      => date('Y-m-d H:i:s'), // SQL format
+    ];
+
+    if ($doc['quantity_before'] !== null && $doc['quantity_after'] !== null) {
+        $doc['quantity_delta'] = (int)$doc['quantity_after'] - (int)$doc['quantity_before'];
+    } else {
+        $doc['quantity_delta'] = null;
+    }
+
+    // 1. Write to SQL (Primary)
+    try {
+        $sqlDb = SQLDatabase::getInstance();
+        $sql = "INSERT INTO stock_audits (
+            action, product_id, sku, product_name, store_id, 
+            quantity_before, quantity_after, quantity_delta, 
+            description_before, description_after, 
+            reorder_before, reorder_after, 
+            changed_by, changed_name, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        
+        $sqlDb->execute($sql, [
+            $doc['action'],
+            $doc['product_id'],
+            $doc['sku'],
+            $doc['product_name'],
+            $doc['store_id'],
+            $doc['quantity_before'],
+            $doc['quantity_after'],
+            $doc['quantity_delta'],
+            $doc['description_before'],
+            $doc['description_after'],
+            $doc['reorder_before'],
+            $doc['reorder_after'],
+            $doc['changed_by'],
+            $doc['changed_name'],
+            $doc['created_at']
+        ]);
+    } catch (Exception $e) {
+        error_log('log_stock_audit SQL failed: ' . $e->getMessage());
+    }
+
+    // 2. Also log to main activity log
+    if (function_exists('logActivity')) {
+        $action = $opts['action'] ?? 'update';
+        $desc = "Stock Audit: " . $action . " for " . ($opts['product_name'] ?? 'Product');
+        logActivity('stock_' . $action, $desc, $opts);
+    }
+
+    // 3. Write to Firestore (Legacy/Backup)
     try {
         $db = getDB();
-
-        // who did it
-        $user_id = $opts['user_id'] ?? ($_SESSION['user_id'] ?? null);
-        $username = $opts['username'] ?? ($_SESSION['username'] ?? null);
-        if (!$username && $user_id) {
-            // fallback to users collection
-            $u = getUserInfo($user_id);
-            if (is_array($u)) $username = $u['username'] ?? ($u['email'] ?? null);
+        if ($db) {
+            // Firestore prefers ISO 8601
+            $doc['created_at'] = date('c'); 
+            $db->create('stock_audits', $doc);
         }
-
-        $doc = [
-            'action'          => $opts['action'] ?? 'update',
-            'product_id'      => (string)($opts['product_id'] ?? ''),
-            'sku'             => $opts['sku'] ?? null,
-            'product_name'    => $opts['product_name'] ?? null,
-            'store_id'        => $opts['store_id'] ?? null,
-
-            'quantity_before' => isset($opts['before']['quantity']) ? (int)$opts['before']['quantity'] : null,
-            'quantity_after'  => isset($opts['after']['quantity'])  ? (int)$opts['after']['quantity']  : null,
-            'description_before' => $opts['before']['description'] ?? null,
-            'description_after'  => $opts['after']['description']  ?? null,
-            'reorder_before'  => isset($opts['before']['reorder_level']) ? (int)$opts['before']['reorder_level'] : null,
-            'reorder_after'   => isset($opts['after']['reorder_level'])  ? (int)$opts['after']['reorder_level']  : null,
-
-            'changed_by'      => $user_id,
-            'changed_name'    => $username,
-            'created_at'      => date('c'),
-        ];
-
-        if ($doc['quantity_before'] !== null && $doc['quantity_after'] !== null) {
-            $doc['quantity_delta'] = (int)$doc['quantity_after'] - (int)$doc['quantity_before'];
-        }
-
-        $db->create('stock_audits', $doc);
     } catch (Throwable $t) {
-        error_log('log_stock_audit failed: ' . $t->getMessage());
+        // error_log('log_stock_audit Firestore failed: ' . $t->getMessage());
     }
 }
 

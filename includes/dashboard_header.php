@@ -50,6 +50,31 @@ if (strpos($currentPath, '/index.php') !== false && strpos($currentPath, '/modul
     $activeSection = 'alerts';
 }
 
+// Log page visit
+if (file_exists(__DIR__ . '/../activity_logger.php')) {
+    require_once __DIR__ . '/../activity_logger.php';
+    if (function_exists('logActivity') && isset($_SESSION['user_id'])) {
+        $pageName = basename($_SERVER['PHP_SELF']);
+        // Avoid logging API/AJAX calls
+        if (strpos($pageName, 'api') === false && strpos($pageName, 'ajax') === false) {
+            // Prevent duplicate logging in a single request
+            if (!isset($GLOBALS['page_visit_logged'])) {
+                $GLOBALS['page_visit_logged'] = true;
+                // error_log("Attempting to log page visit for: " . $pageName);
+                $logResult = logActivity('page_visit', "Visited page: " . $pageName, [
+                    'url' => $_SERVER['REQUEST_URI'],
+                    'page' => $pageName
+                ]);
+                // error_log("Page visit log result: " . ($logResult ? 'Success' : 'Failed'));
+            }
+        }
+    } else {
+        // error_log("Page visit log skipped: User not logged in or logActivity not found");
+    }
+} else {
+    // error_log("Page visit log skipped: activity_logger.php not found");
+}
+
 ?>
 
 <style>
@@ -383,15 +408,17 @@ body {
 }
 
 .user-avatar {
-    width: 32px;
-    height: 32px;
+    width: 36px;
+    height: 36px;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    border-radius: 8px;
+    border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
     color: white;
     font-size: 0.9rem;
+    overflow: hidden;
+    flex-shrink: 0;
 }
 
 .user-name {
@@ -1160,7 +1187,11 @@ body.compact-view .page-header {
                 <div class="user-dropdown">
                     <a href="#" class="user-profile">
                         <div class="user-avatar">
-                            <i class="fas fa-user"></i>
+                            <?php if (!empty($_SESSION['profile_picture'])): ?>
+                                <img src="<?php echo $baseUrl . htmlspecialchars($_SESSION['profile_picture']); ?>" alt="Profile" style="width: 100%; height: 100%; object-fit: cover;">
+                            <?php else: ?>
+                                <i class="fas fa-user"></i>
+                            <?php endif; ?>
                         </div>
                         <span class="user-name"><?php echo isset($_SESSION['username']) ? htmlspecialchars($_SESSION['username']) : 'User'; ?></span>
                         <i class="fas fa-chevron-down dropdown-arrow"></i>

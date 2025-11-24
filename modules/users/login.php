@@ -3,6 +3,7 @@
 require_once '../../config.php';
 require_once '../../sql_db.php';
 require_once '../../functions.php';
+require_once '../../activity_logger.php';
 
 session_start();
 
@@ -52,6 +53,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $_SESSION['username'] = $user['username'];
                     $_SESSION['email'] = $user['email'];
                     $_SESSION['role'] = $user['role'] ?? 'user';
+                    $_SESSION['profile_picture'] = $user['profile_picture'] ?? '';
                     $_SESSION['login_time'] = time();
                     $_SESSION['notifications'] = [];
                     
@@ -60,6 +62,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         "UPDATE users SET last_login = NOW() WHERE id = ?",
                         [$user['id']]
                     );
+
+                    // Log Activity
+                    logActivity('login', 'User logged in', ['ip' => $_SERVER['REMOTE_ADDR'] ?? 'unknown']);
                     
                     // Handle remember me
                     if ($remember_me) {

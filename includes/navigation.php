@@ -2,6 +2,19 @@
 // Enhanced Navigation with Permission-Based Visibility
 // Performance optimized with session caching
 
+require_once __DIR__ . '/../activity_logger.php';
+
+// Log page visit automatically
+if (!isset($GLOBALS['page_visit_logged'])) {
+    $currentPage = basename($_SERVER['PHP_SELF']);
+    $pageTitle = $page_title ?? $currentPage;
+    // Only log if we have a user session
+    if (isset($_SESSION['user_id'])) {
+        logActivity('page_visit', "Visited " . $pageTitle, ['url' => $_SERVER['REQUEST_URI']]);
+    }
+    $GLOBALS['page_visit_logged'] = true;
+}
+
 // Initialize cache if not exists
 if (!isset($_SESSION['_cache'])) {
     $_SESSION['_cache'] = [];

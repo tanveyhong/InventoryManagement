@@ -1,6 +1,7 @@
 <?php
 require_once '../../config.php';
 require_once '../../functions.php';
+require_once '../../activity_logger.php';
 require_once '../../sql_db.php';
 require_once '../../firebase_config.php';
 require_once '../../firebase_rest_client.php';
@@ -183,6 +184,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
       $changedBy   = $_SESSION['user_id'] ?? $_SESSION['uid'] ?? ($_SESSION['user']['id']   ?? null);
       $changedName = $_SESSION['username'] ?? $_SESSION['email'] ?? ($_SESSION['user']['name'] ?? $_SESSION['user']['email'] ?? null);
+
+      // Log activity
+      // logActivity('stock_adjusted', "Adjusted stock for {$product['name']}", [
+      //     'product_id' => $docId,
+      //     'product_name' => $product['name'] ?? null,
+      //     'sku' => $product['sku'] ?? null,
+      //     'old_quantity' => $oldQty,
+      //     'new_quantity' => $newQty
+      // ]);
 
       log_stock_audit([
         'action'         => 'adjust_quantity',

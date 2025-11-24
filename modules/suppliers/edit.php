@@ -4,6 +4,7 @@ require_once '../../config.php';
 session_start();
 require_once '../../functions.php';
 require_once '../../sql_db.php';
+require_once '../../activity_logger.php';
 
 if (!isset($_SESSION['user_id'])) {
     header('Location: ../users/login.php');
@@ -40,6 +41,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 "UPDATE suppliers SET name = ?, contact_person = ?, email = ?, phone = ?, address = ?, updated_at = NOW() WHERE id = ?",
                 [$name, $contact_person, $email, $phone, $address, $id]
             );
+            logActivity('supplier_updated', "Updated supplier: $name", ['supplier_id' => $id]);
+            
             $_SESSION['success'] = 'Supplier updated successfully.';
             header('Location: list.php');
             exit;

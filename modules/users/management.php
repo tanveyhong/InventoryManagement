@@ -8,6 +8,7 @@ require_once '../../config.php';
 require_once '../../db.php';
 require_once '../../sql_db.php';
 require_once '../../functions.php';
+require_once '../../activity_logger.php';
 
 session_start();
 
@@ -185,6 +186,7 @@ $pageTitle = 'User Management';
             color: white;
             font-size: 24px;
             font-weight: 700;
+            overflow: hidden;
         }
 
         .user-info {
@@ -247,11 +249,30 @@ $pageTitle = 'User Management';
         }
 
         .user-meta {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
             font-size: 13px;
             color: #6b7280;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid #f3f4f6;
+        }
+        
+        .user-meta div {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .user-meta i {
+            width: 16px;
+            text-align: center;
+            color: #9ca3af;
+            flex-shrink: 0;
         }
 
         .user-actions {
@@ -577,6 +598,132 @@ $pageTitle = 'User Management';
             font-style: italic;
             font-size: 14px;
         }
+
+        /* User Selection Modal */
+        .user-selector-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            backdrop-filter: blur(4px);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+        }
+        
+        .user-selector-modal.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        
+        .user-selector-content {
+            background: white;
+            border-radius: 16px;
+            width: 90%;
+            max-width: 800px;
+            max-height: 85vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            transform: translateY(20px);
+            transition: transform 0.3s;
+        }
+        
+        .user-selector-modal.active .user-selector-content {
+            transform: translateY(0);
+        }
+        
+        .user-selector-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid #e5e7eb;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .user-selector-body {
+            padding: 24px;
+            overflow-y: auto;
+            flex: 1;
+        }
+        
+        .user-selector-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 16px;
+        }
+        
+        .user-selector-card {
+            border: 2px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 16px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+        }
+        
+        .user-selector-card:hover {
+            border-color: #667eea;
+            background: #f8fafc;
+            transform: translateY(-2px);
+        }
+        
+        .user-selector-card.selected {
+            border-color: #667eea;
+            background: #eff6ff;
+            box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+        }
+        
+        .user-selector-avatar {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: #e5e7eb;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 10px;
+            font-weight: bold;
+            color: #4b5563;
+            font-size: 20px;
+        }
+        
+        .user-selector-search {
+            margin-bottom: 20px;
+            position: relative;
+        }
+        
+        .user-selector-search i {
+            position: absolute;
+            left: 16px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #9ca3af;
+        }
+        
+        .user-selector-search input {
+            width: 100%;
+            padding: 12px 16px 12px 44px;
+            border: 2px solid #e5e7eb;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: all 0.2s;
+        }
+        
+        .user-selector-search input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
     </style>
 </head>
 <body>
@@ -691,54 +838,11 @@ $pageTitle = 'User Management';
         
         // Force refresh functions (clear cache)
         function refreshPermissions() {
-            permissionsCache = null;
-            permissionsLoaded = false;
             loadPermissions();
         }
         
         function refreshStoreAccess() {
-            storeAccessCache = null;
-            storeAccessLoaded = false;
             loadStoreAccess();
-        }
-        
-        // Show cache indicator
-        function showCacheIndicator(tabName) {
-            const indicator = document.createElement('div');
-            indicator.style.cssText = `
-                position: fixed;
-                bottom: 20px;
-                right: 20px;
-                background: linear-gradient(135deg, #10b981, #059669);
-                color: white;
-                padding: 12px 20px;
-                border-radius: 8px;
-                box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
-                font-size: 14px;
-                font-weight: 600;
-                z-index: 9999;
-                animation: slideInUp 0.3s ease-out;
-            `;
-            indicator.innerHTML = `
-                <i class="fas fa-check-circle"></i> Loaded from cache (faster!)
-            `;
-            document.body.appendChild(indicator);
-            
-            // Add animation
-            const style = document.createElement('style');
-            style.textContent = `
-                @keyframes slideInUp {
-                    from { transform: translateY(100px); opacity: 0; }
-                    to { transform: translateY(0); opacity: 1; }
-                }
-            `;
-            document.head.appendChild(style);
-            
-            // Remove after 2 seconds
-            setTimeout(() => {
-                indicator.style.animation = 'slideInUp 0.3s ease-out reverse';
-                setTimeout(() => indicator.remove(), 300);
-            }, 2000);
         }
 
         let currentFilter = 'all';
@@ -752,23 +856,29 @@ $pageTitle = 'User Management';
                 document.getElementById('users-loading').style.display = 'none';
                 document.getElementById('users-content').style.display = 'block';
 
-                if (data.success && data.data.length > 0) {
-                    allUsers = data.data;
-                    filterUsers(currentFilter);
+                if (data.success) {
+                    if (data.data && data.data.length > 0) {
+                        allUsers = data.data;
+                        filterUsers(currentFilter);
+                    } else {
+                        document.getElementById('users-content').innerHTML = `
+                            <div class="empty-state">
+                                <i class="fas fa-users"></i>
+                                <h3>No Users Found</h3>
+                                <p>Start by creating your first user</p>
+                                <button class="btn btn-primary" onclick="showCreateUserModal()">
+                                    <i class="fas fa-user-plus"></i> Create User
+                                </button>
+                            </div>
+                        `;
+                    }
                 } else {
-                    document.getElementById('users-content').innerHTML = `
-                        <div class="empty-state">
-                            <i class="fas fa-users"></i>
-                            <h3>No Users Found</h3>
-                            <p>Start by creating your first user</p>
-                            <button class="btn btn-primary" onclick="showCreateUserModal()">
-                                <i class="fas fa-user-plus"></i> Create User
-                            </button>
-                        </div>
-                    `;
+                    throw new Error(data.error || 'Failed to load users');
                 }
             } catch (error) {
                 console.error('Error loading users:', error);
+                document.getElementById('users-loading').style.display = 'none';
+                document.getElementById('users-content').style.display = 'block';
                 document.getElementById('users-content').innerHTML = `
                     <div class="empty-state">
                         <i class="fas fa-exclamation-triangle"></i>
@@ -789,7 +899,10 @@ $pageTitle = 'User Management';
                         <div class="user-card ${user.deleted_at ? 'deleted' : ''}" onclick="viewUser('${user.id}')">
                             <div class="user-card-header">
                                 <div class="user-avatar">
-                                    ${getInitials(user.first_name || user.username, user.last_name)}
+                                    ${user.profile_picture ? 
+                                        `<img src="../../${user.profile_picture}" alt="${escapeHtml(user.username)}" style="width: 100%; height: 100%; object-fit: cover;">` : 
+                                        getInitials(user.first_name || user.username, user.last_name)
+                                    }
                                 </div>
                                 <div class="user-info">
                                     <div class="user-name">
@@ -1244,17 +1357,11 @@ $pageTitle = 'User Management';
             document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
             document.getElementById('tab-permissions').classList.add('active');
             
-            // Load permissions and select the user
-            await loadPermissions();
+            // Set target user for auto-selection
+            window._lastSelectedUserId = userId;
             
-            // Select the user in the dropdown if it exists
-            setTimeout(() => {
-                const userSelect = document.getElementById('perm-user-select');
-                if (userSelect) {
-                    userSelect.value = userId;
-                    userSelect.dispatchEvent(new Event('change'));
-                }
-            }, 500);
+            // Load permissions
+            await loadPermissions();
         }
 
         async function manageStoreAccess(userId) {
@@ -1264,26 +1371,20 @@ $pageTitle = 'User Management';
             document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
             document.getElementById('tab-store-access').classList.add('active');
             
-            // Load store access and select the user
-            await loadStoreAccess();
+            // Set target user for auto-selection
+            window._lastSelectedStoreUserId = userId;
             
-            // Select the user in the dropdown if it exists
-            setTimeout(() => {
-                const userSelect = document.getElementById('store-user-select');
-                if (userSelect) {
-                    userSelect.value = userId;
-                    userSelect.dispatchEvent(new Event('change'));
-                }
-            }, 500);
+            // Load store access
+            await loadStoreAccess();
         }
 
         // Activity Manager Variables
-        let allActivitiesCache = [];
+        let allActivities = [];
         let currentPage = 1;
-        const itemsPerPage = 10;
+        let itemsPerPage = 20; // Default to 20 for better readability
         
         // Activity Manager: Load Activities
-        async function loadActivities(useCache = true, forceRefresh = false) {
+        async function loadActivities() {
             const loading = document.getElementById('activity-loading');
             const content = document.getElementById('activity-content');
             
@@ -1294,41 +1395,16 @@ $pageTitle = 'User Management';
             currentPage = 1;
             
             try {
-                // Check localStorage cache first
-                const cacheKey = 'activities_cache_' + currentUserId;
-                const cached = localStorage.getItem(cacheKey);
-                
-                if (useCache && cached && !forceRefresh) {
-                    const cacheData = JSON.parse(cached);
-                    const cacheAge = Date.now() - cacheData.timestamp;
-                    
-                    // Use cache if less than 5 minutes old
-                    if (cacheAge < 5 * 60 * 1000) {
-                        allActivitiesCache = cacheData.activities;
-                        loading.style.display = 'none';
-                        content.style.display = 'block';
-                        addActivityManagerToolbar();
-                        renderActivities();
-                        updateActivityStats();
-                        return;
-                    }
-                }
-                
                 // Fetch from API
                 const userFilter = isAdmin ? (document.getElementById('activity-user-filter')?.value || 'all') : currentUserId;
-                const userParam = userFilter !== 'all' ? `&user_id=${userFilter}` : '';
+                // Always send user_id param, even if 'all', so API doesn't default to current user
+                const userParam = `&user_id=${userFilter}`;
                 
                 const response = await fetch(`profile/api.php?action=get_activities&limit=1000${userParam}`);
                 const data = await response.json();
                 
                 if (data.success) {
-                    allActivitiesCache = data.data || [];
-                    
-                    // Cache the data
-                    localStorage.setItem(cacheKey, JSON.stringify({
-                        activities: allActivitiesCache,
-                        timestamp: Date.now()
-                    }));
+                    allActivities = data.data || [];
                     
                     loading.style.display = 'none';
                     content.style.display = 'block';
@@ -1360,105 +1436,91 @@ $pageTitle = 'User Management';
             let userSelectHTML = '';
             if (isAdmin) {
                 userSelectHTML = `
-                    <select id="activity-user-filter" class="form-input" style="width: auto; padding: 8px 12px; min-width: 180px; background: white; color: #1f2937;">
-                        <option value="all">All Users</option>
-                    </select>
+                    <div id="activity-user-filter-container" style="min-width: 200px;"></div>
                 `;
             }
             
             const toolbarHTML = `
                 <div class="activity-manager-toolbar">
-                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; border-radius: 12px; margin-bottom: 20px; color: white; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);">
-                        <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 15px;">
-                            <i class="fas fa-chart-line" style="font-size: 28px;"></i>
+                    <!-- Compact Header & Stats -->
+                    <div style="background: white; border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px 16px; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <div style="width: 36px; height: 36px; background: #f3f4f6; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #4b5563;">
+                                <i class="fas fa-history"></i>
+                            </div>
                             <div>
-                                <h3 style="margin: 0; font-size: 18px; font-weight: 600;">Activity Manager</h3>
-                                <p style="margin: 5px 0 0 0; opacity: 0.9; font-size: 13px;">Monitor, filter, and analyze user activities</p>
+                                <h3 style="margin: 0; font-size: 15px; font-weight: 600; color: #1f2937;">Activity Log</h3>
+                                <div style="font-size: 11px; color: #6b7280;">
+                                    <span id="stat-total-activities" style="font-weight: 600; color: #374151;">-</span> total events
+                                </div>
                             </div>
                         </div>
-                        
-                        ${isAdmin ? `
-                        <div style="background: rgba(255,255,255,0.15); padding: 12px; border-radius: 8px; margin-bottom: 15px;">
-                            <label style="display: block; margin-bottom: 8px; font-weight: 600; font-size: 13px;">
-                                <i class="fas fa-user-circle"></i> View Activities For:
-                            </label>
-                            ${userSelectHTML}
-                        </div>
-                        ` : ''}
-                        
-                        <!-- Date Range Filter -->
-                        <div style="background: rgba(255,255,255,0.15); padding: 12px; border-radius: 8px; margin-bottom: 15px;">
-                            <label style="display: block; margin-bottom: 8px; font-weight: 600; font-size: 13px;">
-                                <i class="fas fa-calendar-alt"></i> Date Range:
-                            </label>
-                            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                                <input type="date" id="activity-date-from" class="form-input" style="flex: 1; min-width: 150px; padding: 8px 12px; background: white; color: #1f2937;">
-                                <span style="display: flex; align-items: center; font-weight: 600;">to</span>
-                                <input type="date" id="activity-date-to" class="form-input" style="flex: 1; min-width: 150px; padding: 8px 12px; background: white; color: #1f2937;">
-                                <button onclick="applyDateFilter()" class="btn" style="background: rgba(255,255,255,0.25); color: white; padding: 8px 16px; border: 1px solid rgba(255,255,255,0.3);">
-                                    <i class="fas fa-filter"></i> Apply
-                                </button>
-                                <button onclick="clearDateFilter()" class="btn" style="background: rgba(255,255,255,0.15); color: white; padding: 8px 16px;">
-                                    <i class="fas fa-times"></i> Clear
-                                </button>
-                            </div>
-                        </div>
-                        
-                        <!-- Quick Stats -->
-                        <div id="activity-stats" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 15px;">
-                            <div style="background: rgba(255,255,255,0.2); padding: 12px; border-radius: 8px; text-align: center;">
-                                <div style="font-size: 24px; font-weight: 700;" id="stat-total-activities">-</div>
-                                <div style="font-size: 12px; opacity: 0.9;">Total Activities</div>
-                            </div>
-                            <div style="background: rgba(255,255,255,0.2); padding: 12px; border-radius: 8px; text-align: center;">
-                                <div style="font-size: 24px; font-weight: 700;" id="stat-today-activities">-</div>
-                                <div style="font-size: 12px; opacity: 0.9;">Today</div>
-                            </div>
-                            <div style="background: rgba(255,255,255,0.2); padding: 12px; border-radius: 8px; text-align: center;">
-                                <div style="font-size: 24px; font-weight: 700;" id="stat-this-week">-</div>
-                                <div style="font-size: 12px; opacity: 0.9;">This Week</div>
-                            </div>
-                            <div style="background: rgba(255,255,255,0.2); padding: 12px; border-radius: 8px; text-align: center;">
-                                <div style="font-size: 24px; font-weight: 700;" id="stat-unique-types">-</div>
-                                <div style="font-size: 12px; opacity: 0.9;">Activity Types</div>
-                            </div>
+
+                        <div style="display: flex; gap: 16px; font-size: 12px; color: #6b7280;">
+                            <div>Today: <span id="stat-today-activities" style="font-weight: 600; color: #374151;">-</span></div>
+                            <div>This Week: <span id="stat-this-week" style="font-weight: 600; color: #374151;">-</span></div>
                         </div>
                     </div>
-                    
-                    <div style="background: #f8f9fa; padding: 15px; border-radius: 10px; margin-bottom: 20px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-                            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                                <button onclick="exportActivities('csv')" class="btn" style="background: #10b981; color: white; padding: 8px 16px; font-size: 14px;">
-                                    <i class="fas fa-file-csv"></i> Export CSV
-                                </button>
-                                <button onclick="exportActivities('json')" class="btn" style="background: #3b82f6; color: white; padding: 8px 16px; font-size: 14px;">
-                                    <i class="fas fa-file-code"></i> Export JSON
-                                </button>
-                                <button onclick="exportActivities('pdf')" class="btn" style="background: #f59e0b; color: white; padding: 8px 16px; font-size: 14px;">
-                                    <i class="fas fa-file-pdf"></i> Export PDF
-                                </button>
-                                <button onclick="showActivityAnalytics()" class="btn" style="background: #8b5cf6; color: white; padding: 8px 16px; font-size: 14px;">
-                                    <i class="fas fa-chart-pie"></i> Analytics
-                                </button>
-                            </div>
-                            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-                                <input type="text" id="activity-search" placeholder="🔍 Search activities..." class="form-input" style="width: 220px; padding: 8px 12px; font-size: 14px;">
-                                <select id="activity-filter" class="form-input" style="width: auto; padding: 8px 12px;">
-                                    <option value="">📋 All Types</option>
-                                    <option value="login">🔐 Login</option>
-                                    <option value="logout">🚪 Logout</option>
-                                    <option value="create">➕ Create</option>
-                                    <option value="update">✏️ Update</option>
-                                    <option value="delete">🗑️ Delete</option>
-                                    <option value="store">🏪 Store</option>
-                                    <option value="product">📦 Product</option>
-                                    <option value="user">👤 User</option>
-                                </select>
-                                <button onclick="loadActivities(false, true)" class="btn" style="background: #6b7280; color: white; padding: 8px 16px; font-size: 14px;" title="Refresh activities">
-                                    <i class="fas fa-sync-alt"></i> Refresh
-                                </button>
-                            </div>
+
+                    <!-- Compact Filter Bar -->
+                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                        
+                        <!-- Date Range -->
+                        <div style="display: flex; align-items: center; gap: 8px; background: white; border: 1px solid #cbd5e0; border-radius: 6px; padding: 4px 8px;">
+                            <i class="fas fa-calendar-alt" style="color: #9ca3af; font-size: 12px;"></i>
+                            <input type="date" id="activity-date-from" style="border: none; font-size: 12px; color: #4b5563; width: 110px; outline: none;">
+                            <span style="color: #cbd5e0;">-</span>
+                            <input type="date" id="activity-date-to" style="border: none; font-size: 12px; color: #4b5563; width: 110px; outline: none;">
+                            <button onclick="applyDateFilter()" style="border: none; background: none; color: #3b82f6; cursor: pointer; font-size: 12px; font-weight: 600; padding: 0 4px;">Apply</button>
+                            <button onclick="clearDateFilter()" style="border: none; background: none; color: #9ca3af; cursor: pointer; font-size: 12px; padding: 0 4px;"><i class="fas fa-times"></i></button>
                         </div>
+
+                        ${isAdmin ? userSelectHTML : ''}
+
+                        <!-- Type Filter -->
+                        <select id="activity-filter" class="form-input" style="width: auto; padding: 6px 12px; font-size: 13px; height: 34px;">
+                            <option value="">📋 All Types</option>
+                            <optgroup label="Authentication">
+                                <option value="login">🔐 Login</option>
+                                <option value="logout">🚪 Logout</option>
+                            </optgroup>
+                            <optgroup label="Inventory">
+                                <option value="product_added">➕ Product Added</option>
+                                <option value="product_updated">✏️ Product Updated</option>
+                                <option value="product_deleted">🗑️ Product Deleted</option>
+                                <option value="stock_adjusted">📉 Stock Adjusted</option>
+                            </optgroup>
+                            <optgroup label="Purchase Orders">
+                                <option value="po_created">📝 PO Created</option>
+                                <option value="po_updated">✏️ PO Updated</option>
+                                <option value="po_status_updated">🔄 PO Status Change</option>
+                                <option value="po_received_shipment">🚚 PO Received</option>
+                            </optgroup>
+                            <optgroup label="Suppliers">
+                                <option value="supplier_added">➕ Supplier Added</option>
+                                <option value="supplier_updated">✏️ Supplier Updated</option>
+                            </optgroup>
+                            <optgroup label="System">
+                                <option value="user_created">👤 User Created</option>
+                                <option value="user_updated">✏️ User Updated</option>
+                                <option value="store_updated">🏪 Store Updated</option>
+                                <option value="page_visit">👀 Page Visit</option>
+                            </optgroup>
+                        </select>
+
+                        <!-- Limit Filter -->
+                        <select id="activity-limit" class="form-input" style="width: auto; padding: 6px 12px; font-size: 13px; height: 34px;" title="Rows per page">
+                            <option value="10">10 rows</option>
+                            <option value="20" selected>20 rows</option>
+                            <option value="50">50 rows</option>
+                            <option value="100">100 rows</option>
+                        </select>
+
+                        <div style="flex: 1;"></div>
+                        
+                        <button onclick="loadActivities(false, true)" class="btn" style="background: white; border: 1px solid #cbd5e0; color: #4b5563; padding: 6px 12px; font-size: 12px; height: 34px;">
+                            <i class="fas fa-sync-alt"></i>
+                        </button>
                     </div>
                     
                     <div id="activity-list"></div>
@@ -1469,20 +1531,24 @@ $pageTitle = 'User Management';
             
             // Setup event listeners
             setTimeout(() => {
-                const searchInput = document.getElementById('activity-search');
-                
-                if (searchInput) {
-                    searchInput.addEventListener('input', () => {
+                // Type Filter Listener
+                const typeFilter = document.getElementById('activity-filter');
+                if (typeFilter) {
+                    typeFilter.addEventListener('change', () => {
                         currentPage = 1;
                         renderActivities();
                     });
                 }
-                
-                // Initialize searchable dropdown for Type Filter
-                setupSearchableDropdown('activity-filter', function(value) {
-                    currentPage = 1;
-                    renderActivities();
-                });
+
+                // Limit Filter Listener
+                const limitFilter = document.getElementById('activity-limit');
+                if (limitFilter) {
+                    limitFilter.addEventListener('change', (e) => {
+                        itemsPerPage = parseInt(e.target.value);
+                        currentPage = 1;
+                        renderActivities();
+                    });
+                }
                 
                 // Load users for admin dropdown
                 if (isAdmin) {
@@ -1493,45 +1559,29 @@ $pageTitle = 'User Management';
         
         // Load users for activity filter dropdown
         async function loadUsersForFilter() {
-            try {
-                const response = await fetch('profile/api.php?action=get_all_users');
-                const data = await response.json();
-                
-                if (data.success) {
-                    const select = document.getElementById('activity-user-filter');
-                    if (select) {
-                        // Sort users by role then username
-                        const roleOrder = { 'admin': 1, 'manager': 2, 'staff': 3, 'user': 4 };
-                        
-                        data.data.sort((a, b) => {
-                            const roleA = roleOrder[a.role.toLowerCase()] || 99;
-                            const roleB = roleOrder[b.role.toLowerCase()] || 99;
-                            
-                            if (roleA !== roleB) return roleA - roleB;
-                            return a.username.localeCompare(b.username);
-                        });
+            const container = document.getElementById('activity-user-filter-container');
+            if (!container) return;
 
-                        // Clear existing options except the first one (All Users)
-                        while (select.options.length > 1) {
-                            select.remove(1);
-                        }
+            // Create hidden input for value storage if not exists
+            let hiddenInput = document.getElementById('activity-user-filter');
+            if (!hiddenInput) {
+                hiddenInput = document.createElement('input');
+                hiddenInput.type = 'hidden';
+                hiddenInput.id = 'activity-user-filter';
+                hiddenInput.value = 'all';
+                container.appendChild(hiddenInput);
+            }
 
-                        data.data.forEach(user => {
-                            const opt = document.createElement('option');
-                            opt.value = user.id;
-                            opt.textContent = `${user.username}`;
-                            opt.className = `option-role-${user.role.toLowerCase()}`;
-                            select.appendChild(opt);
-                        });
-                        
-                        // Initialize searchable dropdown
-                        setupSearchableDropdown('activity-user-filter', function(value) {
-                            loadActivities(false, true);
-                        });
-                    }
-                }
-            } catch (error) {
-                console.error('Error loading users for filter:', error);
+            const btn = setupUserSelectionModal('activity-user-filter-container', function(value) {
+                const input = document.getElementById('activity-user-filter');
+                if (input) input.value = value;
+                loadActivities(false, true);
+            }, { includeAllOption: true });
+            
+            // Set initial text
+            if (btn) {
+                const textSpan = btn.querySelector('.selected-user-text');
+                if (textSpan) textSpan.textContent = 'All Users';
             }
         }
         
@@ -1540,7 +1590,7 @@ $pageTitle = 'User Management';
             const container = document.getElementById('activity-list');
             if (!container) return;
             
-            let filtered = [...allActivitiesCache];
+            let filtered = [...allActivities];
             
             // Sort by date descending (newest first)
             filtered.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
@@ -1643,32 +1693,123 @@ $pageTitle = 'User Management';
                     else if (type.includes('login')) { iconColor = '#3b82f6'; iconBg = '#dbeafe'; }
                     else if (type.includes('logout')) { iconColor = '#6b7280'; iconBg = '#f3f4f6'; }
                     
+                    // Format Title
+                    let title = escapeHtml(activity.action_type || activity.activity_type || 'Activity');
+                    title = title.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                    
+                    // Special formatting for Page Visits
+                    if (title === 'Page Visit') {
+                        const desc = activity.description || '';
+                        if (desc.startsWith('Visited ')) {
+                            title = desc.replace('Visited ', '');
+                            // Clean up filenames if present
+                            title = title.replace('.php', '').replace('management', 'User Management').replace('list', 'List');
+                            title = title.replace(/\b\w/g, l => l.toUpperCase());
+                        }
+                    }
+
+                    // Determine border color based on type
+                    let borderColor = '#cbd5e0'; // Default gray
+                    if (type.includes('create') || type.includes('add')) borderColor = '#10b981'; // Green
+                    else if (type.includes('update') || type.includes('edit')) borderColor = '#f59e0b'; // Orange
+                    else if (type.includes('delete') || type.includes('remove')) borderColor = '#ef4444'; // Red
+                    else if (type.includes('login')) borderColor = '#3b82f6'; // Blue
+
+                    // Process Metadata
+                    let metadataHtml = '';
+                    try {
+                        let meta = activity.metadata;
+                        if (typeof meta === 'string' && (meta.startsWith('{') || meta.startsWith('['))) {
+                            meta = JSON.parse(meta);
+                        }
+                        
+                        if (meta && typeof meta === 'object' && Object.keys(meta).length > 0) {
+                            const details = [];
+                            
+                            // Helper to format label: value
+                            const addDetail = (label, value, color = '#4b5563') => {
+                                if (value !== undefined && value !== null && value !== '') {
+                                    details.push(`<span style="color: ${color}; background: #f8fafc; padding: 1px 4px; border-radius: 3px; border: 1px solid #e2e8f0;">${label}: <b>${escapeHtml(String(value))}</b></span>`);
+                                }
+                            };
+
+                            if (meta.sku) addDetail('SKU', meta.sku);
+                            if (meta.product_name) addDetail('Product', meta.product_name);
+                            if (meta.po_number) addDetail('PO', meta.po_number);
+                            if (meta.supplier_name) addDetail('Supplier', meta.supplier_name);
+                            if (meta.store_name) addDetail('Store', meta.store_name);
+                            if (meta.quantity) addDetail('Qty', meta.quantity);
+                            if (meta.old_quantity && meta.new_quantity) {
+                                details.push(`<span style="color: #6b7280; font-size: 10px;">${meta.old_quantity} ➝ ${meta.new_quantity}</span>`);
+                            }
+                            if (meta.status) addDetail('Status', meta.status, '#059669');
+                            
+                            // Handle 'changes' object for updates
+                            if (meta.changes && typeof meta.changes === 'object') {
+                                let changedFields = [];
+                                
+                                // Scenario 1: { before: {...}, after: {...} } - Full object snapshots
+                                if ('before' in meta.changes && 'after' in meta.changes) {
+                                    const before = meta.changes.before || {};
+                                    const after = meta.changes.after || {};
+                                    
+                                    if (typeof before === 'object' && typeof after === 'object') {
+                                        const allKeys = new Set([...Object.keys(before), ...Object.keys(after)]);
+                                        allKeys.forEach(key => {
+                                            if (key === 'updated_at' || key === 'created_at') return;
+                                            // Simple comparison
+                                            if (JSON.stringify(before[key]) !== JSON.stringify(after[key])) {
+                                                changedFields.push(key);
+                                            }
+                                        });
+                                    }
+                                } 
+                                // Scenario 2: { field: {from: x, to: y} } - Explicit diffs
+                                else {
+                                    changedFields = Object.keys(meta.changes).filter(k => k !== 'updated_at');
+                                }
+
+                                if (changedFields.length > 0) {
+                                    // Format nicely (capitalize, remove underscores)
+                                    const formattedFields = changedFields.map(f => f.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())).join(', ');
+                                    details.push(`<span style="color: #d97706; font-style: italic;">Changed: ${formattedFields}</span>`);
+                                }
+                            }
+
+                            if (details.length > 0) {
+                                metadataHtml = `<div style="font-size: 10px; margin-top: 4px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center;">${details.join('')}</div>`;
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('Metadata parse error', e);
+                    }
+
                     return `
-                        <div style="background: white; border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; margin-bottom: 12px; transition: all 0.2s; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
-                            <div style="display: flex; gap: 16px; align-items: flex-start;">
-                                <div style="width: 40px; height: 40px; border-radius: 10px; background: ${iconBg}; color: ${iconColor}; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0;">
-                                    ${icon}
+                        <div style="background: white; border-bottom: 1px solid #f1f5f9; border-left: 4px solid ${borderColor}; padding: 8px 12px; transition: background 0.1s; display: flex; align-items: flex-start; gap: 12px;">
+                            <!-- Icon -->
+                            <div style="width: 32px; height: 32px; border-radius: 6px; background: ${iconBg}; color: ${iconColor}; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; margin-top: 2px;">
+                                ${icon}
+                            </div>
+                            
+                            <!-- Main Content -->
+                            <div style="flex: 1; min-width: 0;">
+                                <div style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 2px;">
+                                    <span style="font-weight: 600; font-size: 13px; color: #1f2937;">${title}</span>
+                                    <span style="font-size: 11px; color: #9ca3af; background: #f3f4f6; padding: 1px 6px; border-radius: 4px;">
+                                        ${activity.user_name ? escapeHtml(activity.user_name) : 'User'}
+                                    </span>
                                 </div>
-                                <div style="flex: 1;">
-                                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px;">
-                                        <div style="font-weight: 600; color: #1f2937; font-size: 15px;">
-                                            ${escapeHtml(activity.action_type || activity.activity_type || 'Activity')}
-                                        </div>
-                                        <div style="font-size: 12px; color: #9ca3af; white-space: nowrap; margin-left: 10px;" title="${date.toLocaleString()}">
-                                            ${timeStr}
-                                        </div>
-                                    </div>
-                                    <div style="color: #4b5563; font-size: 14px; line-height: 1.5; margin-bottom: 8px;">
-                                        ${escapeHtml(activity.description || 'No description')}
-                                    </div>
-                                    <div style="display: flex; align-items: center; gap: 10px; font-size: 12px; color: #6b7280;">
-                                        <span style="background: #f3f4f6; padding: 2px 8px; border-radius: 4px;">
-                                            <i class="fas fa-user" style="font-size: 10px; margin-right: 4px;"></i> 
-                                            ${activity.user_name ? escapeHtml(activity.user_name) : 'User'}
-                                        </span>
-                                        <span><i class="fas fa-clock" style="margin-right: 4px;"></i> ${timeAgo}</span>
-                                    </div>
-                                </div>
+                                ${(activity.action_type !== 'page_visit' && activity.description) ? `
+                                <div style="font-size: 12px; color: #6b7280; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                    ${escapeHtml(activity.description)}
+                                </div>` : ''}
+                                ${metadataHtml}
+                            </div>
+
+                            <!-- Time -->
+                            <div style="text-align: right; flex-shrink: 0; margin-left: 8px;">
+                                <div style="font-size: 12px; font-weight: 500; color: #4b5563;">${timeStr}</div>
+                                <div style="font-size: 10px; color: #9ca3af;">${timeAgo}</div>
                             </div>
                         </div>
                     `;
@@ -1787,7 +1928,7 @@ $pageTitle = 'User Management';
         
         // Update Statistics
         function updateActivityStats() {
-            if (!allActivitiesCache || allActivitiesCache.length === 0) return;
+            if (!allActivities || allActivities.length === 0) return;
             
             const now = new Date();
             const today = now.toDateString();
@@ -1797,7 +1938,7 @@ $pageTitle = 'User Management';
             let weekCount = 0;
             const uniqueTypes = new Set();
             
-            allActivitiesCache.forEach(activity => {
+            allActivities.forEach(activity => {
                 const activityDate = new Date(activity.created_at);
                 uniqueTypes.add(activity.action_type || activity.activity_type);
                 
@@ -1805,10 +1946,10 @@ $pageTitle = 'User Management';
                 if (activityDate >= oneWeekAgo) weekCount++;
             });
             
-            document.getElementById('stat-total-activities').textContent = allActivitiesCache.length.toLocaleString();
+            document.getElementById('stat-total-activities').textContent = allActivities.length.toLocaleString();
             document.getElementById('stat-today-activities').textContent = todayCount.toLocaleString();
             document.getElementById('stat-this-week').textContent = weekCount.toLocaleString();
-            document.getElementById('stat-unique-types').textContent = uniqueTypes.size.toLocaleString();
+            // document.getElementById('stat-unique-types').textContent = uniqueTypes.size.toLocaleString();
         }
         
         // Date Filter Functions
@@ -1862,7 +2003,7 @@ $pageTitle = 'User Management';
         
         // Show Analytics
         function showActivityAnalytics() {
-            if (!allActivitiesCache || allActivitiesCache.length === 0) {
+            if (!allActivities || allActivities.length === 0) {
                 alert('No activity data to analyze');
                 return;
             }
@@ -1872,7 +2013,7 @@ $pageTitle = 'User Management';
             const hourCount = {};
             const dayCount = {};
             
-            allActivitiesCache.forEach(activity => {
+            allActivities.forEach(activity => {
                 const type = activity.action_type || activity.activity_type || 'unknown';
                 typeCount[type] = (typeCount[type] || 0) + 1;
                 
@@ -1897,9 +2038,9 @@ $pageTitle = 'User Management';
                             <h2 style="margin: 0; color: #1f2937; font-size: 24px;">
                                 <i class="fas fa-chart-pie" style="color: #8b5cf6;"></i> Activity Analytics
                             </h2>
-                            <p style="margin: 5px 0 0 0; color: #6b7280;">Insights from ${allActivitiesCache.length.toLocaleString()} activities</p>
+                            <p style="margin: 5px 0 0 0; color: #6b7280;">Insights from ${allActivities.length.toLocaleString()} activities</p>
                         </div>
-                        <button onclick="this.closest('div').parentElement.remove()" style="background: #ef4444; color: white; border: none; width: 36px; height: 36px; border-radius: 50%; cursor: pointer;">
+                        <button onclick="this.closest('div').parentElement.parentElement.remove()" style="background: #ef4444; color: white; border: none; width: 36px; height: 36px; border-radius: 50%; cursor: pointer;">
                             <i class="fas fa-times"></i>
                         </button>
                     </div>
@@ -1941,20 +2082,8 @@ $pageTitle = 'User Management';
         }
 
         // Permissions Manager
-        let permissionsLoaded = false;
-        let permissionsCache = null;
         
         async function loadPermissions() {
-            // Check if already loaded
-            if (permissionsLoaded && permissionsCache) {
-                document.getElementById('permissions-container').innerHTML = permissionsCache;
-                reattachPermissionListeners();
-                
-                // Show cache indicator
-                showCacheIndicator('permissions');
-                return;
-            }
-            
             const container = document.getElementById('permissions-container');
             container.innerHTML = '<div class="loading"><i class="fas fa-spinner fa-spin"></i><p>Loading permissions...</p></div>';
             
@@ -1966,10 +2095,6 @@ $pageTitle = 'User Management';
                     // For non-admin, just show their own permissions
                     await loadOwnPermissions();
                 }
-                
-                // Cache the content
-                permissionsCache = document.getElementById('permissions-container').innerHTML;
-                permissionsLoaded = true;
             } catch (error) {
                 console.error('Error loading permissions:', error);
                 container.innerHTML = `
@@ -2009,11 +2134,11 @@ $pageTitle = 'User Management';
                 // Sort users by role then username
                 const roleOrder = { 'admin': 1, 'manager': 2, 'staff': 3, 'user': 4 };
                 users.sort((a, b) => {
-                    const roleA = roleOrder[a.role.toLowerCase()] || 99;
-                    const roleB = roleOrder[b.role.toLowerCase()] || 99;
+                    const roleA = roleOrder[(a.role || 'user').toLowerCase()] || 99;
+                    const roleB = roleOrder[(b.role || 'user').toLowerCase()] || 99;
                     
                     if (roleA !== roleB) return roleA - roleB;
-                    return a.username.localeCompare(b.username);
+                    return (a.username || '').localeCompare(b.username || '');
                 });
                 
                 let html = `
@@ -2036,10 +2161,7 @@ $pageTitle = 'User Management';
                         <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #374151;">
                             <i class="fas fa-user-circle"></i> Select User:
                         </label>
-                        <select id="perm-user-select" class="enhanced-select">
-                            <option value="">-- Select a user --</option>
-                            ${users.map(u => `<option value="${u.id}" class="option-role-${u.role.toLowerCase()}">${escapeHtml(u.username)}</option>`).join('')}
-                        </select>
+                        <div id="perm-user-select-container"></div>
                     </div>
                     
                     <div id="user-permissions-display"></div>
@@ -2047,8 +2169,8 @@ $pageTitle = 'User Management';
                 
                 container.innerHTML = html;
                 
-                // Setup searchable dropdown
-                setupSearchableDropdown('perm-user-select', function(value) {
+                // Setup user selection modal
+                const btn = setupUserSelectionModal('perm-user-select-container', function(value) {
                     if (value) {
                         window._lastSelectedUserId = value;
                         loadUserPermissions(value);
@@ -2058,23 +2180,14 @@ $pageTitle = 'User Management';
                     }
                 });
 
-                // Add event listener
-                const permSelect = document.getElementById('perm-user-select');
-                if (permSelect) {
-                    permSelect.addEventListener('change', function() {
-                        console.log('[User Dropdown] Changed:', this.value);
-                        if (this.value) {
-                            // Save selected value to a variable to persist selection
-                            window._lastSelectedUserId = this.value;
-                            loadUserPermissions(this.value);
-                        } else {
-                            window._lastSelectedUserId = '';
-                            document.getElementById('user-permissions-display').innerHTML = '';
-                        }
-                    });
-                    // Restore last selected user if available
-                    if (window._lastSelectedUserId) {
-                        permSelect.value = window._lastSelectedUserId;
+                // Restore last selected user if available
+                if (window._lastSelectedUserId) {
+                    // We need to find the user name to update the button text
+                    // Use loose equality (==) to handle string/number type mismatches
+                    const user = users.find(u => u.id == window._lastSelectedUserId);
+                    if (user && btn) {
+                        const textSpan = btn.querySelector('.selected-user-text');
+                        if (textSpan) textSpan.textContent = user.username;
                         loadUserPermissions(window._lastSelectedUserId);
                     }
                 }
@@ -2091,22 +2204,12 @@ $pageTitle = 'User Management';
             }
         }
         
-        // Cache for user permissions by user ID
-        const userPermissionsCache = {};
         
         async function loadUserPermissions(userId) {
             console.log('=== loadUserPermissions called ===');
             console.log('userId:', userId);
             
             const display = document.getElementById('user-permissions-display');
-            
-            // Check cache first
-            if (userPermissionsCache[userId]) {
-                console.log('✅ Using cached permissions for user:', userId);
-                display.innerHTML = userPermissionsCache[userId];
-                reattachPermissionListeners();
-                return;
-            }
             
             display.innerHTML = '<div class="loading"><i class="fas fa-spinner fa-spin"></i> Loading permissions...</div>';
             
@@ -2193,7 +2296,7 @@ $pageTitle = 'User Management';
                 
                 let html = `
                     <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; border-radius: 12px; color: white; margin-bottom: 20px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
                             <div>
                                 <div style="font-size: 14px; opacity: 0.9; margin-bottom: 5px;">Current Role</div>
                                 <div style="font-size: 28px; font-weight: 700;">${perms.role}</div>
@@ -2296,8 +2399,6 @@ $pageTitle = 'User Management';
                     `).join('')}
                 `;
                 
-                // Cache the rendered HTML
-                userPermissionsCache[userId] = html;
                 display.innerHTML = html;
                 
             } catch (error) {
@@ -2363,9 +2464,9 @@ $pageTitle = 'User Management';
                                             <i class="fas fa-${perm.icon}"></i>
                                         </div>
                                         <div>
-                                            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
+                                            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
                                                 <h4 style="margin: 0; color: #1f2937;">${perm.name}</h4>
-                                                <span style="padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; ${granted ? 'background: #d4edda; color: #155724;' : 'background: #f8d7da; color: #721c24;'}">
+                                                <span style="padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; ${granted ? 'background: #d4edda; color: #155724;' : 'background: #f8d7da; color: #721c24;'}">
                                                     ${granted ? '<i class="fas fa-check"></i> Granted' : '<i class="fas fa-times"></i> Denied'}
                                                 </span>
                                             </div>
@@ -2411,9 +2512,6 @@ $pageTitle = 'User Management';
                 
                 if (data.success) {
                     alert('Permission updated successfully');
-                    // Clear cache to force reload
-                    permissionsCache = null;
-                    permissionsLoaded = false;
                     loadPermissions();
                 } else {
                     alert('Failed to update permission: ' + (data.error || 'Unknown error'));
@@ -2455,14 +2553,14 @@ $pageTitle = 'User Management';
                 
                 if (data.success) {
                     console.log('✅ Permission updated successfully');
-                    // Clear cache and reload
-                    delete userPermissionsCache[userId];
+                    // Reload
                     await loadUserPermissions(userId);
                     
                     // Show quick toast
                     showToast(grant ? 'Permission granted ✓' : 'Permission revoked', 'success');
                 } else {
-                    throw new Error(data.error || 'Update failed');
+                    console.error('❌ Role assignment failed:', data.error);
+                    showToast('Failed to update permission: ' + (data.error || 'Unknown error'), 'error');
                 }
             } catch (error) {
                 console.error('❌ Error:', error);
@@ -2541,12 +2639,6 @@ $pageTitle = 'User Management';
                     console.log('✅ Role assigned successfully');
                     showToast(`${roleName} role assigned successfully!`, 'success');
                     
-                    // Clear all caches
-                    console.log('🗑️ Clearing all caches...');
-                    permissionsCache = null;
-                    permissionsLoaded = false;
-                    delete userPermissionsCache[userId];
-                    
                     console.log('🔄 Reloading permissions for user:', userId);
                     await loadUserPermissions(userId);
                     console.log('✅ Permissions reloaded');
@@ -2567,20 +2659,8 @@ $pageTitle = 'User Management';
         }
         
         // Store Access Manager
-        let storeAccessLoaded = false;
-        let storeAccessCache = null;
         
         async function loadStoreAccess() {
-            // Check if already loaded
-            if (storeAccessLoaded && storeAccessCache) {
-                document.getElementById('store-access-container').innerHTML = storeAccessCache;
-                reattachStoreAccessListeners();
-                
-                // Show cache indicator
-                showCacheIndicator('store-access');
-                return;
-            }
-            
             const container = document.getElementById('store-access-container');
             container.innerHTML = '<div class="loading"><i class="fas fa-spinner fa-spin"></i><p>Loading store access...</p></div>';
             
@@ -2591,10 +2671,6 @@ $pageTitle = 'User Management';
                 } else {
                     await loadOwnStoreAccess();
                 }
-                
-                // Cache the content
-                storeAccessCache = document.getElementById('store-access-container').innerHTML;
-                storeAccessLoaded = true;
             } catch (error) {
                 console.error('Error loading store access:', error);
                 container.innerHTML = `
@@ -2636,11 +2712,11 @@ $pageTitle = 'User Management';
                 // Sort users by role then username
                 const roleOrder = { 'admin': 1, 'manager': 2, 'staff': 3, 'user': 4 };
                 users.sort((a, b) => {
-                    const roleA = roleOrder[a.role.toLowerCase()] || 99;
-                    const roleB = roleOrder[b.role.toLowerCase()] || 99;
+                    const roleA = roleOrder[(a.role || 'user').toLowerCase()] || 99;
+                    const roleB = roleOrder[(b.role || 'user').toLowerCase()] || 99;
                     
                     if (roleA !== roleB) return roleA - roleB;
-                    return a.username.localeCompare(b.username);
+                    return (a.username || '').localeCompare(b.username || '');
                 });
                 
                 let html = `
@@ -2670,10 +2746,7 @@ $pageTitle = 'User Management';
                         <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #374151;">
                             <i class="fas fa-user-circle"></i> Select User:
                         </label>
-                        <select id="store-user-select" class="enhanced-select">
-                            <option value="">-- Select a user --</option>
-                            ${users.map(u => `<option value="${u.id}" class="option-role-${u.role.toLowerCase()}">${escapeHtml(u.username)}</option>`).join('')}
-                        </select>
+                        <div id="store-user-select-container"></div>
                     </div>
                     
                     <div id="user-stores-display"></div>
@@ -2681,27 +2754,28 @@ $pageTitle = 'User Management';
                 
                 container.innerHTML = html;
                 
-                // Setup searchable dropdown
-                setupSearchableDropdown('store-user-select', function(value) {
+                // Setup user selection modal
+                const btn = setupUserSelectionModal('store-user-select-container', function(value) {
                     selectedUserId = value;
                     if (value) {
+                        window._lastSelectedStoreUserId = value;
                         loadUserStores(value);
                     } else {
+                        window._lastSelectedStoreUserId = '';
                         document.getElementById('user-stores-display').innerHTML = '';
                     }
-                });
-
-                // Add event listener
-                const storeSelect = document.getElementById('store-user-select');
-                if (storeSelect) {
-                    storeSelect.addEventListener('change', function() {
-                        selectedUserId = this.value;
-                        if (this.value) {
-                            loadUserStores(this.value);
-                        } else {
-                            document.getElementById('user-stores-display').innerHTML = '';
-                        }
-                    });
+                }, { excludeAdmins: true });
+                
+                // Restore last selected user if available
+                if (window._lastSelectedStoreUserId) {
+                    // Use loose equality (==) to handle string/number type mismatches
+                    const user = users.find(u => u.id == window._lastSelectedStoreUserId);
+                    if (user && btn) {
+                        const textSpan = btn.querySelector('.selected-user-text');
+                        if (textSpan) textSpan.textContent = user.username;
+                        selectedUserId = window._lastSelectedStoreUserId;
+                        loadUserStores(window._lastSelectedStoreUserId);
+                    }
                 }
                 
             } catch (error) {
@@ -2761,7 +2835,7 @@ $pageTitle = 'User Management';
                     html += `
                         <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px;">
                             ${stores.map(store => `
-                                <div style="background: white; border: 2px solid #e5e7eb; border-radius: 12px; padding: 20px; transition: all 0.3s;">
+                                <div style="background: white; border: 2px solid #e5e7eb; border-radius: 12px; padding: 20px;">
                                     <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px;">
                                         <h4 style="margin: 0; color: #1f2937; font-size: 16px;">
                                             <i class="fas fa-store" style="color: #10b981; margin-right: 8px;"></i>
@@ -2786,7 +2860,6 @@ $pageTitle = 'User Management';
                         </div>
                     `;
                 } else {
-                    console.log('No stores found, showing empty state');
                     html += `
                         <div class="empty-state">
                             <i class="fas fa-store-slash"></i>
@@ -2936,8 +3009,8 @@ $pageTitle = 'User Management';
                         <div style="padding: 24px; border-bottom: 1px solid #e5e7eb;">
                             <div style="display: flex; justify-content: space-between; align-items: center;">
                                 <div>
-                                    <h3 style="margin: 0; font-size: 20px; color: #111827;">
-                                        <i class="fas fa-store" style="color: #10b981; margin-right: 8px;"></i>
+                                    <h3 style="margin: 0; font-size: 20px; color: #1f2937;">
+                                        <i class="fas fa-store" style="color: #10b981; margin-right: 10px;"></i>
                                         Assign Store Access
                                     </h3>
                                     <p style="color: #6b7280; margin: 8px 0 0 0; font-size: 14px;">Select stores to grant access</p>
@@ -3093,7 +3166,7 @@ $pageTitle = 'User Management';
                     await loadUserStores(userId);
                     console.log('✓ User stores reloaded');
                 } else {
-                    console.error('✗ Failed to remove store access:', data.error);
+                    console.error('❌ Failed to remove store access:', data.error);
                     alert('Failed to remove store access: ' + (data.error || 'Unknown error'));
                 }
             } catch (error) {
@@ -3109,6 +3182,12 @@ $pageTitle = 'User Management';
         function setupSearchableDropdown(selectId, onChangeCallback) {
             const originalSelect = document.getElementById(selectId);
             if (!originalSelect) return;
+
+            // Check if already setup and remove old wrapper
+            if (originalSelect.previousElementSibling && originalSelect.previousElementSibling.classList.contains('searchable-select-wrapper')) {
+                originalSelect.previousElementSibling.remove();
+                originalSelect.style.display = 'block';
+            }
 
             // Create wrapper
             const wrapper = document.createElement('div');
@@ -3133,22 +3212,25 @@ $pageTitle = 'User Management';
                 if (opt.value === "") return; // Skip placeholder
                 hasOptions = true;
                 const div = document.createElement('div');
-                div.className = 'searchable-select-option ' + opt.className;
+                div.className = 'searchable-select-option ' + (opt.className || '');
                 div.textContent = opt.text;
                 div.dataset.value = opt.value;
-                div.dataset.text = opt.text.toLowerCase();
+                div.dataset.text = (opt.text || '').toLowerCase();
                 
                 // Add role badge if class exists
-                if (opt.className.includes('option-role-')) {
-                    const role = opt.className.split('option-role-')[1].split(' ')[0];
-                    const badge = document.createElement('span');
-                    badge.className = `user-role role-${role}`;
-                    badge.style.fontSize = '10px';
-                    badge.style.marginLeft = '8px';
-                    badge.style.padding = '2px 6px';
-                    badge.textContent = role.toUpperCase();
-                    
-                    div.appendChild(badge);
+                if (opt.className && opt.className.includes('option-role-')) {
+                    try {
+                        const role = opt.className.split('option-role-')[1].split(' ')[0];
+                        if (role) {
+                            const badge = document.createElement('span');
+                            badge.className = `user-role role-${role}`;
+                            badge.style.fontSize = '10px';
+                            badge.style.marginLeft = '8px';
+                            badge.style.padding = '2px 6px';
+                            badge.textContent = role.toUpperCase();
+                            div.appendChild(badge);
+                        }
+                    } catch (e) { console.error('Error parsing role class', e); }
                 }
                 
                 div.onclick = (e) => {
@@ -3178,7 +3260,7 @@ $pageTitle = 'User Management';
                 Array.from(optionsList.children).forEach(child => {
                     if (child.classList.contains('searchable-select-no-results')) return;
                     
-                    const text = child.dataset.text;
+                    const text = child.dataset.text || '';
                     if (text.includes(term)) {
                         child.style.display = 'block';
                         matchCount++;
@@ -3207,7 +3289,6 @@ $pageTitle = 'User Management';
             // Show/Hide logic
             searchInput.addEventListener('focus', () => {
                 optionsList.style.display = 'block';
-                // Reset filter on focus if needed, or keep current
             });
             
             searchInput.addEventListener('click', (e) => {
@@ -3238,9 +3319,245 @@ $pageTitle = 'User Management';
             }
         }
 
-        // Auto-load users on page load
+        // User Selection Modal Logic
+        function setupUserSelectionModal(containerId, onSelectCallback, options = {}) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            
+            // Create button to open modal
+            const button = document.createElement('button');
+            button.className = 'enhanced-select';
+            button.style.textAlign = 'left';
+            button.style.display = 'flex';
+            button.style.alignItems = 'center';
+            button.style.justifyContent = 'space-between';
+            button.innerHTML = `
+                <span class="selected-user-text">Select a user...</span>
+                <i class="fas fa-chevron-down" style="font-size: 12px; color: #718096;"></i>
+            `;
+            
+            // Replace existing select or append button
+            const existingSelect = container.querySelector('select');
+            if (existingSelect) {
+                // Preserve any existing value
+                if (existingSelect.value) {
+                    // We'll need to fetch the user name if we only have ID
+                    // For now, just keep the ID or placeholder
+                }
+                existingSelect.style.display = 'none';
+                existingSelect.parentNode.insertBefore(button, existingSelect);
+            } else {
+                container.appendChild(button);
+            }
+            
+            button.onclick = () => openUserSelectionModal(onSelectCallback, options, button);
+            
+            return button;
+        }
+
+        async function openUserSelectionModal(onSelectCallback, options = {}, triggerButton) {
+            // Remove existing modal if any
+            const existingModal = document.getElementById('user-selector-modal');
+            if (existingModal) existingModal.remove();
+            
+            // Create modal structure
+            const modal = document.createElement('div');
+            modal.id = 'user-selector-modal';
+            modal.className = 'user-selector-modal';
+            
+            modal.innerHTML = `
+                <div class="user-selector-content">
+                    <div class="user-selector-header">
+                        <h3 style="margin: 0; font-size: 20px; color: #1f2937;">
+                            <i class="fas fa-users" style="color: #667eea; margin-right: 10px;"></i>
+                            Select User
+                        </h3>
+                        <button class="btn btn-secondary" style="padding: 6px 12px; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; min-width: auto; flex: none;" onclick="closeUserSelectionModal()">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <div class="user-selector-body">
+                        <div class="user-selector-search">
+                            <i class="fas fa-search"></i>
+                            <input type="text" id="user-selector-input" placeholder="Search by name, email, or role...">
+                        </div>
+                        <div id="user-selector-grid" class="user-selector-grid">
+                            <div class="loading">
+                                <i class="fas fa-spinner fa-spin"></i> Loading users...
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(modal);
+            
+            // Trigger reflow
+            modal.offsetHeight;
+            modal.classList.add('active');
+            
+            // Focus search
+            setTimeout(() => document.getElementById('user-selector-input').focus(), 100);
+            
+            // Load users
+            try {
+                const response = await fetch('profile/api.php?action=get_all_users' + (options.excludeAdmins ? '&exclude_admins=true' : ''));
+                const data = await response.json();
+                
+                if (data.success) {
+                    let users = data.data;
+                    
+                    // Add "All Users" option if requested
+                    if (options.includeAllOption) {
+                        users = [{
+                            id: 'all',
+                            username: 'All Users',
+                            first_name: 'All',
+                            last_name: 'Users',
+                            role: 'System',
+                            email: 'View all activities',
+                            profile_picture: null,
+                            is_all_option: true
+                        }, ...users];
+                    }
+                    
+                    renderUserGrid(users, onSelectCallback, triggerButton);
+                    
+                    // Setup search with debounce
+                    const handleSearch = debounce((e) => {
+                        const term = e.target.value.toLowerCase();
+                        // Use a small timeout to prevent UI blocking if list is huge
+                        setTimeout(() => {
+                            const filtered = users.filter(u => 
+                                u.username.toLowerCase().includes(term) || 
+                                (u.email && u.email.toLowerCase().includes(term)) ||
+                                (u.first_name && u.first_name.toLowerCase().includes(term)) ||
+                                (u.last_name && u.last_name.toLowerCase().includes(term)) ||
+                                u.role.toLowerCase().includes(term)
+                            );
+                            renderUserGrid(filtered, onSelectCallback, triggerButton);
+                        }, 0);
+                    }, 300);
+                    
+                    document.getElementById('user-selector-input').addEventListener('input', handleSearch);
+                } else {
+                    document.getElementById('user-selector-grid').innerHTML = `
+                        <div class="empty-state">
+                            <i class="fas fa-exclamation-circle"></i>
+                            <p>Failed to load users</p>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('Error loading users for modal:', error);
+                document.getElementById('user-selector-grid').innerHTML = `
+                    <div class="empty-state">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <p>Error loading users</p>
+                    </div>
+                `;
+            }
+            
+            // Close on click outside
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) closeUserSelectionModal();
+            });
+        }
+
+        function closeUserSelectionModal() {
+            const modal = document.getElementById('user-selector-modal');
+            if (modal) {
+                modal.classList.remove('active');
+                setTimeout(() => modal.remove(), 300);
+            }
+        }
+
+        function renderUserGrid(users, onSelectCallback, triggerButton) {
+            const grid = document.getElementById('user-selector-grid');
+            if (!users.length) {
+                grid.innerHTML = `
+                    <div class="empty-state" style="grid-column: 1/-1; padding: 40px;">
+                        <i class="fas fa-search" style="font-size: 32px; margin-bottom: 10px;"></i>
+                        <p>No users found matching your search</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            // Limit to first 50 users for performance
+            const displayUsers = users.slice(0, 50);
+            const hasMore = users.length > 50;
+            
+            grid.innerHTML = displayUsers.map(user => `
+                <div class="user-selector-card">
+                    <div class="user-selector-avatar" style="${user.profile_picture ? `background-image: url('../../${user.profile_picture}'); background-size: cover;` : ''}">
+                        ${!user.profile_picture ? getInitials(user.first_name || user.username, user.last_name) : ''}
+                    </div>
+                    <div style="font-weight: 600; color: #1f2937; margin-bottom: 4px;">
+                        ${escapeHtml(user.first_name || user.username)} ${escapeHtml(user.last_name || '')}
+                    </div>
+                    <div style="font-size: 12px; color: #6b7280; margin-bottom: 8px;">
+                        ${escapeHtml(user.email || '')}
+                    </div>
+                    <span class="user-role role-${(user.role || 'staff').toLowerCase()}" style="font-size: 11px; padding: 2px 8px;">
+                        ${user.role || 'Staff'}
+                    </span>
+                </div>
+            `).join('') + (hasMore ? `
+                <div style="grid-column: 1/-1; text-align: center; padding: 15px; color: #6b7280; font-size: 13px; background: #f9fafb; border-radius: 8px; margin-top: 10px;">
+                    <i class="fas fa-info-circle"></i> Showing top 50 results. Use the search bar to find specific users.
+                </div>
+            ` : '');
+            
+            // Attach click handlers
+            const cards = grid.querySelectorAll('.user-selector-card');
+            cards.forEach((card, index) => {
+                card.onclick = () => {
+                    const user = displayUsers[index];
+                    
+                    // Update trigger button text
+                    if (triggerButton) {
+                        const textSpan = triggerButton.querySelector('.selected-user-text');
+                        if (textSpan) textSpan.textContent = user.username;
+                    }
+                    
+                    // Call callback
+                    if (onSelectCallback) onSelectCallback(user.id);
+                    
+                    closeUserSelectionModal();
+                };
+            });
+        }
+
+        // Debounce helper
+        function debounce(func, wait) {
+            let timeout;
+            return function(...args) {
+                const context = this;
+                clearTimeout(timeout);
+                timeout = setTimeout(() => func.apply(context, args), wait);
+            };
+        }
+
+        // Initialize
         document.addEventListener('DOMContentLoaded', function() {
-            loadUsers();
+            // Load initial tab content
+            const activeTab = document.querySelector('.tab.active');
+            if (activeTab) {
+                const tabName = activeTab.getAttribute('onclick').match(/'([^']+)'/)[1];
+                if (tabName === 'users') {
+                    loadUsers();
+                } else if (tabName === 'activities') {
+                    loadActivities();
+                } else if (tabName === 'permissions') {
+                    loadPermissions();
+                } else if (tabName === 'store-access') {
+                    loadStoreAccess();
+                }
+            } else {
+                // Default to users if no active tab
+                loadUsers();
+            }
         });
     </script>
 </body>

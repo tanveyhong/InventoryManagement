@@ -4,6 +4,7 @@ require_once '../../config.php';
 session_start();
 require_once '../../functions.php';
 require_once '../../sql_db.php';
+require_once '../../activity_logger.php';
 
 if (!isset($_SESSION['user_id'])) {
     header('Location: ../users/login.php');
@@ -29,6 +30,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 "INSERT INTO suppliers (name, contact_person, email, phone, address) VALUES (?, ?, ?, ?, ?)",
                 [$name, $contact_person, $email, $phone, $address]
             );
+            $newId = $sqlDb->lastInsertId();
+            logActivity('supplier_added', "Added new supplier: $name", ['supplier_id' => $newId]);
+            
             $_SESSION['success'] = 'Supplier added successfully.';
             header('Location: list.php');
             exit;

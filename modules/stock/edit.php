@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../config.php';
 require_once __DIR__ . '/../../functions.php';
+require_once __DIR__ . '/../../activity_logger.php';
 require_once __DIR__ . '/../../sql_db.php';
 
 if (session_status() === PHP_SESSION_NONE) {
@@ -123,6 +124,7 @@ if ($docId !== '') {
                 $stock['quantity'] = (int)$stock['quantity'];
                 $stock['reorder_level'] = (int)$stock['reorder_level'];
                 $stock['price'] = (float)$stock['price'];
+                $stock['cost_price'] = (float)($stock['cost_price'] ?? 0.0);
             }
         }
     } catch (Exception $e) {
@@ -177,6 +179,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $quantity      = (int)($_POST['quantity'] ?? (int)$stock['quantity']);
   $reorderLevel  = (int)($_POST['reorder_level'] ?? (int)$stock['reorder_level']);
   $price         = (float)($_POST['price'] ?? (float)$stock['price']);
+  $costPrice     = (float)($_POST['cost_price'] ?? (float)($stock['cost_price'] ?? 0.0));
   $storeId       = trim((string)($_POST['store_id'] ?? ($stock['store_id'] ?? '')));
   $supplierId    = !empty($_POST['supplier_id']) ? (int)$_POST['supplier_id'] : null;
   $location      = trim((string)($_POST['location'] ?? ($stock['location'] ?? '')));
@@ -189,6 +192,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   if ($quantity < 0) $errors[] = 'Quantity cannot be negative.';
   if ($reorderLevel < 0) $errors[] = 'Reorder level cannot be negative.';
   if ($price < 0) $errors[] = 'Price cannot be negative.';
+  if ($costPrice < 0) $errors[] = 'Cost price cannot be negative.';
 
   // Only check SKU uniqueness if user changed it AND it is non-empty
   $oldSku = norm_sku($stock['sku'] ?? '');
@@ -225,6 +229,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       'quantity'      => $quantity,
       'reorder_level' => $reorderLevel,
       'price'         => $price,
+      'cost_price'    => $costPrice,
       'store_id' => ($storeId !== '' ? $storeId : null),
       'location'      => $location,
       'unit'          => $unit,
@@ -299,6 +304,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     // --- Update SQL (Primary) ---
+    $updateSuccess = false;
     try {
         $sqlDb = SQLDatabase::getInstance();
         if (ctype_digit((string)$docId)) {
@@ -312,6 +318,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     supplier_id = ?,
                     quantity = ?,
                     price = ?,
+                    selling_price = ?,
+                    cost_price = ?,
                     reorder_level = ?,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
@@ -324,47 +332,88 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $supplierId,
                 $quantity,
                 $price,
+                $price, // selling_price
+                $costPrice,
                 $reorderLevel,
                 $docId
             ]);
+            $updateSuccess = true;
         }
     } catch (Exception $e) {
         error_log("SQL Update failed in edit.php: " . $e->getMessage());
+        $errors[] = "Database error: " . $e->getMessage();
     }
 
+    // --- Update Firebase (Secondary/Backup) ---
+    if ($updateSuccess) {
+        try {
+            $db = db_obj();
+            if ($db && method_exists($db, 'update')) {
+                $db->update('products', $docId, $data);
+            }
+        } catch (Throwable $e) {
+            error_log("Firebase Update failed: " . $e->getMessage());
+            // Continue anyway, SQL is primary
+        }
 
-    $db = db_obj();
-    if (!$db || !method_exists($db, 'update')) {
-      $errors[] = 'Database update not available.';
-    } else {
-      try {
-        $db->update('products', $docId, $data);
+        // --- Log Activity ---
+        try {
+            // Calculate changes for all fields
+            $allChanges = [];
+            $fieldsToCheck = [
+                'name' => 'Name',
+                'sku' => 'SKU',
+                'category' => 'Category',
+                'quantity' => 'Quantity',
+                'price' => 'Price',
+                'cost_price' => 'Cost Price',
+                'reorder_level' => 'Reorder Level',
+                'store_id' => 'Store',
+                'supplier_id' => 'Supplier'
+            ];
 
-        // (your three audit log blocks here)
+            foreach ($fieldsToCheck as $field => $label) {
+                $oldVal = $stock[$field] ?? null;
+                // Handle numeric comparisons loosely
+                if ($field === 'price' || $field === 'cost_price') {
+                    $newVal = ${str_replace('_', '', lcfirst(ucwords($field, '_')))}; // $price, $costPrice
+                    if (abs((float)$oldVal - (float)$newVal) > 0.001) {
+                        $allChanges[$label] = ['from' => $oldVal, 'to' => $newVal];
+                    }
+                } elseif ($field === 'quantity' || $field === 'reorder_level') {
+                    $newVal = ${lcfirst(str_replace('_', '', ucwords($field, '_')))}; // $quantity, $reorderLevel
+                    if ((int)$oldVal !== (int)$newVal) {
+                        $allChanges[$label] = ['from' => $oldVal, 'to' => $newVal];
+                    }
+                } else {
+                    // String fields
+                    $varName = lcfirst(str_replace('_', '', ucwords($field, '_'))); // $name, $sku, $category...
+                    // Special cases for variable names
+                    if ($field === 'store_id') $varName = 'storeId';
+                    if ($field === 'supplier_id') $varName = 'supplierId';
+                    
+                    $newVal = $$varName ?? null;
+                    if ((string)$oldVal !== (string)$newVal) {
+                        $allChanges[$label] = ['from' => $oldVal, 'to' => $newVal];
+                    }
+                }
+            }
 
-        // === ADD THIS: resolve LOW_STOCK alert if recovered ===
-        $who = $_SESSION['username']
-          ?? $_SESSION['email']
-          ?? $_SESSION['user_id']
-          ?? $_SESSION['uid']
-          ?? ($_SESSION['user']['name'] ?? $_SESSION['user']['email'] ?? 'admin');
+            logActivity('product_updated', "Updated product: {$name}", [
+                'product_id' => $docId,
+                'product_name' => $name,
+                'sku' => $sku,
+                'changes' => $allChanges
+            ]);
+        } catch (Throwable $e) {
+            error_log("Logging failed: " . $e->getMessage());
+        }
 
-        // Use the just-saved values:
-        fs_resolve_low_stock_if_recovered(
-          $db,
-          (string)$docId,
-          (int)$quantity,        // new qty from the form (already validated above)
-          (int)$reorderLevel,    // new min level from the form
-          (string)$who
-        );
+        // === Resolve Alerts ===
+        $who = $_SESSION['username'] ?? 'user';
+        fs_resolve_low_stock_if_recovered($db, (string)$docId, (int)$quantity, (int)$reorderLevel, (string)$who);
 
-        fs_delete_expiry_alert_if_normal(
-          $db,
-          (string)$docId,
-          $expiryDate !== '' ? $expiryDate : null   // pass the new saved value
-        );
-
-        // Clear cache to force refresh on list page
+        // Clear cache
         $cacheFile = __DIR__ . '/../../storage/cache/stock_list_data.cache';
         if (file_exists($cacheFile)) {
             @unlink($cacheFile);
@@ -373,9 +422,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $_SESSION['success'] = "Product updated successfully.";
         header('Location: list.php');
         exit;
-      } catch (Throwable $e) {
-        $errors[] = 'Failed to update product: ' . $e->getMessage();
-      }
     }
   }
 }
@@ -681,9 +727,18 @@ if ($returnRaw !== '') {
 
         <div class="grid grid-2">
           <div class="field">
-            <label class="label">Unit price</label>
-            <input class="control" type="number" min="0" step="0.01" name="price" value="<?php echo h(number_format((float)$stock['price'], 2, '.', '')); ?>">
+            <label class="label">Cost Price (Supplier)</label>
+            <input class="control" type="number" min="0" step="0.01" name="cost_price" id="cost_price" value="<?php echo h(number_format((float)($stock['cost_price'] ?? 0), 2, '.', '')); ?>">
+            <div class="hint">What you pay the supplier.</div>
           </div>
+          <div class="field">
+            <label class="label">Unit Price (Selling)</label>
+            <input class="control" type="number" min="0" step="0.01" name="price" id="unit_price" value="<?php echo h(number_format((float)$stock['price'], 2, '.', '')); ?>">
+            <div class="hint">Auto-calculated: Cost / 0.70 (30% margin)</div>
+          </div>
+        </div>
+
+        <div class="grid grid-2">
           <div class="field">
             <!-- Expiry date removed -->
           </div>
@@ -704,6 +759,21 @@ if ($returnRaw !== '') {
         passive: true
       });
     });
+
+    // Auto-calculate Selling Price based on Cost Price
+    const costInput = document.getElementById('cost_price');
+    const priceInput = document.getElementById('unit_price');
+
+    if (costInput && priceInput) {
+        costInput.addEventListener('input', function() {
+            const cost = parseFloat(this.value);
+            if (!isNaN(cost) && cost > 0) {
+                // Formula: Selling Price = Cost / 0.70
+                const sellingPrice = cost / 0.70;
+                priceInput.value = sellingPrice.toFixed(2);
+            }
+        });
+    }
   </script>
 </body>
 
