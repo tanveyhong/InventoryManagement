@@ -691,7 +691,7 @@ $page_title = 'POS Terminal - Inventory System';
         
         .products-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
             gap: 15px;
         }
         
@@ -703,12 +703,21 @@ $page_title = 'POS Terminal - Inventory System';
             cursor: pointer;
             transition: all 0.3s;
             text-align: center;
+            min-height: 140px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
         }
         
         .product-card:hover {
             transform: translateY(-3px);
             box-shadow: 0 5px 15px rgba(0,0,0,0.1);
             border-color: #3498db;
+        }
+        
+        .product-card:active {
+            transform: scale(0.98);
+            border-color: #2980b9;
         }
         
         .product-card.out-of-stock {
@@ -789,15 +798,22 @@ $page_title = 'POS Terminal - Inventory System';
             background: #3498db;
             color: white;
             border: none;
-            width: 30px;
-            height: 30px;
+            width: 40px;
+            height: 40px;
             border-radius: 5px;
             cursor: pointer;
-            font-size: 18px;
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         
         .qty-btn:hover {
             background: #2980b9;
+        }
+        
+        .qty-btn:active {
+            transform: scale(0.95);
         }
         
         .remove-btn {
@@ -807,11 +823,18 @@ $page_title = 'POS Terminal - Inventory System';
             background: #e74c3c;
             color: white;
             border: none;
-            width: 25px;
-            height: 25px;
+            width: 30px;
+            height: 30px;
             border-radius: 50%;
             cursor: pointer;
-            font-size: 12px;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .remove-btn:active {
+            transform: scale(0.9);
         }
         
         .cart-summary {
@@ -941,10 +964,10 @@ $page_title = 'POS Terminal - Inventory System';
         .add-products-btn {
             background: #3498db;
             color: white;
-            padding: 8px 15px;
+            padding: 12px 20px;
             border-radius: 5px;
             text-decoration: none;
-            font-size: 14px;
+            font-size: 16px;
             display: inline-block;
             border: 2px solid transparent;
         }
@@ -980,11 +1003,12 @@ $page_title = 'POS Terminal - Inventory System';
         .no-products-message a {
             background: #3498db;
             color: white;
-            padding: 12px 24px;
+            padding: 15px 30px;
             border-radius: 8px;
             text-decoration: none;
             display: inline-block;
             transition: all 0.3s;
+            font-size: 18px;
         }
         
         .no-products-message a:hover {
@@ -1014,8 +1038,8 @@ $page_title = 'POS Terminal - Inventory System';
                     <a href="my_payments.php" class="add-products-btn" style="background: #9b59b6;" title="View your payment history and sales data">
                         <i class="fas fa-receipt"></i> My Payments
                     </a>
-                    <a href="stock_pos_integration.php" class="add-products-btn" title="Manage products - Add products from inventory to this POS store">
-                        <i class="fas fa-box"></i> Manage Products
+                    <a href="stock_pos_integration.php" class="add-products-btn" title="Go back to POS Stock Management">
+                        <i class="fas fa-arrow-left"></i> POS Stock Management
                     </a>
                     <a href="../../index.php" class="back-btn"><i class="fas fa-home"></i> Dashboard</a>
                 </div>
@@ -1253,13 +1277,19 @@ $page_title = 'POS Terminal - Inventory System';
         
         // Update cart item quantity
         function updateQuantity(productId, delta) {
-            const item = cart.find(i => i.product_id === productId);
-            if (!item) return;
+            // Convert to number if needed for comparison
+            const id = typeof productId === 'string' ? parseInt(productId) : productId;
+            const item = cart.find(i => i.product_id == id);
+            
+            if (!item) {
+                console.error('Item not found in cart:', id);
+                return;
+            }
             
             const newQty = item.quantity + delta;
             
             if (newQty <= 0) {
-                removeFromCart(productId);
+                removeFromCart(id);
             } else if (newQty <= item.max_quantity) {
                 item.quantity = newQty;
                 renderCart();
@@ -1270,8 +1300,32 @@ $page_title = 'POS Terminal - Inventory System';
         
         // Remove item from cart
         function removeFromCart(productId) {
-            cart = cart.filter(item => item.product_id !== productId);
+            const id = typeof productId === 'string' ? parseInt(productId) : productId;
+            cart = cart.filter(item => item.product_id != id);
             renderCart();
+        }
+        
+        // Set specific quantity directly
+        function setQuantity(productId, value) {
+            const id = typeof productId === 'string' ? parseInt(productId) : productId;
+            const item = cart.find(i => i.product_id == id);
+            
+            if (!item) return;
+            
+            let newQty = parseInt(value);
+            
+            if (isNaN(newQty) || newQty < 1) {
+                newQty = 1;
+            }
+            
+            if (newQty <= item.max_quantity) {
+                item.quantity = newQty;
+                renderCart();
+            } else {
+                alert('Cannot add more than available stock (' + item.max_quantity + ')');
+                item.quantity = item.max_quantity;
+                renderCart();
+            }
         }
         
         // Render cart
@@ -1294,7 +1348,10 @@ $page_title = 'POS Terminal - Inventory System';
                         <div class="cart-item-details">
                             <div class="qty-controls">
                                 <button class="qty-btn" onclick="updateQuantity('${item.product_id}', -1)">-</button>
-                                <span>${item.quantity}</span>
+                                <input type="number" value="${item.quantity}" 
+                                       onchange="setQuantity('${item.product_id}', this.value)"
+                                       onclick="this.select()"
+                                       style="width: 60px; text-align: center; border: 1px solid #ddd; border-radius: 4px; padding: 8px; font-size: 16px; -moz-appearance: textfield;">
                                 <button class="qty-btn" onclick="updateQuantity('${item.product_id}', 1)">+</button>
                             </div>
                             <div>
@@ -1342,12 +1399,34 @@ $page_title = 'POS Terminal - Inventory System';
                     </div>
                     <div style="margin-bottom: 20px;">
                         <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #2c3e50;">Amount Received</label>
-                        <input type="number" id="cashAmount" value="${total.toFixed(2)}" step="0.01" min="${total.toFixed(2)}" 
-                               style="width: 100%; padding: 12px; font-size: 18px; border: 2px solid #e0e0e0; border-radius: 8px;" 
-                               placeholder="Enter amount" autofocus>
+                        <div style="display: flex; gap: 10px;">
+                            <input type="number" id="cashAmount" value="${total.toFixed(2)}" step="0.01" min="${total.toFixed(2)}" 
+                                   style="flex: 1; padding: 12px; font-size: 24px; border: 2px solid #e0e0e0; border-radius: 8px; text-align: right;" 
+                                   placeholder="0.00" autofocus>
+                            <button onclick="document.getElementById('cashAmount').value = ''; document.getElementById('cashAmount').focus();" 
+                                    style="padding: 0 15px; background: #e74c3c; color: white; border: none; border-radius: 8px; font-size: 18px;">
+                                <i class="fas fa-backspace"></i>
+                            </button>
+                        </div>
+                        
+                        <!-- Numpad for Touchscreen -->
+                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px;">
+                            <button onclick="appendNumpad('1')" style="padding: 15px; font-size: 20px; background: #fff; border: 1px solid #ddd; border-radius: 6px;">1</button>
+                            <button onclick="appendNumpad('2')" style="padding: 15px; font-size: 20px; background: #fff; border: 1px solid #ddd; border-radius: 6px;">2</button>
+                            <button onclick="appendNumpad('3')" style="padding: 15px; font-size: 20px; background: #fff; border: 1px solid #ddd; border-radius: 6px;">3</button>
+                            <button onclick="appendNumpad('4')" style="padding: 15px; font-size: 20px; background: #fff; border: 1px solid #ddd; border-radius: 6px;">4</button>
+                            <button onclick="appendNumpad('5')" style="padding: 15px; font-size: 20px; background: #fff; border: 1px solid #ddd; border-radius: 6px;">5</button>
+                            <button onclick="appendNumpad('6')" style="padding: 15px; font-size: 20px; background: #fff; border: 1px solid #ddd; border-radius: 6px;">6</button>
+                            <button onclick="appendNumpad('7')" style="padding: 15px; font-size: 20px; background: #fff; border: 1px solid #ddd; border-radius: 6px;">7</button>
+                            <button onclick="appendNumpad('8')" style="padding: 15px; font-size: 20px; background: #fff; border: 1px solid #ddd; border-radius: 6px;">8</button>
+                            <button onclick="appendNumpad('9')" style="padding: 15px; font-size: 20px; background: #fff; border: 1px solid #ddd; border-radius: 6px;">9</button>
+                            <button onclick="appendNumpad('.')" style="padding: 15px; font-size: 20px; background: #fff; border: 1px solid #ddd; border-radius: 6px;">.</button>
+                            <button onclick="appendNumpad('0')" style="padding: 15px; font-size: 20px; background: #fff; border: 1px solid #ddd; border-radius: 6px;">0</button>
+                            <button onclick="appendNumpad('00')" style="padding: 15px; font-size: 20px; background: #fff; border: 1px solid #ddd; border-radius: 6px;">00</button>
+                        </div>
                     </div>
                     <div id="changeDisplay" style="background: #e8f5e9; padding: 12px; border-radius: 8px; margin-bottom: 20px; display: none;">
-                        <div style="color: #2e7d32; font-weight: 600;">Change: <span id="changeAmount">RM 0.00</span></div>
+                        <div style="color: #2e7d32; font-weight: 600; font-size: 18px;">Change: <span id="changeAmount">RM 0.00</span></div>
                     </div>
                     <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 20px;">
                         <button onclick="document.getElementById('cashAmount').value = ${(total + 10).toFixed(2)}; calculateChange()" style="padding: 12px; background: #ecf0f1; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">+RM 10</button>
@@ -1636,6 +1715,20 @@ $page_title = 'POS Terminal - Inventory System';
                 document.getElementById('checkoutBtn').disabled = false;
                 document.getElementById('checkoutBtn').textContent = 'Complete Sale';
             }
+        }
+        
+        function appendNumpad(val) {
+            const input = document.getElementById('cashAmount');
+            if (!input) return;
+            
+            // If value is exactly the total (default), clear it first
+            const total = parseFloat(document.getElementById('total').textContent.replace('RM ', ''));
+            if (parseFloat(input.value) === total && input.value === total.toFixed(2)) {
+                input.value = '';
+            }
+            
+            input.value += val;
+            calculateChange();
         }
         
         // Utility function
