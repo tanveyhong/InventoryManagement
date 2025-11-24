@@ -878,9 +878,11 @@ $page_title = 'Stock Management - Inventory System';
                                                     <i class="fas fa-edit"></i> Edit Info
                                                 </a>
                                                 
+                                                <?php if (!($product['_is_store_variant'] ?? false)): ?>
                                                 <button type="button" class="btn btn-sm btn-info" onclick="openLinkStoreModal('<?php echo $product['id']; ?>', '<?php echo htmlspecialchars($product['name'], ENT_QUOTES); ?>', '<?php echo $product['store_id'] ?? ''; ?>')" title="Link to Store" style="background-color: #17a2b8; border-color: #17a2b8; color: white;">
                                                     <i class="fas fa-store"></i> Link
                                                 </button>
+                                                <?php endif; ?>
                                                 
                                                 <?php if (!empty($product['supplier_id'])): ?>
                                                     <a href="../purchase_orders/create.php?supplier_id=<?php echo $product['supplier_id']; ?>&product_id=<?php echo $product['id']; ?>" class="btn btn-sm btn-success" title="Restock from Supplier" style="background-color: #2ecc71; border-color: #27ae60;">
