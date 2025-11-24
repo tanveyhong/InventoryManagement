@@ -9,10 +9,11 @@ define('DB_TYPE', 'pgsql');
 define('DB_DRIVER', 'pgsql');
 
 // Supabase PostgreSQL Connection
+// Use port 6543 (Transaction Pooler) to support IPv4 environments (like Render/Docker)
 define('PG_HOST', getenv('PG_HOST') ?: 'db.fbuzapvujmjecrnhbzuc.supabase.co');
-define('PG_PORT', getenv('PG_PORT') ?: '5432');
+define('PG_PORT', getenv('PG_PORT') ?: '6543');
 define('PG_DATABASE', getenv('PG_DATABASE') ?: 'postgres');
-define('PG_USERNAME', getenv('PG_USERNAME') ?: 'postgres');
+define('PG_USERNAME', getenv('PG_USERNAME') ?: 'postgres.fbuzapvujmjecrnhbzuc'); // Pooler often requires [user].[project]
 define('PG_PASSWORD', getenv('PG_PASSWORD') ?: 'admin123');
 
 // SSL is REQUIRED for Supabase
