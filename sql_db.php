@@ -27,6 +27,16 @@ class SQLDatabase {
             } elseif (DB_DRIVER === 'pgsql' || DB_TYPE === 'pgsql') {
                 // PostgreSQL configuration (supports Supabase and local)
                 $host = defined('PG_HOST') ? PG_HOST : 'localhost';
+                
+                // FORCE IPv4: Resolve hostname to IP before connecting
+                // This fixes "Network is unreachable" errors in Docker containers without IPv6
+                if ($host !== 'localhost' && !filter_var($host, FILTER_VALIDATE_IP)) {
+                    $ipv4 = gethostbyname($host);
+                    if ($ipv4 !== $host) {
+                        $host = $ipv4;
+                    }
+                }
+
                 $port = defined('PG_PORT') ? PG_PORT : 5432;
                 $database = defined('PG_DATABASE') ? PG_DATABASE : 'inventory_system';
                 $username = defined('PG_USERNAME') ? PG_USERNAME : 'postgres';
