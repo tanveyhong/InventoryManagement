@@ -879,9 +879,9 @@ $page_title = 'Stock Management - Inventory System';
                                                 </a>
                                                 
                                                 <?php if (!($product['_is_store_variant'] ?? false)): ?>
-                                                <button type="button" class="btn btn-sm btn-info" onclick="openLinkStoreModal('<?php echo $product['id']; ?>', '<?php echo htmlspecialchars($product['name'], ENT_QUOTES); ?>', '<?php echo $product['store_id'] ?? ''; ?>')" title="Link to Store" style="background-color: #17a2b8; border-color: #17a2b8; color: white;">
-                                                    <i class="fas fa-store"></i> Link
-                                                </button>
+                                                <a href="assign_to_store.php?id=<?php echo $product['id']; ?>" class="btn btn-sm btn-info" title="Assign Stock to Store" style="background-color: #17a2b8; border-color: #17a2b8; color: white;">
+                                                    <i class="fas fa-share-alt"></i> Assign
+                                                </a>
                                                 <?php endif; ?>
                                                 
                                                 <?php if (!empty($product['supplier_id'])): ?>
