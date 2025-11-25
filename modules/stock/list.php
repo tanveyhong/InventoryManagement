@@ -248,14 +248,6 @@ try {
         if (!empty($s['id'])) $storeLookup[$s['id']] = $s['name'];
     }
 
-    // Build warehouse stock map for transfer availability
-    $warehouseStock = [];
-    foreach ($all_products as $p) {
-        if (empty($p['store_id'])) {
-            $warehouseStock[$p['sku']] = $p['quantity'];
-        }
-    }
-
     foreach ($all_products as &$p) {
         if (!empty($p['store_id']) && isset($storeLookup[$p['store_id']])) {
             $p['store_name'] = $storeLookup[$p['store_id']];
@@ -281,6 +273,27 @@ try {
             if (!empty($p['category_name'])) $catNames[$p['category_name']] = true;
         }
         $categories = array_map(fn($n) => ['name' => $n], array_keys($catNames));
+    }
+}
+
+// Build warehouse stock map for transfer availability (Runs for both SQL and Firebase)
+$warehouseStock = [];
+$warehouseStockByName = [];
+
+foreach ($all_products as $p) {
+    if (empty($p['store_id'])) {
+        $sku = $p['sku'] ?? '';
+        $name = $p['name'] ?? '';
+        
+        $skuKey = strtoupper(trim($sku));
+        if ($skuKey) {
+            $warehouseStock[$skuKey] = $p['quantity'];
+        }
+        // Also map by name for fallback (normalized)
+        $nameKey = strtoupper(trim($name));
+        if ($nameKey) {
+            $warehouseStockByName[$nameKey] = $p['quantity'];
+        }
     }
 }
 
@@ -775,171 +788,182 @@ $page_title = 'Stock Management - Inventory System';
                                                 <?php if (!empty($product['sku'])): ?>
                                                     <div class="sku" style="font-weight: 800; color: #000; margin-top: 2px; font-size: 1.1em; letter-spacing: 0.5px;">SKU: <?php echo htmlspecialchars($product['sku']); ?></div>
                                                 <?php endif; ?>
-                                                <?php if (!empty($product['description'])): ?>
-                                                    <br><small class="description"><?php echo htmlspecialchars(substr($product['description'], 0, 100)); ?><?php echo strlen($product['description']) > 100 ? '...' : ''; ?></small>
-                                                <?php endif; ?>
-                                            </div>
-                                        </td>
-                                        <td>
-                                            <div class="stock-info">
-                                                <span class="current-stock status-<?php echo $product['status']; ?>">
-                                                    <?php
-                                                    // Show total system stock for parent products
-                                                    if (isset($product['_total_system_stock']) && $product['_total_system_stock'] > $product['quantity']) {
-                                                        echo number_format($product['_total_system_stock']);
-                                                    } else {
-                                                        echo number_format($product['quantity']);
-                                                    }
-                                                    ?>
-                                                </span>
-                                                <?php if (isset($product['_total_system_stock']) && $product['_total_system_stock'] > $product['quantity']): ?>
-                                                    <br><small style="color: #2980b9; font-weight: 600;">Total Stock</small>
-                                                <?php endif; ?>
-                                                <br><small>Min: <?php echo number_format($product['min_stock_level']); ?></small>
-                                            </div>
-                                        </td>
-                                        <td>
-                                            <span class="cost" style="font-weight: 600; color: #555;">RM <?php echo number_format($product['cost_price'], 2); ?></span>
-                                            <br><small style="color: #95a5a6;">Unit Cost</small>
-                                            <br><small style="color: #7f8c8d;">Total Cost: RM <?php echo number_format($product['quantity'] * $product['cost_price'], 2); ?></small>
-                                        </td>
-                                        <td>
-                                            <span class="price" style="font-weight: 600; color: #2c3e50;">RM <?php echo number_format($product['unit_price'], 2); ?></span>
-                                            <br><small style="color: #95a5a6;">Unit Price</small>
-                                            <br><small style="color: #7f8c8d;">Total Value: RM <?php echo number_format($product['quantity'] * $product['unit_price'], 2); ?></small>
-                                        </td>
-                                        <td>
-                                            <?php if (isset($product['_total_system_stock']) && $product['quantity'] == 0 && $product['_total_system_stock'] > 0): ?>
-                                                <span class="status-badge" style="background: #e3f2fd; color: #1976d2; border: 1px solid #bbdefb;">
-                                                    In Stores
-                                                </span>
-                                            <?php else: ?>
-                                                <span class="status-badge status-<?php echo $product['status']; ?>">
-                                                    <?php
-                                                    switch ($product['status']) {
-                                                        case 'out_of_stock':
-                                                            echo 'Out of Stock';
-                                                            break;
-                                                        case 'low_stock':
-                                                            echo 'Low Stock';
-                                                            break;
-                                                        default:
-                                                            echo 'Normal';
-                                                            break;
-                                                    }
-                                                    ?>
-                                                </span>
+                                            </strong>
+                                            <?php if (!empty($product['sku'])): ?>
+                                                <div class="sku" style="font-weight: 800; color: #000; margin-top: 2px; font-size: 1.1em; letter-spacing: 0.5px;">SKU: <?php echo htmlspecialchars($product['sku']); ?></div>
                                             <?php endif; ?>
-                                        </td>
-                                        <td>
-                                            <?php if (!empty($product['updated_at'])): ?>
+                                            <?php if (!empty($product['description'])): ?>
+                                                <br><small class="description"><?php echo htmlspecialchars(substr($product['description'], 0, 100)); ?><?php echo strlen($product['description']) > 100 ? '...' : ''; ?></small>
+                                            <?php endif; ?>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="stock-info">
+                                            <span class="current-stock status-<?php echo $product['status']; ?>">
                                                 <?php
+                                                // Show total system stock for parent products
+                                                if (isset($product['_total_system_stock']) && $product['_total_system_stock'] > $product['quantity']) {
+                                                    echo number_format($product['_total_system_stock']);
+                                                } else {
+                                                    echo number_format($product['quantity']);
+                                                }
+                                                ?>
+                                            </span>
+                                            <?php if (isset($product['_total_system_stock']) && $product['_total_system_stock'] > $product['quantity']): ?>
+                                                <br><small style="color: #2980b9; font-weight: 600;">Total Stock</small>
+                                            <?php endif; ?>
+                                            <br><small>Min: <?php echo number_format($product['min_stock_level']); ?></small>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <span class="cost" style="font-weight: 600; color: #555;">RM <?php echo number_format($product['cost_price'], 2); ?></span>
+                                        <br><small style="color: #95a5a6;">Unit Cost</small>
+                                        <br><small style="color: #7f8c8d;">Total Cost: RM <?php echo number_format($product['quantity'] * $product['cost_price'], 2); ?></small>
+                                    </td>
+                                    <td>
+                                        <span class="price" style="font-weight: 600; color: #2c3e50;">RM <?php echo number_format($product['unit_price'], 2); ?></span>
+                                        <br><small style="color: #95a5a6;">Unit Price</small>
+                                        <br><small style="color: #7f8c8d;">Total Value: RM <?php echo number_format($product['quantity'] * $product['unit_price'], 2); ?></small>
+                                    </td>
+                                    <td>
+                                        <?php if (isset($product['_total_system_stock']) && $product['quantity'] == 0 && $product['_total_system_stock'] > 0): ?>
+                                            <span class="status-badge" style="background: #e3f2fd; color: #1976d2; border: 1px solid #bbdefb;">
+                                                In Stores
+                                            </span>
+                                        <?php else: ?>
+                                            <span class="status-badge status-<?php echo $product['status']; ?>">
+                                                <?php
+                                                switch ($product['status']) {
+                                                    case 'out_of_stock':
+                                                        echo 'Out of Stock';
+                                                        break;
+                                                    case 'low_stock':
+                                                        echo 'Low Stock';
+                                                        break;
+                                                    default:
+                                                        echo 'Normal';
+                                                        break;
+                                                }
+                                                ?>
+                                            </span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <?php if (!empty($product['updated_at'])): ?>
+                                            <?php 
                                                 $updatedTime = strtotime($product['updated_at']);
                                                 $isStale = (time() - $updatedTime) > (90 * 24 * 60 * 60); // 90 days
-                                                ?>
-                                                <span class="updated-at" style="font-size: 0.85em; color: <?php echo $isStale ? '#e74c3c' : '#555'; ?>;">
-                                                    <?php echo date('M j, Y', $updatedTime); ?><br>
-                                                    <small><?php echo date('h:i A', $updatedTime); ?></small>
-                                                    <?php if ($isStale): ?>
-                                                        <br><span style="font-size: 0.8em; font-weight: bold; color: #e74c3c;">(Stale)</span>
-                                                    <?php endif; ?>
-                                                </span>
-                                            <?php else: ?>
-                                                <span style="color: #999;">-</span>
-                                            <?php endif; ?>
-                                        </td>
-                                        <td>
-                                            <?php if (!empty($product['created_at'])): ?>
-                                                <?php $createdTime = strtotime($product['created_at']); ?>
-                                                <span class="created-at" style="font-size: 0.85em; color: #555;">
-                                                    <?php echo date('M j, Y', $createdTime); ?><br>
-                                                    <small><?php echo date('h:i A', $createdTime); ?></small>
-                                                </span>
-                                            <?php else: ?>
-                                                <span style="color: #999;">-</span>
-                                            <?php endif; ?>
-                                        </td>
-                                        <td>
-                                            <div class="location-info">
-                                                <?php if ($product['store_name']): ?>
-                                                    <strong><?php echo htmlspecialchars($product['store_name']); ?></strong><br>
+                                            ?>
+                                            <span class="updated-at" style="font-size: 0.85em; color: <?php echo $isStale ? '#e74c3c' : '#555'; ?>;">
+                                                <?php echo date('M j, Y', $updatedTime); ?><br>
+                                                <small><?php echo date('h:i A', $updatedTime); ?></small>
+                                                <?php if ($isStale): ?>
+                                                    <br><span style="font-size: 0.8em; font-weight: bold; color: #e74c3c;">(Stale)</span>
                                                 <?php endif; ?>
-                                                <?php if ($product['category_name']): ?>
-                                                    <small><?php echo htmlspecialchars($product['category_name']); ?></small>
-                                                <?php endif; ?>
-                                            </div>
-                                        </td>
-                                        <td>
-                                            <div class="action-buttons">
-                                                <?php
-                                                // Determine correct Firestore document id
-                                                $linkId = $product['doc_id'] ?? '';
+                                            </span>
+                                        <?php else: ?>
+                                            <span style="color: #999;">-</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <?php if (!empty($product['created_at'])): ?>
+                                            <?php $createdTime = strtotime($product['created_at']); ?>
+                                            <span class="created-at" style="font-size: 0.85em; color: #555;">
+                                                <?php echo date('M j, Y', $createdTime); ?><br>
+                                                <small><?php echo date('h:i A', $createdTime); ?></small>
+                                            </span>
+                                        <?php else: ?>
+                                            <span style="color: #999;">-</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <div class="location-info">
+                                            <?php if ($product['store_name']): ?>
+                                                <strong><?php echo htmlspecialchars($product['store_name']); ?></strong><br>
+                                            <?php endif; ?>
+                                            <?php if ($product['category_name']): ?>
+                                                <small><?php echo htmlspecialchars($product['category_name']); ?></small>
+                                            <?php endif; ?>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="action-buttons">
+                                            <?php
+                                            // Determine correct Firestore document id
+                                            $linkId = $product['doc_id'] ?? '';
 
-                                                // if doc_id missing, try using the array key or id (but only if it's a string Firestore id)
-                                                if ($linkId === '' && isset($product['id'])) {
-                                                    $pid = (string)$product['id'];
-                                                    if (!ctype_digit($pid) || strlen($pid) > 6) {
-                                                        $linkId = $pid;
+                                            // if doc_id missing, try using the array key or id (but only if it's a string Firestore id)
+                                            if ($linkId === '' && isset($product['id'])) {
+                                                $pid = (string)$product['id'];
+                                                if (!ctype_digit($pid) || strlen($pid) > 6) {
+                                                    $linkId = $pid;
+                                                }
+                                            }
+
+                                            // final fallback: if still empty, use numeric id (legacy)
+                                            if ($linkId === '' && isset($product['id'])) {
+                                                $linkId = (string)$product['id'];
+                                            }
+                                            ?>
+                                            <a class="btn btn-sm btn-primary" title="View Product"
+                                                href="view.php?id=<?php echo urlencode($linkId); ?>&return=<?php echo $return; ?>">
+                                                <i class="fas fa-eye"></i>
+                                            </a>
+                                            <?php if (currentUserHasPermission('can_edit_inventory')): ?>
+
+                                                <a href="edit.php?id=<?php echo urlencode($linkId); ?>&return=<?php echo $return; ?>" class="btn btn-sm btn-primary" title="Edit Product Details">
+                                                    <i class="fas fa-edit"></i> Edit Info
+                                                </a>
+                                                
+                                                <?php if (!($product['_is_store_variant'] ?? false)): ?>
+                                                <button type="button" 
+                                                        onclick="openAssignModal('<?php echo $product['id']; ?>', '<?php echo htmlspecialchars(addslashes($product['name'])); ?>', <?php echo $product['quantity']; ?>)" 
+                                                        class="btn btn-sm btn-info" 
+                                                        title="Assign Stock to Store" 
+                                                        style="background-color: #17a2b8; border-color: #17a2b8; color: white;">
+                                                    <i class="fas fa-share-alt"></i> Assign
+                                                </button>
+                                                <?php endif; ?>
+                                                
+                                                <?php 
+                                                $whQty = 0;
+                                                // Use the group key (base SKU) to find the warehouse stock
+                                                $baseSku = strtoupper(trim($product['_group_key'] ?? $product['sku']));
+                                                
+                                                if (!empty($product['store_id'])) {
+                                                    // 1. Try SKU match
+                                                    if (isset($warehouseStock[$baseSku])) {
+                                                        $whQty = $warehouseStock[$baseSku];
+                                                    } 
+                                                    // 2. Fallback: Try Name match
+                                                    else {
+                                                        $nameKey = strtoupper(trim($product['name'] ?? ''));
+                                                        if (isset($warehouseStockByName[$nameKey])) {
+                                                            $whQty = $warehouseStockByName[$nameKey];
+                                                        }
                                                     }
                                                 }
-
-                                                // final fallback: if still empty, use numeric id (legacy)
-                                                if ($linkId === '' && isset($product['id'])) {
-                                                    $linkId = (string)$product['id'];
-                                                }
                                                 ?>
-                                                <a class="btn btn-sm btn-primary" title="View Product"
-                                                    href="view.php?id=<?php echo urlencode($linkId); ?>&return=<?php echo $return; ?>">
-                                                    <i class="fas fa-eye"></i>
+                                                <button type="button" 
+                                                    onclick="openRestockModal('<?php echo $product['id']; ?>', '<?php echo htmlspecialchars(addslashes($product['name'])); ?>', '<?php echo $product['supplier_id'] ?? ''; ?>', <?php echo $whQty; ?>, <?php echo !empty($product['store_id']) ? 'true' : 'false'; ?>, 'adjust.php?id=<?php echo urlencode($linkId); ?>&return=<?php echo $return; ?>')"
+                                                    class="btn btn-sm btn-success" title="Restock Options (WH: <?php echo $whQty; ?>)" style="background-color: #2ecc71; border-color: #27ae60;">
+                                                    <i class="fas fa-truck"></i> Restock
+                                                </button>
+
+                                            <?php endif; ?>
+                                            <?php if (currentUserHasPermission('can_delete_inventory')): ?>
+                                                <a href="delete.php?id=<?php echo $product['id']; ?>" class="btn btn-sm btn-danger"
+                                                    onclick="return confirm('Are you sure you want to delete this product?')" title="Delete Product">
+                                                    <i class="fas fa-trash"></i>
                                                 </a>
-                                                <?php if (currentUserHasPermission('can_edit_inventory')): ?>
-
-                                                    <a href="edit.php?id=<?php echo urlencode($linkId); ?>&return=<?php echo $return; ?>" class="btn btn-sm btn-primary" title="Edit Product Details">
-                                                        <i class="fas fa-edit"></i> Edit Info
-                                                    </a>
-
-                                                    <?php if (!($product['_is_store_variant'] ?? false)): ?>
-                                                        <button type="button"
-                                                            onclick="openAssignModal('<?php echo $product['id']; ?>', '<?php echo htmlspecialchars(addslashes($product['name'])); ?>', <?php echo $product['quantity']; ?>)"
-                                                            class="btn btn-sm btn-info"
-                                                            title="Assign Stock to Store"
-                                                            style="background-color: #17a2b8; border-color: #17a2b8; color: white;">
-                                                            <i class="fas fa-share-alt"></i> Assign
-                                                        </button>
-                                                    <?php endif; ?>
-
-                                                    <?php if (!empty($product['supplier_id'])): ?>
-                                                        <?php
-                                                        $whQty = 0;
-                                                        if (!empty($product['store_id']) && isset($warehouseStock[$product['sku']])) {
-                                                            $whQty = $warehouseStock[$product['sku']];
-                                                        }
-                                                        ?>
-                                                        <button type="button"
-                                                            onclick="openRestockModal('<?php echo $product['id']; ?>', '<?php echo htmlspecialchars(addslashes($product['name'])); ?>', '<?php echo $product['supplier_id']; ?>', <?php echo $whQty; ?>, <?php echo !empty($product['store_id']) ? 'true' : 'false'; ?>, 'adjust.php?id=<?php echo urlencode($linkId); ?>&return=<?php echo $return; ?>')"
-                                                            class="btn btn-sm btn-success" title="Restock Options" style="background-color: #2ecc71; border-color: #27ae60;">
-                                                            <i class="fas fa-truck"></i> Restock
-                                                        </button>
-                                                    <?php else: ?>
-                                                        <a href="adjust.php?id=<?php echo urlencode($linkId); ?>&return=<?php echo $return; ?>" class="btn btn-sm btn-warning" title="Manual Stock Adjustment" style="background-color: #f39c12; border-color: #e67e22;">
-                                                            <i class="fas fa-boxes"></i> Stock
-                                                        </a>
-                                                    <?php endif; ?>
-
-                                                <?php endif; ?>
-                                                <?php if (currentUserHasPermission('can_delete_inventory')): ?>
-                                                    <a href="delete.php?id=<?php echo $product['id']; ?>" class="btn btn-sm btn-danger"
-                                                        onclick="return confirm('Are you sure you want to delete this product?')" title="Delete Product">
-                                                        <i class="fas fa-trash"></i>
-                                                    </a>
-                                                <?php endif; ?>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    </div>
+                                            <?php endif; ?>
+                                        </div>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
                 </form>
                 <div id="lowStockHost"></div>
 
@@ -2282,7 +2306,12 @@ $page_title = 'Stock Management - Inventory System';
 
             // Setup Supplier Link
             const supplierLink = document.getElementById('btn_restock_supplier');
-            supplierLink.href = `../purchase_orders/create.php?supplier_id=${supplierId}&product_id=${productId}`;
+            if (supplierId) {
+                supplierLink.href = `../purchase_orders/create.php?supplier_id=${supplierId}&product_id=${productId}`;
+                supplierLink.style.display = 'block';
+            } else {
+                supplierLink.style.display = 'none';
+            }
 
             // Setup Manual Adjust Link
             const manualLink = document.getElementById('btn_manual_restock');
