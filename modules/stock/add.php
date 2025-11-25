@@ -26,8 +26,15 @@ $success = false;
 // Get categories for dropdowns
 $categories = $db->fetchAll("SELECT id, name FROM categories ORDER BY name");
 
-// Get suppliers for dropdowns
-$suppliers = $db->fetchAll("SELECT id, name FROM suppliers WHERE active = TRUE ORDER BY name");
+// Get suppliers for dropdowns (MUST use SQL DB, not Firestore)
+$suppliers = [];
+try {
+    $sqlDb = getSQLDB(); // or SQLDatabase::getInstance()
+    $suppliers = $sqlDb->fetchAll("SELECT id, name FROM suppliers WHERE active = TRUE ORDER BY name");
+} catch (Throwable $e) {
+    error_log('Load suppliers failed in add.php: ' . $e->getMessage());
+    $suppliers = [];
+}
 
 function alert_resolve_low_stock_if_recovered(PDO $db, string $pid, ?string $who = 'admin'): void
 {
@@ -56,26 +63,22 @@ $CATEGORY_OPTIONS = [
     'Skincare',
     'Haircare',
     'Body Care',
-    'Cosmetics',
-    'Fragrances',
     'Oral Care',
-    'Personal Hygiene',
-    'Baby Care',
-    'Men\'s Grooming',
     'Health & Wellness',
     'General',
 ];
 
-// Keep the user’s selection on postback (default to General)
-$selectedCategory = isset($_POST['category']) && $_POST['category'] !== ''
-    ? (string)$_POST['category']
-    : 'General';
+// Keep the user’s selection on postback (NO default)
+$selectedCategory = isset($_POST['category'])
+    ? trim((string)$_POST['category'])
+    : '';
+
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // --- 1) Gather & normalize ------------------------------------------------
     $name            = sanitizeInput($_POST['name'] ?? '');
     $sku             = strtoupper(trim((string)($_POST['sku'] ?? '')));   // <-- canonicalize
-    
+
     // Auto-generate SKU if empty
     if (empty($sku)) {
         $base = 'PRD';
@@ -92,22 +95,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     $description     = sanitizeInput($_POST['description'] ?? '');
-    $category        = sanitizeInput($_POST['category'] ?? 'General');    // string, not category_id
+    $category = trim(sanitizeInput($_POST['category'] ?? ''));
     $store_id        = null; // Always NULL for main stock (central inventory)
     $supplier_id     = !empty($_POST['supplier_id']) ? (int)$_POST['supplier_id'] : null;
-    $quantity        = (int)($_POST['quantity'] ?? 0);
+    $rawQty  = trim((string)($_POST['quantity'] ?? ''));
+    $rawUnit = trim((string)($_POST['unit_price'] ?? ''));
+
+    // Only cast AFTER validation passes
+    $quantity   = ($rawQty === '')  ? null : (int)$rawQty;
+    $unit_price = ($rawUnit === '') ? null : (float)$rawUnit;
     $cost_price      = (float)($_POST['cost_price'] ?? 0);
-    $unit_price      = (float)($_POST['unit_price'] ?? 0);
     $min_stock_level = (int)($_POST['min_stock_level'] ?? 0);
 
     $errors = [];
 
     // --- 2) Basic validation --------------------------------------------------
     if ($name === '') $errors[] = 'Product name is required';
-    if ($quantity < 0) $errors[] = 'Quantity cannot be negative';
+    if ($rawQty === '') {
+        $errors[] = 'Initial quantity is required';
+    } elseif (!ctype_digit($rawQty)) {
+        $errors[] = 'Initial quantity must be a whole number';
+    }
+
+    if ($rawUnit === '') {
+        $errors[] = 'Unit price is required';
+    } elseif (!is_numeric($rawUnit)) {
+        $errors[] = 'Unit price must be a valid number';
+    } elseif ((float)$rawUnit < 0) {
+        $errors[] = 'Unit price cannot be negative';
+    }
     if ($cost_price < 0) $errors[] = 'Cost price cannot be negative';
-    if ($unit_price < 0) $errors[] = 'Unit price cannot be negative';
     if ($min_stock_level < 0) $errors[] = 'Minimum stock level cannot be negative';
+    if ($category === '') $errors[] = 'Category is required. Please select a category.';
 
     // --- 3) Firestore-first SKU uniqueness -----------------------------------
     // Use helper to find existing product by sku or doc id
@@ -180,7 +199,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 VALUES
                     (?,    ?,   ?,           ?,        ?,        ?,           ?,        ?,          ?,     ?,             ?,             CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             ";
-            
+
             // We are using 'category' text column, not category_id relation in this schema version
             // But we still want to ensure the category exists in categories table for consistency if possible
             // For now, just insert the text name as that's what the table expects
@@ -393,6 +412,10 @@ $page_title = 'Add Product - Inventory System';
                                 <div class="form-group">
                                     <label for="category_id">Category:</label>
                                     <select id="category" name="category" class="form-control" required>
+                                        <option value="" <?php echo ($selectedCategory === '') ? 'selected' : ''; ?>>
+                                            -- Select Category --
+                                        </option>
+
                                         <?php foreach ($CATEGORY_OPTIONS as $opt): ?>
                                             <option value="<?php echo htmlspecialchars($opt); ?>"
                                                 <?php echo ($opt === $selectedCategory) ? 'selected' : ''; ?>>
@@ -400,7 +423,8 @@ $page_title = 'Add Product - Inventory System';
                                             </option>
                                         <?php endforeach; ?>
                                     </select>
-                                    <small>Product category for organization</small>
+
+                                    <small>Product category</small>
                                 </div>
 
                                 <div class="form-group">
@@ -423,9 +447,15 @@ $page_title = 'Add Product - Inventory System';
                             <h3>Stock Information</h3>
 
                             <div class="form-row">
+                                <div class="form-group required">
+                                    <label for="quantity">Initial Quantity:</label>
+                                    <input type="number" id="quantity" name="quantity" value="<?php echo htmlspecialchars($_POST['quantity'] ?? ''); ?>" class="form-control" required min="0" step="1">
+                                    <small>Starting inventory quantity</small>
+                                </div>
+
                                 <div class="form-group">
                                     <label for="min_stock_level">Minimum Stock Level:</label>
-                                    <input type="number" id="min_stock_level" name="min_stock_level" value="<?php echo htmlspecialchars($_POST['min_stock_level'] ?? '5'); ?>" min="0" step="1">
+                                    <input type="number" id="min_stock_level" name="min_stock_level" value="<?php echo htmlspecialchars($_POST['min_stock_level'] ?? '5'); ?>" class="form-control" required min="0" step="1">
                                     <small>Alert threshold for low stock</small>
                                 </div>
                             </div>
@@ -437,14 +467,14 @@ $page_title = 'Add Product - Inventory System';
 
                             <div class="form-row">
                                 <div class="form-group required">
-                                    <label for="cost_price">Cost Price ($):</label>
+                                    <label for="cost_price">Cost Price (RM):</label>
                                     <input type="number" id="cost_price" name="cost_price" value="<?php echo htmlspecialchars($_POST['cost_price'] ?? '0.00'); ?>" min="0" step="0.01">
                                     <small>Cost per unit from supplier</small>
                                 </div>
 
                                 <div class="form-group required">
-                                    <label for="unit_price">Unit Price ($):</label>
-                                    <input type="number" id="unit_price" name="unit_price" value="<?php echo htmlspecialchars($_POST['unit_price'] ?? '0.00'); ?>" min="0" step="0.01">
+                                    <label for="unit_price">Unit Price (RM):</label>
+                                    <input type="number" id="unit_price" name="unit_price" value="<?php echo htmlspecialchars($_POST['unit_price'] ?? ''); ?>" class="form-control" required min="0" step="0.01">
                                     <small>Selling price per unit (Auto-calc: Cost / 0.7)</small>
                                 </div>
                             </div>
@@ -466,7 +496,7 @@ $page_title = 'Add Product - Inventory System';
         function generateSKU() {
             const name = document.getElementById('name').value;
             let base = 'PRD';
-            
+
             if (name) {
                 // Get first letters of words or just the name
                 const words = name.toUpperCase().replace(/[^A-Z0-9\s]/g, '').split(/\s+/).filter(w => w.length > 0);
@@ -478,7 +508,7 @@ $page_title = 'Add Product - Inventory System';
                     base = words[0].substring(0, 6);
                 }
             }
-            
+
             // Add random suffix (e.g. "-X7Y8Z9")
             const random = Math.random().toString(36).substring(2, 8).toUpperCase();
             document.getElementById('sku').value = base + '-' + random;

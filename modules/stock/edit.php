@@ -146,19 +146,22 @@ $docId = $stock['doc_id']; // ensure we have doc id for updates
 $errors = [];
 $notice = '';
 
-// Ensure we have the same DB wrapper as add.php
+// Keep Firestore db for alert resolution etc.
 if (!isset($db) || !$db) {
-  $db = getDB();
+    $db = getDB(); // Firestore wrapper
 }
 
+// Load STORES from SQL (NOT Firestore)
 $stores = [];
 try {
-  // identical to add.php
-  $stores = $db->fetchAll("SELECT id, name FROM stores WHERE is_active = 1 ORDER BY name");
+    $sqlDb = SQLDatabase::getInstance();
+    $stores = $sqlDb->fetchAll("SELECT id, name FROM stores WHERE is_active = 1 ORDER BY name");
 } catch (Throwable $t) {
-  error_log('Load stores failed in edit.php: ' . $t->getMessage());
-  $stores = []; // keep safe
+    error_log('Load stores failed in edit.php: ' . $t->getMessage());
+    $stores = [];
 }
+
+
 
 // Fetch suppliers
 $suppliers = [];
@@ -174,13 +177,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $name          = trim((string)($_POST['name'] ?? $stock['name']));
   $skuInput      = (string)($_POST['sku'] ?? ($stock['sku'] ?? ''));
   $sku           = norm_sku($skuInput);               // optional; can be blank
-  $category      = (string)($_POST['category'] ?? ($stock['category'] ?? 'General'));
+  $category = trim((string)($_POST['category'] ?? ($stock['category'] ?? '')));
   $description   = trim((string)($_POST['description'] ?? ($stock['description'] ?? '')));
   $quantity      = (int)($_POST['quantity'] ?? (int)$stock['quantity']);
   $reorderLevel  = (int)($_POST['reorder_level'] ?? (int)$stock['reorder_level']);
   $price         = (float)($_POST['price'] ?? (float)$stock['price']);
   $costPrice     = (float)($_POST['cost_price'] ?? (float)($stock['cost_price'] ?? 0.0));
-  $storeId       = trim((string)($_POST['store_id'] ?? ($stock['store_id'] ?? '')));
+  $storeId = trim((string)($_POST['store_id'] ?? ($stock['store_id'] ?? '')));
   $supplierId    = !empty($_POST['supplier_id']) ? (int)$_POST['supplier_id'] : null;
   $location      = trim((string)($_POST['location'] ?? ($stock['location'] ?? '')));
   $unit          = trim((string)($_POST['unit'] ?? ($stock['unit'] ?? '')));
@@ -193,6 +196,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   if ($reorderLevel < 0) $errors[] = 'Reorder level cannot be negative.';
   if ($price < 0) $errors[] = 'Price cannot be negative.';
   if ($costPrice < 0) $errors[] = 'Cost price cannot be negative.';
+  if ($category === '') {
+    $errors[] = 'Category is required.';
+}
+
 
   // Only check SKU uniqueness if user changed it AND it is non-empty
   $oldSku = norm_sku($stock['sku'] ?? '');
@@ -426,17 +433,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   }
 }
 
+$selectedStoreId = (string)($stock['store_id'] ?? '');
+$selectedStoreName = 'Main Stock (Warehouse)';
+
+// 1) Try to find in the already-loaded $stores list
+if ($selectedStoreId !== '') {
+    foreach ($stores as $store) {
+        if ((string)$store['id'] === $selectedStoreId) {
+            $selectedStoreName = (string)$store['name'];
+            break;
+        }
+    }
+
+    // 2) If not found (e.g. store is inactive / filtered out), fetch directly from SQL
+    if ($selectedStoreName === 'Main Stock (Warehouse)') {
+        try {
+            $sqlDb = SQLDatabase::getInstance();
+            $row = $sqlDb->fetch("SELECT name FROM stores WHERE id = ?", [$selectedStoreId]);
+            if ($row && !empty($row['name'])) {
+                $selectedStoreName = (string)$row['name'];
+            }
+        } catch (Throwable $t) {
+            error_log('Failed to resolve store name for product: ' . $t->getMessage());
+        }
+    }
+}
+
 // ---- UI ----
 $CATEGORY_OPTIONS = $CATEGORY_OPTIONS ?? [
   'Skincare',
   'Haircare',
   'Body Care',
-  'Cosmetics',
-  'Fragrances',
   'Oral Care',
-  'Personal Hygiene',
-  'Baby Care',
-  'Men\'s Grooming',
   'Health & Wellness',
   'General',
 ];
@@ -662,19 +690,23 @@ if ($returnRaw !== '') {
           <textarea class="control" name="description"><?php echo h($stock['description'] ?? ''); ?></textarea>
         </div>
 
-        <div class="grid grid-2">
-          <div class="field">
-            <label class="label">Category</label>
-            <select class="control" name="category">
-              <?php
-              $sel = $stock['category'] ?? 'General';
-              foreach ($CATEGORY_OPTIONS as $opt) {
-                $s = ($opt === $sel) ? 'selected' : '';
-                echo '<option ' . $s . ' value="' . h($opt) . '">' . h($opt) . '</option>';
-              }
-              ?>
-            </select>
-          </div>
+<div class="grid grid-2">
+  <div class="field">
+    <label class="label">Category <span style="color:red">*</span></label>
+    <select class="control" name="category" required>
+      <!-- Placeholder -->
+      <option value="">-- Select Category --</option>
+
+      <?php
+      $sel = trim((string)($stock['category'] ?? ''));  // empty if none
+
+      foreach ($CATEGORY_OPTIONS as $opt) {
+        $s = ($opt === $sel) ? 'selected' : '';
+        echo '<option ' . $s . ' value="' . h($opt) . '">' . h($opt) . '</option>';
+      }
+      ?>
+    </select>
+  </div>
           <div class="field">
             <label class="label">Supplier</label>
             <select class="control" name="supplier_id">
@@ -688,36 +720,32 @@ if ($returnRaw !== '') {
               ?>
             </select>
           </div>
-          <div class="form-group">
-            <label for="store_id" class="label">Store (Read-only)</label>
-            <select id="store_id" name="store_id" class="control" disabled style="background-color: #f0f0f0; cursor: not-allowed;">
-              <option value="">Main Stock (Warehouse)</option>
-              <?php
-              // POST value (after validation error) or the product’s current store_id
-              $selectedStoreId = isset($_POST['store_id'])
-                ? (string)$_POST['store_id']
-                : (string)($stock['store_id'] ?? '');
 
-              foreach ($stores as $store):
-                $sid   = (string)$store['id'];   // SQL id is the Firestore doc id in your setup
-                $sname = (string)$store['name'];
-                if ($sid === '' || $sname === '') continue;
-                $sel = ($sid === $selectedStoreId) ? 'selected' : '';
-              ?>
-                <option value="<?= htmlspecialchars($sid) ?>" <?= $sel ?>>
-                  <?= htmlspecialchars($sname) ?>
-                </option>
-              <?php endforeach; ?>
-            </select>
-            <div class="hint">Store assignment cannot be changed here.</div>
-          </div>
+          
+<div class="form-group">
+  <label for="store_id" class="label">Store (Read-only)</label>
+
+  <select id="store_id" name="store_id"
+          class="control"
+          disabled
+          style="background-color:#f0f0f0; cursor:not-allowed;">
+    <option value="<?= htmlspecialchars($selectedStoreId) ?>">
+      <?= htmlspecialchars($selectedStoreName) ?>
+    </option>
+  </select>
+
+  <div class="hint">Store adjustment cannot be changed here.</div>
+</div>
+
+
+
         </div>
 
         <div class="grid grid-2">
           <div class="field">
             <label class="label">Quantity (Read-only)</label>
             <input class="control" type="number" name="quantity" value="<?php echo h((string)$stock['quantity']); ?>" readonly style="background-color: #f0f0f0; cursor: not-allowed;">
-            <div class="hint">Use "Restock" or "Adjustments" to change quantity.</div>
+            <div class="hint">Click the "Stock" button to change quantity.</div>
           </div>
           <div class="field">
             <label class="label">Reorder level</label>
