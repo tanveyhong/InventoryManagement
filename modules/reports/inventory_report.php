@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../config.php';
 require_once __DIR__ . '/../../functions.php';
-require_once __DIR__ . '/../../getDB.php';
+require_once __DIR__ . '/../../sql_db.php'; // ✅ use SQL wrapper (Supabase)
 
 if (session_status() === PHP_SESSION_NONE) {
-    session_start();
+  session_start();
 }
 
 // ---------- Auth ----------
@@ -18,87 +18,133 @@ if (!isset($_SESSION['user_id'])) {
 
 // Check permission to view reports
 if (!hasPermission($_SESSION['user_id'], 'can_view_reports')) {
-    http_response_code(403);
-    die('Access denied. You do not have permission to view reports.');
+  http_response_code(403);
+  die('Access denied. You do not have permission to view reports.');
 }
 
 function h($s)
 {
   return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
 }
-function db_obj()
-{
-  return function_exists('getDB') ? @getDB() : null;
-}
+// SQL database (Supabase / Postgres) – same helper as add.php
+$sqlDb = getSQLDB();
 
-// Firestore for products, SQL for stores
-$fs     = db_obj();      // Firestore wrapper
-$sqlDb  = getDB();       // SQL wrapper (same one add.php uses)
 
+
+// ---------- Load products from Supabase (SQL) ----------
 $all_products = [];
 $categories   = [];
 
-// ---- Load products from Firestore ----
-if ($fs) {
-  try {
-    // IMPORTANT: Increased limit but consider adding pagination for large inventories
-    $productDocs = $fs->readAll('products', [], null, 1000);
-    foreach ($productDocs as $r) {
-      if (!empty($r['deleted_at'])) continue;
-      if (isset($r['status']) && $r['status'] === 'disabled') continue;
+try {
+  $sqlDb = SQLDatabase::getInstance();
 
-      // Skip out-of-stock items
-      if (isset($r['quantity']) && (int)$r['quantity'] === 0) continue;
+  $rows = $sqlDb->fetchAll("
+        SELECT
+            id,
+            name,
+            sku,
+            description,
+            quantity,
+            reorder_level,
+            price,
+            category,
+            store_id,
+            created_at,
+            updated_at,
+            active,
+            deleted_at
+        FROM products
+        WHERE
+            active = TRUE
+            AND deleted_at IS NULL
+            AND quantity > 0          -- remove this line if you want to include out-of-stock
+    ");
 
-      $all_products[] = [
-        'doc_id'          => $r['id'] ?? ($r['doc_id'] ?? null),
-        'id'              => $r['id'] ?? null,
-        'name'            => $r['name'] ?? '',
-        'sku'             => $r['sku'] ?? '',
-        'description'     => $r['description'] ?? '',
-        'quantity'        => isset($r['quantity']) ? (int)$r['quantity'] : 0,
-        'min_stock_level' => isset($r['reorder_level']) ? (int)$r['reorder_level'] : (isset($r['min_stock_level']) ? (int)$r['min_stock_level'] : 0),
-        'unit_price'      => isset($r['price']) ? (float)$r['price'] : (isset($r['unit_price']) ? (float)$r['unit_price'] : 0.0),
-        'created_at'      => $r['created_at'] ?? null,
-        'updated_at'      => $r['updated_at'] ?? null,
-        'category_name'   => $r['category'] ?? ($r['category_name'] ?? null),
-        'store_id'        => $r['store_id'] ?? null,
-        '_raw'            => $r,
-      ];
+  foreach ($rows as $r) {
+    $all_products[] = [
+      'doc_id'          => (string)($r['id'] ?? ''),
+      'id'              => $r['id'] ?? null,
+      'name'            => $r['name'] ?? '',
+      'sku'             => $r['sku'] ?? '',
+      'description'     => $r['description'] ?? '',
+      'quantity'        => isset($r['quantity']) ? (int)$r['quantity'] : 0,
+      'min_stock_level' => isset($r['reorder_level']) ? (int)$r['reorder_level'] : 0,
+      'unit_price'      => isset($r['price']) ? (float)$r['price'] : 0.0,
+      'created_at'      => $r['created_at'] ?? null,
+      'updated_at'      => $r['updated_at'] ?? null,
+      'category_name'   => $r['category'] ?? null,
+      'store_id'        => $r['store_id'] ?? null,
 
-      if (!empty($r['category'] ?? null)) {
-        $categories[$r['category']] = true;
-      } elseif (!empty($r['category_name'] ?? null)) {
-        $categories[$r['category_name']] = true;
-      }
+      // for is_active_product()
+      'deleted_at'      => $r['deleted_at'] ?? null,
+      'status_db'       => !empty($r['active']) ? 'enabled' : 'disabled',
+      '_raw'            => $r,
+    ];
+
+    // Categories come ONLY from active, non-deleted products
+    if (!empty($r['category'])) {
+      $categories[$r['category']] = true;
     }
-  } catch (Throwable $e) {
-    error_log('Inventory report load failed: ' . $e->getMessage());
-    $all_products = [];
   }
+} catch (Throwable $e) {
+  error_log('Inventory report load from SQL failed: ' . $e->getMessage());
+  $all_products = [];
 }
+
 $categories = array_keys($categories);
 sort($categories, SORT_NATURAL | SORT_FLAG_CASE);
 
 
+
+
+
 $category     = isset($_GET['category']) ? trim((string)$_GET['category']) : '';
 $storeFilter  = isset($_GET['store_id'])
-                  ? trim((string)$_GET['store_id'])
-                  : trim((string)($_GET['location'] ?? '')); // legacy fallback
+  ? trim((string)$_GET['store_id'])
+  : trim((string)($_GET['location'] ?? '')); // legacy fallback
 $date_field   = isset($_GET['date_field']) ? trim((string)$_GET['date_field']) : 'created_at'; // created_at | updated_at
 $from_date    = isset($_GET['from']) ? trim((string)$_GET['from']) : '';
 $to_date      = isset($_GET['to']) ? trim((string)$_GET['to']) : '';
 $do_preview   = isset($_GET['run']) && $_GET['run'] === '1';
 $export       = isset($_GET['export']) ? trim((string)$_GET['export']) : ''; // excel | pdf
 
+// ---------- Load stores from Supabase (SQL) ----------
 $stores = [];
 try {
-  if ($sqlDb && method_exists($sqlDb, 'fetchAll')) {
-    $stores = $sqlDb->fetchAll("SELECT id, name FROM stores WHERE COALESCE(is_active,1)=1 ORDER BY name");
-  }
+  $sqlDb = SQLDatabase::getInstance();
+  $stores = $sqlDb->fetchAll("
+        SELECT id, name
+        FROM stores
+        WHERE active = TRUE
+          AND deleted_at IS NULL
+        ORDER BY name
+    ");
 } catch (Throwable $t) {
   error_log('Load stores failed: ' . $t->getMessage());
+  $stores = [];
 }
+
+// Build store id => name map for filtering/export
+$storeMap = [];
+foreach ($stores as $s) {
+  $sid   = (string)($s['id'] ?? '');
+  $sname = (string)($s['name'] ?? '');
+  if ($sid !== '' && $sname !== '') {
+    $storeMap[$sid] = $sname;
+  }
+}
+
+
+// Build store id => name map
+$storeMap = [];
+foreach ($stores as $s) {
+  $sid   = (string)($s['id'] ?? '');
+  $sname = (string)($s['name'] ?? '');
+  if ($sid !== '' && $sname !== '') {
+    $storeMap[$sid] = $sname;
+  }
+}
+
 
 // Build store id => name map
 $storeMap = [];
@@ -144,13 +190,7 @@ $storeFilter = isset($_GET['store_id'])
   ? trim((string)$_GET['store_id'])
   : trim((string)($_GET['location'] ?? ''));
 
-// load stores for dropdown (id, name)
-$stores = [];
-try {
-  $stores = $db->fetchAll("SELECT id, name FROM stores WHERE COALESCE(is_active,1)=1 ORDER BY name");
-} catch (Throwable $t) {
-  error_log('Load stores failed: ' . $t->getMessage());
-}
+
 
 // ---------- Export handlers ----------
 if ($export === 'excel') {
@@ -165,23 +205,23 @@ if ($export === 'excel') {
   $out = fopen('php://output', 'w');
   fputcsv($out, $columns);
 
-foreach ($filtered as $p) {
-  $sid = (string)($p['store_id'] ?? '');
-  $storeName = ($sid !== '' && isset($storeMap[$sid])) ? $storeMap[$sid] : '';
+  foreach ($filtered as $p) {
+    $sid = (string)($p['store_id'] ?? '');
+    $storeName = ($sid !== '' && isset($storeMap[$sid])) ? $storeMap[$sid] : '';
 
-  $row = [
-    $p['name'] ?? '',
-    $p['sku'] ?? '',
-    $p['category_name'] ?? '',
-    $storeName,
-    (string)($p['quantity'] ?? 0),
-    (string)($p['min_stock_level'] ?? 0),
-    number_format((float)($p['unit_price'] ?? 0), 2, '.', ''),
-    number_format(((float)($p['unit_price'] ?? 0) * (int)($p['quantity'] ?? 0)), 2, '.', ''),
-    $p['created_at'] ?? '',
-  ];
-  fputcsv($out, $row);
-}
+    $row = [
+      $p['name'] ?? '',
+      $p['sku'] ?? '',
+      $p['category_name'] ?? '',
+      $storeName,
+      (string)($p['quantity'] ?? 0),
+      (string)($p['min_stock_level'] ?? 0),
+      number_format((float)($p['unit_price'] ?? 0), 2, '.', ''),
+      number_format(((float)($p['unit_price'] ?? 0) * (int)($p['quantity'] ?? 0)), 2, '.', ''),
+      $p['created_at'] ?? '',
+    ];
+    fputcsv($out, $row);
+  }
   fclose($out);
   exit;
 }
@@ -205,9 +245,9 @@ if ($export === 'pdf') {
       $html .= '<td style="border:1px solid #e5e7eb">' . h($p['name'] ?? '') . '</td>';
       $html .= '<td style="border:1px solid #e5e7eb">' . h($p['sku'] ?? '') . '</td>';
       $html .= '<td style="border:1px solid #e5e7eb">' . h($p['category_name'] ?? '') . '</td>';
-$sid = (string)($p['store_id'] ?? '');
-$storeName = ($sid !== '' && isset($storeMap[$sid])) ? $storeMap[$sid] : '';
-$html .= '<td style="border:1px solid #e5e7eb">' . h($storeName) . '</td>';
+      $sid = (string)($p['store_id'] ?? '');
+      $storeName = ($sid !== '' && isset($storeMap[$sid])) ? $storeMap[$sid] : '';
+      $html .= '<td style="border:1px solid #e5e7eb">' . h($storeName) . '</td>';
       $html .= '<td style="border:1px solid #e5e7eb">' . (int)($p['quantity'] ?? 0) . '</td>';
       $html .= '<td style="border:1px solid #e5e7eb">' . (int)($p['min_stock_level'] ?? 0) . '</td>';
       $html .= '<td style="border:1px solid #e5e7eb">' . number_format((float)($p['unit_price'] ?? 0), 2) . '</td>';
@@ -217,9 +257,33 @@ $html .= '<td style="border:1px solid #e5e7eb">' . h($storeName) . '</td>';
     }
     $html .= '</tbody></table>';
 
+    // Render PDF
     $dompdf->loadHtml($html, 'UTF-8');
     $dompdf->setPaper('A4', 'landscape');
     $dompdf->render();
+
+    // === Add page numbers: "Page X of Y" at bottom centre ===
+    // Support both old and new Dompdf method names
+    $canvas = method_exists($dompdf, 'getCanvas')
+      ? $dompdf->getCanvas()
+      : $dompdf->get_canvas();
+
+    $fontMetrics = $dompdf->getFontMetrics();
+    $font       = $fontMetrics->get_font('Helvetica', 'normal');
+    $fontSize   = 9;
+
+    $text       = "Page {PAGE_NUM} of {PAGE_COUNT}";
+    $w          = $canvas->get_width();
+    $h          = $canvas->get_height();
+    $textWidth  = $fontMetrics->get_text_width($text, $font, $fontSize);
+
+    // center bottom: 20pt above the bottom edge
+    $x = ($w - $textWidth) / 2;
+    $y = $h - 20;
+
+    $canvas->page_text($x, $y, $text, $font, $fontSize, [0, 0, 0]);
+
+    // Output PDF
     $dompdf->stream('inventory_report_' . date('Ymd_His') . '.pdf', ['Attachment' => true]);
     exit;
   } else {
@@ -233,6 +297,7 @@ $html .= '<td style="border:1px solid #e5e7eb">' . h($storeName) . '</td>';
     exit;
   }
 }
+
 
 // ---------- Page ----------
 $page_title = 'Inventory Report – Stock Management';
@@ -286,6 +351,13 @@ $page_title = 'Inventory Report – Stock Management';
       display: grid;
       gap: 14px
     }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 15px;
+    }
+
 
     .grid-3 {
       grid-template-columns: 1fr 1fr 1fr
@@ -443,138 +515,138 @@ $page_title = 'Inventory Report – Stock Management';
     }
 
     /* Print layout */
-      @media print {
+    @media print {
 
-        /* Page setup */
-        @page {
-          size: A4 landscape;
-          /* or 'A4 portrait' */
-          margin: 14mm 12mm;
-          /* top/bottom left/right */
-        }
-
-        /* Make colors print as seen (Chrome) */
-        * {
-          -webkit-print-color-adjust: exact;
-          print-color-adjust: exact;
-        }
-
-        .no-print {
-          display: none !important;
-        }
-
-        /* Hide chrome when printing */
-        .page-header,
-        .toolbar,
-        .filters-panel,
-        .filters-form,
-        .stock-summary,
-        .btn,
-        .btn-back,
-        nav,
-        header,
-        footer,
-        .criteria-panel,
-        .criteria-hint,
-        .criteria-row {
-          display: none !important;
-        }
-
-        /* Show print header/footer only on paper */
-        .print-header,
-        .print-footer {
-          display: block !important;
-        }
-
-
-        /* Print header */
-        .print-header {
-          margin-bottom: 10px;
-          border-bottom: 2px solid #111827;
-          padding-bottom: 8px;
-          font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-        }
-
-        .print-header .title {
-          font-size: 20px;
-          font-weight: 800;
-          margin: 0 0 4px;
-          color: #111827;
-        }
-
-        .print-header .meta {
-          font-size: 12px;
-          color: #111827;
-        }
-
-        .print-header .meta span {
-          display: inline-block;
-          margin-right: 12px;
-        }
-
-        .print-header .brand {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-        }
-
-        .print-header .brand img {
-          height: 28px;
-          width: auto;
-        }
-
-        /* Table: make it printable and tidy */
-        .table-container {
-          overflow: visible !important;
-        }
-
-        table.report {
-          width: 100%;
-          border-collapse: collapse;
-          table-layout: fixed;
-          /* align th/td widths */
-          font-size: 12px;
-        }
-
-        table.report thead th,
-        table.report tbody td {
-          border: 1px solid #000;
-          /* strong borders for paper */
-          padding: 6px 8px;
-          text-align: left;
-        }
-
-        /* Repeat header/footer on each page */
-        thead {
-          display: table-header-group;
-        }
-
-        tfoot {
-          display: table-row-group !important;
-        }
-
-        /* Avoid breaking row items across pages */
-        tr,
-        img {
-          page-break-inside: avoid;
-          break-inside: avoid;
-        }
-
-        /* Footer pinned at bottom */
-        .print-footer {
-          position: static !important;
-          /* was: fixed */
-          bottom: auto;
-          left: auto;
-          right: auto;
-          margin-top: 12mm;
-          font-size: 11px;
-          color: #111827;
-          display: flex;
-          justify-content: space-between;
-        }
-
+      /* Page setup */
+      @page {
+        size: A4 landscape;
+        /* or 'A4 portrait' */
+        margin: 14mm 12mm;
+        /* top/bottom left/right */
       }
+
+      /* Make colors print as seen (Chrome) */
+      * {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+
+      .no-print {
+        display: none !important;
+      }
+
+      /* Hide chrome when printing */
+      .page-header,
+      .toolbar,
+      .filters-panel,
+      .filters-form,
+      .stock-summary,
+      .btn,
+      .btn-back,
+      nav,
+      header,
+      footer,
+      .criteria-panel,
+      .criteria-hint,
+      .criteria-row {
+        display: none !important;
+      }
+
+      /* Show print header/footer only on paper */
+      .print-header,
+      .print-footer {
+        display: block !important;
+      }
+
+
+      /* Print header */
+      .print-header {
+        margin-bottom: 10px;
+        border-bottom: 2px solid #111827;
+        padding-bottom: 8px;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      }
+
+      .print-header .title {
+        font-size: 20px;
+        font-weight: 800;
+        margin: 0 0 4px;
+        color: #111827;
+      }
+
+      .print-header .meta {
+        font-size: 12px;
+        color: #111827;
+      }
+
+      .print-header .meta span {
+        display: inline-block;
+        margin-right: 12px;
+      }
+
+      .print-header .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .print-header .brand img {
+        height: 28px;
+        width: auto;
+      }
+
+      /* Table: make it printable and tidy */
+      .table-container {
+        overflow: visible !important;
+      }
+
+      table.report {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+        /* align th/td widths */
+        font-size: 12px;
+      }
+
+      table.report thead th,
+      table.report tbody td {
+        border: 1px solid #000;
+        /* strong borders for paper */
+        padding: 6px 8px;
+        text-align: left;
+      }
+
+      /* Repeat header/footer on each page */
+      thead {
+        display: table-header-group;
+      }
+
+      tfoot {
+        display: table-row-group !important;
+      }
+
+      /* Avoid breaking row items across pages */
+      tr,
+      img {
+        page-break-inside: avoid;
+        break-inside: avoid;
+      }
+
+      /* Footer pinned at bottom */
+      .print-footer {
+        position: static !important;
+        /* was: fixed */
+        bottom: auto;
+        left: auto;
+        right: auto;
+        margin-top: 12mm;
+        font-size: 11px;
+        color: #111827;
+        display: flex;
+        justify-content: space-between;
+      }
+
+    }
   </style>
 </head>
 
@@ -595,7 +667,9 @@ $page_title = 'Inventory Report – Stock Management';
         <form method="get" class="inner">
           <div class="filters-note">Select criteria and click <strong>Generate Report</strong>.</div>
 
-          <div class="grid grid-3">
+          <!-- ROW 1: Category + Store -->
+          <div class="grid grid-2" style="margin-bottom:15px">
+
             <div class="field">
               <label class="label">Category</label>
               <select class="control" name="category">
@@ -608,153 +682,162 @@ $page_title = 'Inventory Report – Stock Management';
               </select>
             </div>
 
-<div class="field">
-  <label class="label">Store</label>
-  <select class="control" name="store_id">
-    <option value="">All stores</option>
-    <?php
-      foreach ($stores as $s):
-        $sid   = (string)$s['id'];
-        $sname = (string)$s['name'];
-        if ($sid === '' || $sname === '') continue;
-        $sel = ($sid === $storeFilter) ? 'selected' : '';
-    ?>
-      <option value="<?= htmlspecialchars($sid) ?>" <?= $sel ?>>
-        <?= htmlspecialchars($sname) ?>
-      </option>
-    <?php endforeach; ?>
-  </select>
-</div>
+            <div class="field">
+              <label class="label">Store</label>
+              <select class="control" name="store_id">
+                <option value="">All stores</option>
+                <?php foreach ($stores as $s): ?>
+                  <?php
+                  $sid = (string)$s['id'];
+                  $sname = (string)$s['name'];
+                  if ($sid === '' || $sname === '') continue;
+                  $sel = ($sid === $storeFilter) ? 'selected' : '';
+                  ?>
+                  <option value="<?= htmlspecialchars($sid) ?>" <?= $sel ?>>
+                    <?= htmlspecialchars($sname) ?>
+                  </option>
+                <?php endforeach; ?>
+              </select>
+            </div>
 
+          </div>
 
+          <!-- ROW 2: Date Field + From + To -->
+          <div class="grid grid-3" style="margin-bottom:15px">
 
             <div class="field">
               <label class="label">Date Field</label>
               <select class="control" name="date_field">
-                <option value="Created At" <?php echo $date_field === 'created_at' ? 'selected' : ''; ?>>Created At</option>
+                <option value="created_at" <?php echo $date_field === 'created_at' ? 'selected' : ''; ?>>Created At</option>
+                <option value="updated_at" <?php echo $date_field === 'updated_at' ? 'selected' : ''; ?>>Updated At</option>
               </select>
             </div>
-          </div>
 
-          <div class="grid grid-3" style="margin-top:10px">
             <div class="field">
               <label class="label">From</label>
               <input class="control" type="date" name="from" value="<?php echo h($from_date); ?>">
             </div>
+
             <div class="field">
               <label class="label">To</label>
               <input class="control" type="date" name="to" value="<?php echo h($to_date); ?>">
             </div>
-            <div class="field" style="align-self:end">
-              <button type="submit" name="run" value="1" class="btn btn-primary">
-                <i class="fas fa-file-lines"></i> Generate Report
+
+          </div>
+
+          <!-- ROW 3: Generate Button -->
+          <div style="text-align:right; margin-top:10px">
+            <button type="submit" name="run" value="1" class="btn btn-primary">
+              <i class="fas fa-file-lines"></i> Generate Report
+            </button>
+          </div>
+
+        </form>
+      </div>
+    </div>
+
+
+    <?php if ($do_preview): ?>
+      <?php
+      // Ensure we have id->name map available here (defensive)
+      if (!isset($storeMap) || !is_array($storeMap)) {
+        $storeMap = [];
+        if (isset($stores) && is_array($stores)) {
+          foreach ($stores as $s) {
+            $sid   = (string)($s['id'] ?? '');
+            $sname = (string)($s['name'] ?? '');
+            if ($sid !== '' && $sname !== '') $storeMap[$sid] = $sname;
+          }
+        }
+      }
+
+      // Pretty label for the currently selected store in the print header
+      $selectedStoreName = 'All';
+      if (!empty($storeFilter)) {
+        $selectedStoreName = $storeMap[$storeFilter] ?? $storeFilter; // fallback to id if name missing
+      }
+      ?>
+      <div class="card">
+        <div class="inner">
+          <div class="toolbar" style="justify-content:space-between;align-items:center;margin-bottom:10px">
+            <div>
+              <span class="pill">Matches: <?php echo count($filtered); ?></span>
+              <?php
+              $totalValue = 0;
+              $totalQty = 0;
+              foreach ($filtered as $p) {
+                $totalQty  += (int)($p['quantity'] ?? 0);
+                $totalValue += ((float)($p['unit_price'] ?? 0)) * (int)($p['quantity'] ?? 0);
+              }
+              ?>
+              <span class="pill">Total Qty: <?php echo number_format($totalQty); ?></span>
+              <span class="pill">Total Value: RM <?php echo number_format($totalValue, 2); ?></span>
+            </div>
+            <div class="toolbar">
+              <a class="btn btn-export" href="?<?php
+                                                $q = $_GET;
+                                                $q['export'] = 'excel';
+                                                echo h(http_build_query($q));
+                                                ?>"><i class="fas fa-file-excel"></i> Export Excel</a>
+              <button onclick="window.print()" class="btn btn-export">
+                <i class="fas fa-file-pdf"></i> Export to PDF
               </button>
             </div>
           </div>
-      </div>
 
-      </form>
-    </div>
-
-    <?php if ($do_preview): ?>
-  <?php
-  // Ensure we have id->name map available here (defensive)
-  if (!isset($storeMap) || !is_array($storeMap)) {
-      $storeMap = [];
-      if (isset($stores) && is_array($stores)) {
-          foreach ($stores as $s) {
-              $sid   = (string)($s['id'] ?? '');
-              $sname = (string)($s['name'] ?? '');
-              if ($sid !== '' && $sname !== '') $storeMap[$sid] = $sname;
-          }
-      }
-  }
-
-  // Pretty label for the currently selected store in the print header
-  $selectedStoreName = 'All';
-  if (!empty($storeFilter)) {
-      $selectedStoreName = $storeMap[$storeFilter] ?? $storeFilter; // fallback to id if name missing
-  }
-  ?>
-  <div class="card">
-    <div class="inner">
-      <div class="toolbar" style="justify-content:space-between;align-items:center;margin-bottom:10px">
-        <div>
-          <span class="pill">Matches: <?php echo count($filtered); ?></span>
-          <?php
-          $totalValue = 0;
-          $totalQty = 0;
-          foreach ($filtered as $p) {
-            $totalQty  += (int)($p['quantity'] ?? 0);
-            $totalValue += ((float)($p['unit_price'] ?? 0)) * (int)($p['quantity'] ?? 0);
-          }
-          ?>
-          <span class="pill">Total Qty: <?php echo number_format($totalQty); ?></span>
-          <span class="pill">Total Value: RM <?php echo number_format($totalValue, 2); ?></span>
-        </div>
-        <div class="toolbar">
-          <a class="btn btn-export" href="?<?php
-            $q = $_GET; $q['export'] = 'excel'; echo h(http_build_query($q));
-          ?>"><i class="fas fa-file-excel"></i> Export Excel</a>
-          <button onclick="window.print()" class="btn btn-export">
-            <i class="fas fa-file-pdf"></i> Export to PDF
-          </button>
-        </div>
-      </div>
-
-      <!-- Print-only header -->
-      <div class="print-header">
-        <div class="brand">
-          <!-- <img src="...logo..." alt="Logo"> -->
-          <div>
-            <div class="title">Inventory Report</div>
-            <div class="meta">
-              <span><strong>Category:</strong> <?php echo h($category ?: 'All'); ?></span>
-              <span><strong>Store:</strong> <?php echo h($selectedStoreName); ?></span>
-              <span><strong>Date Field:</strong> <?php echo h($date_field); ?></span>
-              <span><strong>Range:</strong> <?php echo h($from_date ?: '—'); ?> to <?php echo h($to_date ?: '—'); ?></span>
-              <span><strong>Generated:</strong> <?php echo date('Y-m-d H:i'); ?></span>
+          <!-- Print-only header -->
+          <div class="print-header">
+            <div class="brand">
+              <!-- <img src="...logo..." alt="Logo"> -->
+              <div>
+                <div class="title">Inventory Report</div>
+                <div class="meta">
+                  <span><strong>Category:</strong> <?php echo h($category ?: 'All'); ?></span>
+                  <span><strong>Store:</strong> <?php echo h($selectedStoreName); ?></span>
+                  <span><strong>Date Field:</strong> <?php echo h($date_field); ?></span>
+                  <span><strong>Range:</strong> <?php echo h($from_date ?: '—'); ?> to <?php echo h($to_date ?: '—'); ?></span>
+                  <span><strong>Generated:</strong> <?php echo date('Y-m-d H:i'); ?></span>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-      </div>
 
-      <?php if (empty($filtered)): ?>
-        <p style="color:#475569;margin:6px 0 0">No products match the selected criteria.</p>
-      <?php else: ?>
-        <div class="table-container">
-          <table class="report">
-            <thead>
-              <tr>
-                <th>Product</th>
-                <th>SKU</th>
-                <th>Category</th>
-                <th>Store</th> <!-- changed from Location -->
-                <th>Qty</th>
-                <th>Unit Price</th>
-                <th>Total Value</th>
-                <th>Created</th>
-              </tr>
-            </thead>
-            <tbody>
-              <?php foreach ($filtered as $p): ?>
-                <?php
-                  // Resolve store name for the row
-                  $sid = (string)($p['store_id'] ?? '');
-                  $rowStoreName = $sid !== '' ? ($storeMap[$sid] ?? '—') : '—';
-                ?>
-                <tr>
-                  <td><?php echo h($p['name'] ?? ''); ?></td>
-                  <td><?php echo h($p['sku'] ?? ''); ?></td>
-                  <td><?php echo h($p['category_name'] ?? ''); ?></td>
-                  <td><?php echo h($rowStoreName); ?></td> <!-- use store name -->
-                  <td><?php echo number_format((int)($p['quantity'] ?? 0)); ?></td>
-                  <td>RM <?php echo number_format((float)($p['unit_price'] ?? 0), 2); ?></td>
-                  <td>RM <?php echo number_format(((float)($p['unit_price'] ?? 0) * (int)($p['quantity'] ?? 0)), 2); ?></td>
-                  <td><?php echo !empty($p['created_at']) ? h(date('M j, Y', strtotime($p['created_at']))) : '—'; ?></td>
-                </tr>
-              <?php endforeach; ?>
-            </tbody>
+          <?php if (empty($filtered)): ?>
+            <p style="color:#475569;margin:6px 0 0">No products match the selected criteria.</p>
+          <?php else: ?>
+            <div class="table-container">
+              <table class="report">
+                <thead>
+                  <tr>
+                    <th>Product</th>
+                    <th>SKU</th>
+                    <th>Category</th>
+                    <th>Store</th> <!-- changed from Location -->
+                    <th>Qty</th>
+                    <th>Unit Price</th>
+                    <th>Total Value</th>
+                    <th>Created</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <?php foreach ($filtered as $p): ?>
+                    <?php
+                    // Resolve store name for the row
+                    $sid = (string)($p['store_id'] ?? '');
+                    $rowStoreName = $sid !== '' ? ($storeMap[$sid] ?? '—') : '—';
+                    ?>
+                    <tr>
+                      <td><?php echo h($p['name'] ?? ''); ?></td>
+                      <td><?php echo h($p['sku'] ?? ''); ?></td>
+                      <td><?php echo h($p['category_name'] ?? ''); ?></td>
+                      <td><?php echo h($rowStoreName); ?></td> <!-- use store name -->
+                      <td><?php echo number_format((int)($p['quantity'] ?? 0)); ?></td>
+                      <td>RM <?php echo number_format((float)($p['unit_price'] ?? 0), 2); ?></td>
+                      <td>RM <?php echo number_format(((float)($p['unit_price'] ?? 0) * (int)($p['quantity'] ?? 0)), 2); ?></td>
+                      <td><?php echo !empty($p['created_at']) ? h(date('M j, Y', strtotime($p['created_at']))) : '—'; ?></td>
+                    </tr>
+                  <?php endforeach; ?>
+                </tbody>
                 <tfoot>
                   <tr class="totals-row">
                     <th colspan="4" style="text-align:right;">Totals</th>
