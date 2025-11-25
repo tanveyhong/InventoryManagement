@@ -262,43 +262,91 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     elseif ($action === 'receive_shipment') {
         $received_items = $_POST['receive'] ?? [];
+        $rejected_items = $_POST['rejected'] ?? [];
         $shipment_notes = $_POST['shipment_notes'] ?? '';
         $received_at = $_POST['received_at'] ?? date('Y-m-d H:i:s');
         
-        if (empty($received_items)) {
+        if (empty($received_items) && empty($rejected_items)) {
             header("Location: edit.php?id=$id");
             exit;
+        }
+
+        // Validation: Check for negative quantities and over-receiving
+        foreach ($received_items as $item_id => $qty_received) {
+            $qty_received = (int)$qty_received;
+            $qty_rejected = (int)($rejected_items[$item_id] ?? 0);
+            
+            if ($qty_received < 0 || $qty_rejected < 0) {
+                header("Location: edit.php?id=$id&error=" . urlencode("Invalid negative quantity entered."));
+                exit;
+            }
+
+            if ($qty_received == 0 && $qty_rejected == 0) continue;
+
+            $item = $sqlDb->fetch("
+                SELECT poi.*, p.name as product_name 
+                FROM purchase_order_items poi 
+                JOIN products p ON poi.product_id = p.id 
+                WHERE poi.id = ? AND poi.po_id = ?
+            ", [$item_id, $id]);
+            
+            if (!$item) continue;
+
+            $ordered = (int)$item['quantity'];
+            $prev_received = (int)($item['received_quantity'] ?? 0);
+            $prev_rejected = (int)($item['rejected_quantity'] ?? 0);
+            
+            // REPLACEMENT LOGIC: We only care that we don't end up with more GOOD items than ordered.
+            // Rejected items can accumulate (e.g. if they send 5 bad ones, then 5 good ones, total processed is 10, but we only keep 5).
+            $total_good_items = $prev_received + $qty_received;
+            
+            if ($total_good_items > $ordered) {
+                $remaining = $ordered - $prev_received;
+                header("Location: edit.php?id=$id&error=" . urlencode("Cannot receive more items than ordered for {$item['product_name']}. Remaining: $remaining, Tried to receive: $qty_received"));
+                exit;
+            }
         }
 
         $sqlDb->beginTransaction();
         try {
             $total_received_now = 0;
+            $total_rejected_now = 0;
 
             foreach ($received_items as $item_id => $qty_received) {
                 $qty_received = (int)$qty_received;
-                if ($qty_received <= 0) continue;
+                $qty_rejected = (int)($rejected_items[$item_id] ?? 0);
+                
+                if ($qty_received <= 0 && $qty_rejected <= 0) continue;
 
                 // Verify item belongs to PO
                 $item = $sqlDb->fetch("SELECT * FROM purchase_order_items WHERE id = ? AND po_id = ?", [$item_id, $id]);
                 if (!$item) continue;
 
                 // Update PO Item received quantity
-                $sqlDb->execute("UPDATE purchase_order_items SET received_quantity = COALESCE(received_quantity, 0) + ? WHERE id = ?", [$qty_received, $item_id]);
+                if ($qty_received > 0) {
+                    $sqlDb->execute("UPDATE purchase_order_items SET received_quantity = COALESCE(received_quantity, 0) + ? WHERE id = ?", [$qty_received, $item_id]);
 
-                // Update Product Stock
-                // Logic: Update the product ID specified in the PO item.
-                $sqlDb->execute("UPDATE products SET quantity = quantity + ? WHERE id = ?", [$qty_received, $item['product_id']]);
-                
-                // Log Movement
-                $sqlDb->execute(
-                    "INSERT INTO stock_movements (product_id, store_id, movement_type, quantity, reference, notes, user_id, created_at) VALUES (?, ?, 'in', ?, ?, ?, ?, ?)",
-                    [$item['product_id'], $po['store_id'], $qty_received, 'PO-' . $po['po_number'], 'Received Shipment' . ($shipment_notes ? ": $shipment_notes" : ''), $_SESSION['user_id'], $received_at]
-                );
-                
-                $total_received_now += $qty_received;
+                    // Update Product Stock
+                    // Logic: Update the product ID specified in the PO item.
+                    $sqlDb->execute("UPDATE products SET quantity = COALESCE(quantity, 0) + ? WHERE id = ?", [$qty_received, $item['product_id']]);
+                    
+                    // Log Movement
+                    $sqlDb->execute(
+                        "INSERT INTO stock_movements (product_id, store_id, movement_type, quantity, reference, notes, user_id, created_at) VALUES (?, ?, 'in', ?, ?, ?, ?, ?)",
+                        [$item['product_id'], $po['store_id'], $qty_received, 'PO-' . $po['po_number'], 'Received Shipment' . ($shipment_notes ? ": $shipment_notes" : ''), $_SESSION['user_id'], $received_at]
+                    );
+                    
+                    $total_received_now += $qty_received;
+                }
+
+                // Update PO Item rejected quantity
+                if ($qty_rejected > 0) {
+                    $sqlDb->execute("UPDATE purchase_order_items SET rejected_quantity = COALESCE(rejected_quantity, 0) + ? WHERE id = ?", [$qty_rejected, $item_id]);
+                    $total_rejected_now += $qty_rejected;
+                }
             }
 
-            if ($total_received_now > 0) {
+            if ($total_received_now > 0 || $total_rejected_now > 0) {
                 // Check overall status
                 $allItems = $sqlDb->fetchAll("SELECT quantity, received_quantity FROM purchase_order_items WHERE po_id = ?", [$id]);
                 
@@ -323,7 +371,119 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Update PO Status
                 $sqlDb->execute("UPDATE purchase_orders SET status = ?, updated_at = NOW() WHERE id = ?", [$newStatus, $id]);
                 
-                logActivity('po_received_shipment', "Received shipment for PO #$id ($newStatus)", ['po_id' => $id, 'status' => $newStatus]);
+                logActivity('po_received_shipment', "Received shipment for PO #$id ($newStatus). Rejected: $total_rejected_now", ['po_id' => $id, 'status' => $newStatus]);
+
+                // Send Rejection Email if needed
+                if ($total_rejected_now > 0 && !empty($po['supplier_email'])) {
+                    require_once '../../email_helper.php';
+                    
+                    $subject = "Rejected Items Report - PO #" . $po['po_number'];
+                    
+                    $rejectedHtml = '<table style="width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 14px;">
+                        <thead>
+                            <tr style="background-color: #ffebee; color: #c0392b;">
+                                <th style="padding: 12px; border-bottom: 2px solid #e74c3c; text-align: left;">Product</th>
+                                <th style="padding: 12px; border-bottom: 2px solid #e74c3c; text-align: center;">Qty Rejected</th>
+                                <th style="padding: 12px; border-bottom: 2px solid #e74c3c; text-align: left;">Reason</th>
+                            </tr>
+                        </thead>
+                        <tbody>';
+                    
+                    $attachments = [];
+                    $rejection_reasons = $_POST['rejection_reason'] ?? [];
+                    
+                    foreach ($received_items as $item_id => $qty_received) {
+                        $qty_rejected = (int)($rejected_items[$item_id] ?? 0);
+                        if ($qty_rejected > 0) {
+                            // Fetch item details again
+                            $itemDetails = $sqlDb->fetch("
+                                SELECT poi.*, p.name as product_name, p.sku 
+                                FROM purchase_order_items poi
+                                JOIN products p ON poi.product_id = p.id
+                                WHERE poi.id = ?
+                            ", [$item_id]);
+                            
+                            if ($itemDetails) {
+                                $reason = $rejection_reasons[$item_id] ?? '-';
+                                
+                                // Handle File Upload
+                                $proofText = '';
+                                if (isset($_FILES['rejection_proof']['name'][$item_id])) {
+                                    $files = $_FILES['rejection_proof'];
+                                    // Check if it's an array (multiple files)
+                                    if (is_array($files['name'][$item_id])) {
+                                        $count = count($files['name'][$item_id]);
+                                        for ($i = 0; $i < $count; $i++) {
+                                            if ($files['error'][$item_id][$i] === UPLOAD_ERR_OK) {
+                                                $tmp_name = $files['tmp_name'][$item_id][$i];
+                                                $name = basename($files['name'][$item_id][$i]);
+                                                $uploadDir = sys_get_temp_dir();
+                                                $targetFile = $uploadDir . DIRECTORY_SEPARATOR . 'proof_' . $item_id . '_' . $i . '_' . $name;
+                                                
+                                                if (move_uploaded_file($tmp_name, $targetFile)) {
+                                                    $attachments[] = $targetFile;
+                                                    $proofText .= '<br><small style="color: #666;">(Image Attached: ' . htmlspecialchars($name) . ')</small>';
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                $rejectedHtml .= '<tr>
+                                    <td style="padding: 12px; border-bottom: 1px solid #dee2e6;">
+                                        <strong>' . htmlspecialchars($itemDetails['product_name']) . '</strong><br>
+                                        <span style="color: #6c757d; font-size: 12px;">SKU: ' . htmlspecialchars($itemDetails['sku']) . '</span>
+                                    </td>
+                                    <td style="padding: 12px; border-bottom: 1px solid #dee2e6; text-align: center; font-weight: bold; color: #c0392b;">' . $qty_rejected . '</td>
+                                    <td style="padding: 12px; border-bottom: 1px solid #dee2e6;">' . htmlspecialchars($reason) . $proofText . '</td>
+                                </tr>';
+                            }
+                        }
+                    }
+                    
+                    $rejectedHtml .= '</tbody></table>';
+                    
+                    $body = '
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <style>
+                            body { font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; }
+                            .container { max-width: 600px; margin: 20px auto; background: #ffffff; padding: 20px; border: 1px solid #eee; border-radius: 8px; }
+                            .header { border-bottom: 2px solid #e74c3c; padding-bottom: 10px; margin-bottom: 20px; }
+                            .header h2 { color: #c0392b; margin: 0; }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="container">
+                            <div class="header">
+                                <h2>Rejected Items Report</h2>
+                                <p>PO #' . htmlspecialchars($po['po_number']) . '</p>
+                            </div>
+                            
+                            <p>Dear ' . htmlspecialchars($po['supplier_name']) . ',</p>
+                            <p>We have received a shipment for the above Purchase Order. Unfortunately, the following items were rejected upon inspection:</p>
+                            
+                            ' . $rejectedHtml . '
+                            
+                            ' . (!empty($shipment_notes) ? '<p><strong>Notes:</strong> ' . htmlspecialchars($shipment_notes) . '</p>' : '') . '
+                            
+                            <p>Please contact us to arrange for a replacement or credit note.</p>
+                            
+                            <p>Regards,<br>' . htmlspecialchars($po['store_name'] ?? 'Inventory Management') . '</p>
+                        </div>
+                    </body>
+                    </html>';
+                    
+                    sendEmail($po['supplier_email'], $subject, $body, '', $attachments);
+                    
+                    // Cleanup temp files
+                    foreach ($attachments as $file) {
+                        if (file_exists($file)) unlink($file);
+                    }
+                    
+                    logActivity('po_rejection_email_sent', "Sent rejection email for PO #$id", ['po_id' => $id]);
+                }
             }
             
             $sqlDb->commit();
@@ -517,6 +677,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </div>
                 </div>
             </div>
+
+            <?php if (isset($_GET['error'])): ?>
+                <div class="alert alert-danger" style="background-color: #f8d7da; color: #721c24; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #f5c6cb;">
+                    <i class="fas fa-exclamation-circle"></i> <?php echo htmlspecialchars($_GET['error']); ?>
+                </div>
+            <?php endif; ?>
 
             <div class="po-info-grid">
                 <div class="info-box">
@@ -752,6 +918,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <th>SKU</th>
                             <th>Ordered</th>
                             <th>Received</th>
+                            <th>Rejected</th>
                             <th>Unit Cost</th>
                             <th>Total Cost</th>
                             <?php if ($po['status'] === 'draft'): ?><th>Actions</th><?php endif; ?>
@@ -760,7 +927,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <tbody>
                         <?php if (empty($items)): ?>
                             <tr>
-                                <td colspan="<?php echo ($po['status'] === 'draft') ? 7 : 6; ?>" style="text-align: center; padding: 40px; color: #6c757d;">
+                                <td colspan="<?php echo ($po['status'] === 'draft') ? 8 : 7; ?>" style="text-align: center; padding: 40px; color: #6c757d;">
                                     <div style="margin-bottom: 15px;">
                                         <i class="fas fa-box-open" style="font-size: 48px; color: #dee2e6;"></i>
                                     </div>
@@ -791,6 +958,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                             </div>
                                             <?php endif; ?>
                                         </div>
+                                    </td>
+                                    <td>
+                                        <?php 
+                                            $rejected = $item['rejected_quantity'] ?? 0;
+                                            if ($rejected > 0) {
+                                                echo '<span style="color: #e74c3c; font-weight: 600;">' . $rejected . '</span>';
+                                            } else {
+                                                echo '<span style="color: #ccc;">-</span>';
+                                            }
+                                        ?>
                                     </td>
                                     <td>RM <?php echo number_format($item['unit_cost'], 2); ?></td>
                                     <td>RM <?php echo number_format($item['total_cost'], 2); ?></td>
@@ -824,7 +1001,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <h3 style="margin: 0; color: #2c3e50;">Receive Shipment</h3>
                 <button type="button" onclick="closeReceiveModal()" style="background: none; border: none; font-size: 20px; color: #6c757d; cursor: pointer;">&times;</button>
             </div>
-            <form method="POST" style="display: flex; flex-direction: column; flex: 1; overflow: hidden;">
+            <form method="POST" enctype="multipart/form-data" style="display: flex; flex-direction: column; flex: 1; overflow: hidden;">
                 <input type="hidden" name="action" value="receive_shipment">
                 <div class="modal-body" style="padding: 20px; overflow-y: auto;">
                     <p style="margin-top: 0; color: #666; font-size: 14px; margin-bottom: 20px;">
@@ -837,17 +1014,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 <th style="padding: 10px; border-bottom: 2px solid #dee2e6;">Product</th>
                                 <th style="padding: 10px; border-bottom: 2px solid #dee2e6; width: 80px; text-align: center;">Ordered</th>
                                 <th style="padding: 10px; border-bottom: 2px solid #dee2e6; width: 80px; text-align: center;">Received</th>
-                                <th style="padding: 10px; border-bottom: 2px solid #dee2e6; width: 120px;">Receive Now</th>
+                                <th style="padding: 10px; border-bottom: 2px solid #dee2e6; width: 100px;">Receive Now</th>
+                                <th style="padding: 10px; border-bottom: 2px solid #dee2e6; width: 100px;">Rejected</th>
+                                <th style="padding: 10px; border-bottom: 2px solid #dee2e6; width: 200px;">Rejection Details</th>
                             </tr>
                         </thead>
                         <tbody>
                             <?php foreach ($items as $item): 
                                 $ordered = (int)$item['quantity'];
                                 $received = (int)($item['received_quantity'] ?? 0);
+                                $rejected_prev = (int)($item['rejected_quantity'] ?? 0);
+                                // REPLACEMENT LOGIC: Remaining is based only on what we have successfully received.
+                                // Rejected items are still "owed" to us by the supplier.
                                 $remaining = max(0, $ordered - $received);
                                 
-                                // Skip fully received items unless we want to allow over-receiving (let's hide them or disable)
-                                // Better to show them as disabled/done
+                                // Skip fully received items
                                 $isDone = $remaining === 0;
                             ?>
                             <tr style="border-bottom: 1px solid #eee;">
@@ -859,19 +1040,64 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     <?php echo $ordered; ?>
                                 </td>
                                 <td style="padding: 12px 10px; text-align: center; color: #10b981; font-weight: 600;">
-                                    <?php echo $received; ?>
+                                    <?php 
+                                        echo $received; 
+                                        if ($rejected_prev > 0) {
+                                            echo '<div style="font-size: 11px; color: #e74c3c;">(' . $rejected_prev . ' rej)</div>';
+                                        }
+                                    ?>
                                 </td>
-                                <td style="padding: 12px 10px;">
-                                    <?php if ($isDone): ?>
+                                <?php if ($isDone): ?>
+                                    <td colspan="3" style="padding: 12px 10px; text-align: center;">
                                         <span style="color: #10b981; font-size: 13px; font-weight: 600;"><i class="fas fa-check"></i> Complete</span>
-                                    <?php else: ?>
+                                    </td>
+                                <?php else: ?>
+                                    <td style="padding: 12px 10px;">
                                         <input type="number" name="receive[<?php echo $item['id']; ?>]" 
                                                value="<?php echo $remaining; ?>" 
                                                min="0" max="<?php echo $remaining; ?>" 
-                                               class="form-control" 
-                                               style="width: 100px;">
-                                    <?php endif; ?>
-                                </td>
+                                               class="form-control receive-input" 
+                                               data-item-id="<?php echo $item['id']; ?>"
+                                               style="width: 100px;"
+                                               required>
+                                    </td>
+                                    <td style="padding: 12px 10px;">
+                                        <input type="number" name="rejected[<?php echo $item['id']; ?>]" 
+                                               value="0" 
+                                               min="0" 
+                                               class="form-control rejected-input" 
+                                               data-item-id="<?php echo $item['id']; ?>"
+                                               style="width: 80px; border-color: #e74c3c; color: #c0392b; background-color: #f8d7da;"
+                                               placeholder="Qty"
+                                               readonly>
+                                    </td>
+                                    <td style="padding: 12px 10px;">
+                                        <div id="rejection-details-<?php echo $item['id']; ?>" style="display: none;">
+                                            <input type="text" name="rejection_reason[<?php echo $item['id']; ?>]" 
+                                                   class="form-control" placeholder="Reason (e.g. Broken)" 
+                                                   style="font-size: 12px; margin-bottom: 5px;">
+                                            
+                                            <div class="file-upload-wrapper">
+                                                <input type="file" name="rejection_proof[<?php echo $item['id']; ?>][]" 
+                                                       id="file-input-<?php echo $item['id']; ?>"
+                                                       class="rejection-file-input"
+                                                       data-item-id="<?php echo $item['id']; ?>"
+                                                       accept="image/*"
+                                                       multiple
+                                                       style="display: none;">
+                                                
+                                                <button type="button" class="btn btn-sm btn-outline-secondary" 
+                                                        onclick="document.getElementById('file-input-<?php echo $item['id']; ?>').click()"
+                                                        style="font-size: 11px; width: 100%;">
+                                                    <i class="fas fa-camera"></i> Add Photos
+                                                </button>
+                                                
+                                                <div id="preview-container-<?php echo $item['id']; ?>" class="preview-container" 
+                                                     style="display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px;"></div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                <?php endif; ?>
                             </tr>
                             <?php endforeach; ?>
                         </tbody>
@@ -1009,22 +1235,210 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $input.prop('readonly', true);
                     $input.css('background-color', '#e9ecef');
                 } else {
-                    // Cost is missing. Do we have a selling price?
+                    // Cost is missing. Allow manual entry.
                     $input.prop('readonly', false);
                     $input.css('background-color', '#fff');
-                    
-                    if (!isNaN(price) && price > 0) {
-                        // Estimate Cost (e.g., 70% of selling price = 30% margin)
-                        var estimatedCost = price * 0.70;
-                        $input.val(estimatedCost.toFixed(2));
-                        $helper.html('<i class="fas fa-magic"></i> Est. Cost (70% of Price)<br>You can edit this.').css('color', '#667eea').show();
-                    } else {
-                        $input.val('0.00');
-                    }
+                    $input.val('0.00');
                     
                     // Focus for manual adjustment
                     setTimeout(() => $input.select(), 100);
                 }
+            });
+        });
+    </script>
+
+    <script>
+        // Validate Receive Form
+        document.addEventListener('submit', function(e) {
+            // Check if this is the receive shipment form
+            const form = e.target;
+            if (!form.matches('form')) return;
+            
+            const actionInput = form.querySelector('input[name="action"][value="receive_shipment"]');
+            if (!actionInput) return;
+
+            let isValid = true;
+            let errorMsg = "";
+
+            const rows = form.querySelectorAll('tbody tr');
+            rows.forEach(row => {
+                const receiveInput = row.querySelector('input[name^="receive"]');
+                const rejectedInput = row.querySelector('input[name^="rejected"]');
+                
+                if (receiveInput && rejectedInput) {
+                    const receiveVal = receiveInput.value;
+                    const receive = parseInt(receiveVal) || 0;
+                    const rejected = parseInt(rejectedInput.value) || 0;
+                    const max = parseInt(receiveInput.getAttribute('max')); 
+                    
+                    if (receiveVal === "" || receiveInput.value.trim() === "") {
+                        isValid = false;
+                        errorMsg = "Please enter a quantity for all items.";
+                        receiveInput.style.borderColor = "red";
+                    } else if (receive < 0 || rejected < 0) {
+                        isValid = false;
+                        errorMsg = "Quantities cannot be negative.";
+                        receiveInput.style.borderColor = "red";
+                    } else if (receive > max) {
+                        isValid = false;
+                        errorMsg = "Cannot receive more than remaining ordered quantity (" + max + ").";
+                        receiveInput.style.borderColor = "red";
+                    } else {
+                        receiveInput.style.borderColor = "";
+                    }
+
+                    // Check Rejection Reason if rejected > 0
+                    if (rejected > 0) {
+                        const reasonInput = row.querySelector('input[name^="rejection_reason"]');
+                        if (reasonInput && reasonInput.value.trim() === "") {
+                            isValid = false;
+                            errorMsg = "Please provide a reason for rejected items.";
+                            reasonInput.style.borderColor = "red";
+                        } else if (reasonInput) {
+                            reasonInput.style.borderColor = "";
+                        }
+                    }
+                }
+            });
+
+            if (!isValid) {
+                e.preventDefault();
+                alert(errorMsg || "Please correct the errors before saving.");
+            }
+        });
+    </script>
+
+    <script>
+        // Toggle rejection details
+        document.addEventListener('DOMContentLoaded', function() {
+            const rejectedInputs = document.querySelectorAll('.rejected-input');
+            
+            rejectedInputs.forEach(input => {
+                input.addEventListener('input', function() {
+                    const itemId = this.dataset.itemId;
+                    const val = parseInt(this.value) || 0;
+                    const detailsDiv = document.getElementById('rejection-details-' + itemId);
+                    
+                    if (detailsDiv) {
+                        detailsDiv.style.display = val > 0 ? 'block' : 'none';
+                        
+                        // If hidden, clear values? Maybe not, in case they toggle back.
+                        // But if they submit 0 rejected, we ignore the details anyway.
+                    }
+                });
+            });
+        });
+    </script>
+
+    <script>
+        // Auto-calculate rejected quantity based on Receive input
+        document.addEventListener('DOMContentLoaded', function() {
+            const receiveInputs = document.querySelectorAll('.receive-input');
+            
+            receiveInputs.forEach(input => {
+                // Handle empty input on blur -> set to 0
+                input.addEventListener('blur', function() {
+                    if (this.value.trim() === '') {
+                        this.value = 0;
+                        this.dispatchEvent(new Event('input'));
+                    }
+                });
+
+                input.addEventListener('input', function() {
+                    const itemId = this.dataset.itemId;
+                    const max = parseInt(this.getAttribute('max')) || 0;
+                    let receive = parseInt(this.value);
+                    
+                    if (isNaN(receive)) receive = 0;
+                    
+                    // Auto-calculate rejected: Anything not received is considered rejected
+                    let rejected = max - receive;
+                    if (rejected < 0) rejected = 0;
+                    
+                    const rejectedInput = document.querySelector(`.rejected-input[data-item-id="${itemId}"]`);
+                    if (rejectedInput) {
+                        rejectedInput.value = rejected;
+                        // Trigger input event to update details visibility
+                        rejectedInput.dispatchEvent(new Event('input'));
+                    }
+                });
+                
+                // Initialize
+                input.dispatchEvent(new Event('input'));
+            });
+        });
+    </script>
+
+    <script>
+        // Handle File Upload Previews
+        document.addEventListener('DOMContentLoaded', function() {
+            const fileInputs = document.querySelectorAll('.rejection-file-input');
+            
+            fileInputs.forEach(input => {
+                // Initialize DataTransfer for this input to support adding/removing
+                input.dt = new DataTransfer();
+                
+                input.addEventListener('change', function(e) {
+                    const itemId = this.dataset.itemId;
+                    const container = document.getElementById('preview-container-' + itemId);
+                    const newFiles = Array.from(this.files);
+                    
+                    // Add new files to our DataTransfer object
+                    newFiles.forEach(file => {
+                        // Check for duplicates based on name and size
+                        let exists = false;
+                        for (let i = 0; i < this.dt.items.length; i++) {
+                            if (this.dt.items[i].getAsFile().name === file.name && 
+                                this.dt.items[i].getAsFile().size === file.size) {
+                                exists = true;
+                                break;
+                            }
+                        }
+                        
+                        if (!exists) {
+                            this.dt.items.add(file);
+                            
+                            // Create Preview UI
+                            const div = document.createElement('div');
+                            div.className = 'preview-item';
+                            div.style.cssText = 'position: relative; width: 40px; height: 40px; border: 1px solid #ddd; border-radius: 4px; overflow: hidden; background: #f8f9fa;';
+                            
+                            const img = document.createElement('img');
+                            img.style.cssText = 'width: 100%; height: 100%; object-fit: cover;';
+                            
+                            const reader = new FileReader();
+                            reader.onload = function(e) {
+                                img.src = e.target.result;
+                            };
+                            reader.readAsDataURL(file);
+                            
+                            const btn = document.createElement('button');
+                            btn.innerHTML = '&times;';
+                            btn.type = 'button';
+                            btn.style.cssText = 'position: absolute; top: 0; right: 0; background: rgba(220, 53, 69, 0.8); color: white; border: none; width: 14px; height: 14px; font-size: 10px; line-height: 1; cursor: pointer; padding: 0; display: flex; align-items: center; justify-content: center;';
+                            btn.onclick = function() {
+                                // Remove file from DataTransfer
+                                const newDt = new DataTransfer();
+                                for (let i = 0; i < input.dt.items.length; i++) {
+                                    const f = input.dt.items[i].getAsFile();
+                                    if (f !== file) {
+                                        newDt.items.add(f);
+                                    }
+                                }
+                                input.dt = newDt;
+                                input.files = input.dt.files;
+                                div.remove();
+                            };
+                            
+                            div.appendChild(img);
+                            div.appendChild(btn);
+                            container.appendChild(div);
+                        }
+                    });
+                    
+                    // Update the input's files to match our accumulated list
+                    this.files = this.dt.files;
+                });
             });
         });
     </script>

@@ -16,9 +16,10 @@ require_once __DIR__ . '/vendor/autoload.php';
  * @param string $subject Email subject
  * @param string $body Email body (HTML supported)
  * @param string $altBody Plain text alternative body
+ * @param array $attachments Array of file paths to attach
  * @return bool True on success, false on failure
  */
-function sendEmail($to, $subject, $body, $altBody = '') {
+function sendEmail($to, $subject, $body, $altBody = '', $attachments = []) {
     $config = require __DIR__ . '/email_config.php';
     
     $mail = new PHPMailer(true);
@@ -40,6 +41,15 @@ function sendEmail($to, $subject, $body, $altBody = '') {
         $mail->setFrom($config['from']['address'], $config['from']['name']);
         $mail->addAddress($to);
         $mail->addReplyTo($config['reply_to']['address'], $config['reply_to']['name']);
+        
+        // Attachments
+        if (!empty($attachments)) {
+            foreach ($attachments as $attachment) {
+                if (file_exists($attachment)) {
+                    $mail->addAttachment($attachment);
+                }
+            }
+        }
         
         // Content
         $mail->isHTML(true);

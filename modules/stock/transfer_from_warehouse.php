@@ -34,7 +34,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $sqlDb->beginTransaction();
 
         // 1. Get the store product
-        $storeProduct = $sqlDb->fetch("SELECT * FROM products WHERE id = ?", [$product_id]);
+        $storeProduct = $sqlDb->fetch("
+            SELECT p.*, s.name as store_name 
+            FROM products p 
+            LEFT JOIN stores s ON p.store_id = s.id 
+            WHERE p.id = ?
+        ", [$product_id]);
+
         if (!$storeProduct) {
             throw new Exception("Store product not found");
         }
@@ -45,9 +51,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $sku = $storeProduct['sku'];
         $store_id = $storeProduct['store_id'];
+        $store_name = $storeProduct['store_name'];
+
+        // Logic to derive Base SKU (copied from list.php)
+        $baseSku = $sku;
+        
+        $sanitizedStoreName = $store_name ? strtoupper(preg_replace('/[^a-zA-Z0-9]/', '', $store_name)) : '';
+        $meaningfulSuffix = $sanitizedStoreName ? '-' . $sanitizedStoreName : '';
+        $posSuffix = $sanitizedStoreName ? '-POS-' . $sanitizedStoreName : '';
+
+        if ($posSuffix && strlen($sku) > strlen($posSuffix) && substr($sku, -strlen($posSuffix)) === $posSuffix) {
+             $baseSku = substr($sku, 0, -strlen($posSuffix));
+        } elseif (preg_match('/^(.+)-S(\d+)$/', $sku, $matches)) {
+             $baseSku = $matches[1];
+        } elseif ($meaningfulSuffix && strlen($sku) > strlen($meaningfulSuffix) && substr($sku, -strlen($meaningfulSuffix)) === $meaningfulSuffix) {
+             $baseSku = substr($sku, 0, -strlen($meaningfulSuffix));
+        }
 
         // 2. Get the warehouse product
-        $warehouseProduct = $sqlDb->fetch("SELECT * FROM products WHERE sku = ? AND store_id IS NULL", [$sku]);
+        $warehouseProduct = $sqlDb->fetch("SELECT * FROM products WHERE sku = ? AND store_id IS NULL", [$baseSku]);
+        
+        // Fallback: try exact SKU match if base SKU not found
+        if (!$warehouseProduct) {
+             $warehouseProduct = $sqlDb->fetch("SELECT * FROM products WHERE sku = ? AND store_id IS NULL", [$sku]);
+        }
         
         if (!$warehouseProduct) {
             throw new Exception("Warehouse product not found for SKU: $sku");
@@ -58,14 +85,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             throw new Exception("Insufficient stock in warehouse. Available: " . $warehouseProduct['quantity']);
         }
 
-        // 4. Update warehouse stock
+        // 4. Update warehouse stock (Deduct immediately to reserve stock)
         $sqlDb->execute("UPDATE products SET quantity = quantity - ?, updated_at = NOW() WHERE id = ?", [$quantity, $warehouseProduct['id']]);
 
-        // 5. Update store product stock
-        $sqlDb->execute("UPDATE products SET quantity = quantity + ?, updated_at = NOW() WHERE id = ?", [$quantity, $product_id]);
+        // 5. Create Pending Transfer Record
+        // We do NOT add to store stock yet. It must be confirmed upon arrival.
+        $sqlDb->execute("INSERT INTO inventory_transfers 
+            (source_product_id, dest_product_id, store_id, quantity, status, created_by, created_at) 
+            VALUES (?, ?, ?, ?, 'pending', ?, NOW())", 
+            [$warehouseProduct['id'], $product_id, $store_id, $quantity, $_SESSION['user_id']]
+        );
 
         // 6. Log activity
-        logActivity('stock_transfer', "Transferred $quantity units of $sku from Warehouse to Store #$store_id", [
+        logActivity('stock_transfer_initiated', "Initiated transfer of $quantity units of $sku from Warehouse to Store #$store_id (Pending Arrival)", [
             'sku' => $sku,
             'quantity' => $quantity,
             'from_store' => 'Warehouse',
@@ -75,7 +107,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ]);
 
         $sqlDb->commit();
-        $_SESSION['success'] = "Successfully transferred $quantity units from Warehouse.";
+        $_SESSION['success'] = "Transfer initiated! $quantity units deducted from Warehouse. Please confirm receipt when stock arrives.";
 
     } catch (Exception $e) {
         $sqlDb->rollBack();
