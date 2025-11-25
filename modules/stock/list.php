@@ -24,25 +24,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         header('Location: list.php');
         exit;
     }
-    
+
     $product_id = $_POST['product_id'] ?? '';
     $store_id = $_POST['store_id'] ?? null;
-    
+
     if ($product_id) {
         try {
             $sqlDb = SQLDatabase::getInstance();
             // If store_id is empty, set it to NULL (unlink)
             $store_val = empty($store_id) ? null : $store_id;
-            
+
             $sqlDb->execute("UPDATE products SET store_id = ?, updated_at = NOW() WHERE id = ?", [$store_val, $product_id]);
-            
+
             $_SESSION['success'] = 'Product linked to store successfully';
             logActivity('product_linked_store', "Linked product #$product_id to store " . ($store_val ?? 'None'), ['product_id' => $product_id, 'store_id' => $store_val]);
         } catch (Exception $e) {
             $_SESSION['error'] = 'Error linking product: ' . $e->getMessage();
         }
     }
-    
+
     header('Location: list.php');
     exit;
 }
@@ -144,9 +144,9 @@ $categories = [];
 
 try {
     $sqlDb = SQLDatabase::getInstance();
-    
+
     // OPTIMIZED: Fast PostgreSQL queries (no caching needed - queries are <2ms)
-    
+
     // Get all active products with store information in one query
     $productRecords = $sqlDb->fetchAll("
         SELECT 
@@ -158,7 +158,7 @@ try {
         WHERE p.active = TRUE
         ORDER BY p.name ASC
     ");
-    
+
     // Map to expected format
     foreach ($productRecords as $r) {
         $prod = [
@@ -183,13 +183,13 @@ try {
         ];
         $all_products[] = $prod;
     }
-    
+
     // Get all active stores
     $storeRecords = $sqlDb->fetchAll("SELECT id, name FROM stores WHERE active = TRUE ORDER BY name ASC");
     foreach ($storeRecords as $s) {
         $stores[] = ['id' => $s['id'] ?? null, 'name' => $s['name'] ?? null];
     }
-    
+
     // Get categories from products (derive unique values)
     $categoryRecords = $sqlDb->fetchAll("
         SELECT DISTINCT category as name 
@@ -202,16 +202,15 @@ try {
             $categories[] = ['name' => $c['name']];
         }
     }
-    
+
     error_log("Stock List: Loaded " . count($all_products) . " products, " . count($stores) . " stores from PostgreSQL in <2ms");
-    
 } catch (Exception $e) {
     error_log("Stock List PostgreSQL failed, falling back to Firebase: " . $e->getMessage());
-    
+
     // Fallback to Firebase
     $db = getDB();
     $productDocs = $db->readAll('products', [], null, 1000);
-    
+
     foreach ($productDocs as $r) {
         $prod = [
             'id' => $r['id'] ?? null,
@@ -242,7 +241,7 @@ try {
     } catch (Exception $e) {
         $stores = [];
     }
-    
+
     // Build quick store lookup to attach store_name to products
     $storeLookup = [];
     foreach ($stores as $s) {
@@ -341,25 +340,25 @@ $filtered_products = array_filter($all_products, function ($p) use ($store_filte
     if ($search_query) { ... }
     if ($status_filter) { ... }
     */
-    
+
     return true;
 });
 
 // FILTER: Remove Firebase-generated duplicate products with corrupted SKUs
-$filtered_products = array_filter($filtered_products, function($p) {
+$filtered_products = array_filter($filtered_products, function ($p) {
     $sku = $p['sku'] ?? '';
-    
+
     // Skip products with Firebase random IDs (20+ chars after dash)
     if (preg_match('/-S[a-zA-Z0-9]{20,}/', $sku)) {
         error_log("Filtering out Firebase duplicate: $sku");
         return false;
     }
-    
+
     // Skip excessively long SKUs
     if (strlen($sku) > 50) {
         return false;
     }
-    
+
     return true;
 });
 
@@ -368,16 +367,16 @@ $productGroups = [];
 foreach ($filtered_products as $product) {
     $sku = $product['sku'] ?? '';
     $storeId = $product['store_id'] ?? null;
-    
+
     // Extract base SKU (remove store suffix like -S6, -S7)
     $baseSku = $sku;
     $isStoreVariant = false;
-    
+
     // Check for meaningful suffix (e.g. -MAINSTORE) derived from store name
     $sanitizedStoreName = $product['store_name'] ? strtoupper(preg_replace('/[^a-zA-Z0-9]/', '', $product['store_name'])) : '';
     $meaningfulSuffix = $sanitizedStoreName ? '-' . $sanitizedStoreName : '';
     $posSuffix = $sanitizedStoreName ? '-POS-' . $sanitizedStoreName : '';
-    
+
     if ($posSuffix && strlen($sku) > strlen($posSuffix) && substr($sku, -strlen($posSuffix)) === $posSuffix) {
         // POS Variant (e.g. PRODUCT-POS-MAINSTORE)
         $baseSku = substr($sku, 0, -strlen($posSuffix));
@@ -409,14 +408,14 @@ foreach ($filtered_products as $product) {
         // Main product (no store_id)
         $product['_is_store_variant'] = false;
     }
-    
+
     if (!isset($productGroups[$baseSku])) {
         $productGroups[$baseSku] = [
             'main' => null,
             'variants' => []
         ];
     }
-    
+
     // Main product (no store suffix and no store_id) or first product with this base SKU
     if (!$isStoreVariant) {
         $productGroups[$baseSku]['main'] = $product;
@@ -441,7 +440,7 @@ foreach ($productGroups as $baseSku => $group) {
     if ($group['main']) {
         $group['main']['_total_system_stock'] = $totalSystemStock;
         $group['main']['_group_key'] = $baseSku;
-        
+
         // Update status based on total stock for main product
         // This ensures parent products show correct status based on aggregated stock
         $qty = $totalSystemStock;
@@ -456,12 +455,12 @@ foreach ($productGroups as $baseSku => $group) {
 
         $filtered_products[] = $group['main'];
     }
-    
+
     // Add store variants (sorted by store name)
-    usort($group['variants'], function($a, $b) {
+    usort($group['variants'], function ($a, $b) {
         return strcmp($a['store_name'] ?? '', $b['store_name'] ?? '');
     });
-    
+
     foreach ($group['variants'] as $variant) {
         // If there's no main product, show the first variant as the main one
         if (!$group['main'] && $variant === $group['variants'][0]) {
@@ -483,14 +482,14 @@ $sort_func = function ($a, $b) use ($sort_by, $sort_order) {
     // Keep variants grouped with their main product
     $aBaseSku = preg_replace('/-S\d+$/', '', $a['sku'] ?? '');
     $bBaseSku = preg_replace('/-S\d+$/', '', $b['sku'] ?? '');
-    
+
     if ($aBaseSku === $bBaseSku) {
         // Same group: main product comes first, then variants by store
         if (!($a['_is_store_variant'] ?? false)) return -1;
         if (!($b['_is_store_variant'] ?? false)) return 1;
         return strcmp($a['store_name'] ?? '', $b['store_name'] ?? '');
     }
-    
+
     // Different groups: sort by requested field
     $av = $a[$sort_by] ?? '';
     $bv = $b[$sort_by] ?? '';
@@ -576,9 +575,11 @@ $page_title = 'Stock Management - Inventory System';
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         .highlight-store-match {
-            background-color: #f0f9ff !important; /* Light blue background */
+            background-color: #f0f9ff !important;
+            /* Light blue background */
             border-left: 4px solid #007bff !important;
         }
+
         .highlight-store-match td {
             background-color: #f0f9ff !important;
         }
@@ -606,7 +607,7 @@ $page_title = 'Stock Management - Inventory System';
                             $cacheAgeStr = $cacheSeconds . 's ago';
                         }
                         echo '<span style="font-size: 12px; color: #666; margin-right: 10px;" title="Data cached to reduce Firebase usage. Click refresh to get latest data.">📊 Cached: ' . htmlspecialchars($cacheAgeStr) . '</span>';
-                        
+
                         // Show refresh button if cache is more than 1 minute old
                         if ($cacheAge > 60) {
                             echo '<a href="?refresh=1" class="btn" style="background: #17a2b8; margin-right: 5px;" title="Fetch latest data from Firebase">🔄 Refresh Data</a>';
@@ -698,90 +699,94 @@ $page_title = 'Stock Management - Inventory System';
                 </div>
             <?php else: ?>
                 <form id="batchDeleteForm" action="batch_delete.php" method="POST">
-                <div class="table-container">
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th style="width: 40px; text-align: center;"><input type="checkbox" id="selectAll"></th>
-                                <th class="sortable" data-sort="name">Product Details <span class="sort-icon"></span></th>
-                                <th class="sortable" data-sort="qty">Stock Level <span class="sort-icon"></span></th>
-                                <th class="sortable" data-sort="cost">Cost Price <span class="sort-icon"></span></th>
-                                <th class="sortable" data-sort="price">Selling Price <span class="sort-icon"></span></th>
-                                <th class="sortable" data-sort="status">Status <span class="sort-icon"></span></th>
-                                <th class="sortable" data-sort="updated">Last Updated <span class="sort-icon"></span></th>
-                                <th class="sortable" data-sort="created">Added On <span class="sort-icon"></span></th>
-                                <th class="sortable" data-sort="store-name">Store/Category <span class="sort-icon"></span></th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="productTableBody">
-                            <?php foreach ($products as $product): ?>
-                                <?php
-                                // Determine correct Firestore document id *before* using it anywhere
-                                $linkId = $product['doc_id'] ?? '';
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 40px; text-align: center;"><input type="checkbox" id="selectAll"></th>
+                                    <th class="sortable" data-sort="name">Product Details <span class="sort-icon"></span></th>
+                                    <th class="sortable" data-sort="qty">Stock Level <span class="sort-icon"></span></th>
+                                    <th class="sortable" data-sort="cost">Cost Price <span class="sort-icon"></span></th>
+                                    <th class="sortable" data-sort="price">Selling Price <span class="sort-icon"></span></th>
+                                    <th class="sortable" data-sort="status">Status <span class="sort-icon"></span></th>
+                                    <th class="sortable" data-sort="updated">Last Updated <span class="sort-icon"></span></th>
+                                    <th class="sortable" data-sort="created">Added On <span class="sort-icon"></span></th>
+                                    <th class="sortable" data-sort="store-name">Store/Category <span class="sort-icon"></span></th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="productTableBody">
+                                <?php foreach ($products as $product): ?>
+                                    <?php
+                                    // Determine correct Firestore document id *before* using it anywhere
+                                    $linkId = $product['doc_id'] ?? '';
 
-                                if ($linkId === '' && isset($product['id'])) {
-                                    $pid = (string)$product['id'];
-                                    // If it's not a simple small integer, treat it as the Firestore id
-                                    if (!ctype_digit($pid) || strlen($pid) > 6) {
-                                        $linkId = $pid;
+                                    if ($linkId === '' && isset($product['id'])) {
+                                        $pid = (string)$product['id'];
+                                        // If it's not a simple small integer, treat it as the Firestore id
+                                        if (!ctype_digit($pid) || strlen($pid) > 6) {
+                                            $linkId = $pid;
+                                        }
                                     }
-                                }
 
-                                // Final fallback: still empty? use the numeric id (legacy)
-                                if ($linkId === '' && isset($product['id'])) {
-                                    $linkId = (string)$product['id'];
-                                }
+                                    // Final fallback: still empty? use the numeric id (legacy)
+                                    if ($linkId === '' && isset($product['id'])) {
+                                        $linkId = (string)$product['id'];
+                                    }
 
-                                $return = rawurlencode($_SERVER['REQUEST_URI']);
-                                
-                                // Calculate Base SKU for grouping in JS
-                                $groupKey = $product['_group_key'] ?? $product['sku'];
-                                ?>
+                                    $return = rawurlencode($_SERVER['REQUEST_URI']);
+
+                                    // Calculate Base SKU for grouping in JS
+                                    $groupKey = $product['_group_key'] ?? $product['sku'];
+                                    ?>
 
 
-                                <tr
-                                    class="product-row <?php echo ($product['_is_store_variant'] ?? false) ? 'store-variant' : 'main-product'; ?> status-<?php echo htmlspecialchars($product['status']); ?>"
-                                    data-doc-id="<?php echo htmlspecialchars($linkId); ?>"
-                                    data-name="<?php echo htmlspecialchars($product['name']); ?>"
-                                    data-sku="<?php echo htmlspecialchars($product['sku']); ?>"
-                                    data-group-key="<?php echo htmlspecialchars($groupKey); ?>"
-                                    data-is-variant="<?php echo ($product['_is_store_variant'] ?? false) ? '1' : '0'; ?>"
-                                    data-qty="<?php echo (int)$product['quantity']; ?>"
-                                    data-min="<?php echo (int)$product['min_stock_level']; ?>"
-                                    data-cost="<?php echo (float)$product['cost_price']; ?>"
-                                    data-price="<?php echo (float)$product['unit_price']; ?>"
-                                    data-updated="<?php echo !empty($product['updated_at']) ? strtotime($product['updated_at']) : 0; ?>"
-                                    data-created="<?php echo !empty($product['created_at']) ? strtotime($product['created_at']) : 0; ?>"
-                                    data-store-name="<?php echo htmlspecialchars($product['store_name'] ?? ''); ?>"
-                                    data-store-id="<?php echo htmlspecialchars($product['store_id'] ?? ''); ?>"
-                                    data-category="<?php echo htmlspecialchars($product['category_name'] ?? ''); ?>"
-                                    data-status="<?php echo htmlspecialchars($product['status']); ?>">
+                                    <tr
+                                        class="product-row <?php echo ($product['_is_store_variant'] ?? false) ? 'store-variant' : 'main-product'; ?> status-<?php echo htmlspecialchars($product['status']); ?>"
+                                        data-doc-id="<?php echo htmlspecialchars($linkId); ?>"
+                                        data-name="<?php echo htmlspecialchars($product['name']); ?>"
+                                        data-sku="<?php echo htmlspecialchars($product['sku']); ?>"
+                                        data-group-key="<?php echo htmlspecialchars($groupKey); ?>"
+                                        data-is-variant="<?php echo ($product['_is_store_variant'] ?? false) ? '1' : '0'; ?>"
+                                        data-qty="<?php echo (int)$product['quantity']; ?>"
+                                        data-min="<?php echo (int)$product['min_stock_level']; ?>"
+                                        data-cost="<?php echo (float)$product['cost_price']; ?>"
+                                        data-price="<?php echo (float)$product['unit_price']; ?>"
+                                        data-updated="<?php echo !empty($product['updated_at']) ? strtotime($product['updated_at']) : 0; ?>"
+                                        data-created="<?php echo !empty($product['created_at']) ? strtotime($product['created_at']) : 0; ?>"
+                                        data-store-name="<?php echo htmlspecialchars($product['store_name'] ?? ''); ?>"
+                                        data-store-id="<?php echo htmlspecialchars($product['store_id'] ?? ''); ?>"
+                                        data-category="<?php echo htmlspecialchars($product['category_name'] ?? ''); ?>"
+                                        data-status="<?php echo htmlspecialchars($product['status']); ?>">
 
-                                    <td style="text-align: center;">
-                                        <input type="checkbox" name="product_ids[]" value="<?php echo htmlspecialchars($product['id']); ?>" class="product-checkbox">
-                                    </td>
-                                    <td>
-                                        <div class="product-info" style="<?php echo ($product['_is_store_variant'] ?? false) ? 'padding-left: 30px;' : ''; ?>">
-                                            <?php if ($product['_is_store_variant'] ?? false): ?>
-                                                <span style="color: #7f8c8d; margin-right: 8px;">└─</span>
-                                            <?php endif; ?>
-                                            <strong <?php echo ($product['_is_store_variant'] ?? false) ? 'style="color: #34495e; font-weight: 500;"' : ''; ?>>
-                                                <?php echo htmlspecialchars($product['name']); ?>
+                                        <td style="text-align: center;">
+                                            <input type="checkbox" name="product_ids[]" value="<?php echo htmlspecialchars($product['id']); ?>" class="product-checkbox">
+                                        </td>
+                                        <td>
+                                            <div class="product-info" style="<?php echo ($product['_is_store_variant'] ?? false) ? 'padding-left: 30px;' : ''; ?>">
                                                 <?php if ($product['_is_store_variant'] ?? false): ?>
-                                                    <span style="color: #3498db; font-size: 11px; font-weight: 600; background: #e8f4fd; padding: 2px 6px; border-radius: 3px; margin-left: 5px;">
-                                                        <?php echo htmlspecialchars($product['_store_suffix'] ?? ''); ?>
-                                                    </span>
-                                                    <?php if ($product['_is_pos_variant'] ?? false): ?>
-                                                        <span style="color: #fff; font-size: 10px; font-weight: 600; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 2px 6px; border-radius: 3px; margin-left: 3px; box-shadow: 0 1px 2px rgba(0,0,0,0.1);" title="Linked to POS System">
-                                                            <i class="fas fa-link" style="font-size: 9px;"></i> POS
+                                                    <span style="color: #7f8c8d; margin-right: 8px;">└─</span>
+                                                <?php endif; ?>
+                                                <strong <?php echo ($product['_is_store_variant'] ?? false) ? 'style="color: #34495e; font-weight: 500;"' : ''; ?>>
+                                                    <?php echo htmlspecialchars($product['name']); ?>
+                                                    <?php if ($product['_is_store_variant'] ?? false): ?>
+                                                        <span style="color: #3498db; font-size: 11px; font-weight: 600; background: #e8f4fd; padding: 2px 6px; border-radius: 3px; margin-left: 5px;">
+                                                            <?php echo htmlspecialchars($product['_store_suffix'] ?? ''); ?>
                                                         </span>
+                                                        <?php if ($product['_is_pos_variant'] ?? false): ?>
+                                                            <span style="color: #fff; font-size: 10px; font-weight: 600; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 2px 6px; border-radius: 3px; margin-left: 3px; box-shadow: 0 1px 2px rgba(0,0,0,0.1);" title="Linked to POS System">
+                                                                <i class="fas fa-link" style="font-size: 9px;"></i> POS
+                                                            </span>
+                                                        <?php endif; ?>
+                                                        <?php if ($product['_malformed_sku'] ?? false): ?>
+                                                            <span style="color: #e67e22; font-size: 10px; font-weight: 600; background: #ffeaa7; padding: 2px 6px; border-radius: 3px; margin-left: 3px;" title="SKU should include store suffix">
+                                                                ⚠️ Needs Fix
+                                                            </span>
+                                                        <?php endif; ?>
                                                     <?php endif; ?>
-                                                    <?php if ($product['_malformed_sku'] ?? false): ?>
-                                                        <span style="color: #e67e22; font-size: 10px; font-weight: 600; background: #ffeaa7; padding: 2px 6px; border-radius: 3px; margin-left: 3px;" title="SKU should include store suffix">
-                                                            ⚠️ Needs Fix
-                                                        </span>
-                                                    <?php endif; ?>
+                                                </strong>
+                                                <?php if (!empty($product['sku'])): ?>
+                                                    <div class="sku" style="font-weight: 800; color: #000; margin-top: 2px; font-size: 1.1em; letter-spacing: 0.5px;">SKU: <?php echo htmlspecialchars($product['sku']); ?></div>
                                                 <?php endif; ?>
                                             </strong>
                                             <?php if (!empty($product['sku'])): ?>
@@ -795,10 +800,17 @@ $page_title = 'Stock Management - Inventory System';
                                     <td>
                                         <div class="stock-info">
                                             <span class="current-stock status-<?php echo $product['status']; ?>">
-                                                <?php echo number_format($product['quantity']); ?>
+                                                <?php
+                                                // Show total system stock for parent products
+                                                if (isset($product['_total_system_stock']) && $product['_total_system_stock'] > $product['quantity']) {
+                                                    echo number_format($product['_total_system_stock']);
+                                                } else {
+                                                    echo number_format($product['quantity']);
+                                                }
+                                                ?>
                                             </span>
-                                            <?php if (isset($product['_total_system_stock']) && $product['_total_system_stock'] != $product['quantity']): ?>
-                                                <br><small style="color: #2980b9; font-weight: 600;" title="Total across all stores + warehouse">Total: <?php echo number_format($product['_total_system_stock']); ?></small>
+                                            <?php if (isset($product['_total_system_stock']) && $product['_total_system_stock'] > $product['quantity']): ?>
+                                                <br><small style="color: #2980b9; font-weight: 600;">Total Stock</small>
                                             <?php endif; ?>
                                             <br><small>Min: <?php echo number_format($product['min_stock_level']); ?></small>
                                         </div>
@@ -1122,7 +1134,7 @@ $page_title = 'Stock Management - Inventory System';
                 }
 
                 let html = '';
-                
+
                 // Previous Button
                 if (currentPage > 1) {
                     html += `<button onclick="changePage(${currentPage - 1})" class="btn btn-sm btn-outline">Previous</button>`;
@@ -1150,7 +1162,9 @@ $page_title = 'Stock Management - Inventory System';
                 displayRows(currentPage);
                 updatePaginationControls();
                 // Scroll to top of table
-                document.querySelector('.table-container').scrollIntoView({ behavior: 'smooth' });
+                document.querySelector('.table-container').scrollIntoView({
+                    behavior: 'smooth'
+                });
             };
 
             // Initialize
@@ -1233,11 +1247,27 @@ $page_title = 'Stock Management - Inventory System';
         }
 
         .status-badge {
-            padding: 0.25rem 0.5rem;
+            display: inline-flex;
+            /* center nicely */
+            align-items: center;
+            justify-content: center;
+
+            padding: 0.35rem 0.7rem;
+            /* slightly roomier but same style */
             border-radius: 4px;
             font-size: 0.75rem;
             font-weight: bold;
             text-transform: uppercase;
+
+            line-height: 1;
+            /* prevent tall two-line look */
+            min-width: 100px;
+            /* ensures “OUT OF STOCK” fits */
+            white-space: nowrap;
+            /* stop wrapping */
+            text-align: center;
+            letter-spacing: 0.3px;
+            /* optional: cleaner uppercase */
         }
 
         .status-badge.status-normal {
@@ -1557,7 +1587,7 @@ $page_title = 'Stock Management - Inventory System';
             background: white;
             padding: 15px 20px;
             border-radius: 10px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
             border: 1px solid #e2e8f0;
         }
 
@@ -1627,6 +1657,7 @@ $page_title = 'Stock Management - Inventory System';
         .search-wrapper {
             position: relative;
         }
+
         .search-wrapper i {
             position: absolute;
             left: 10px;
@@ -1635,8 +1666,10 @@ $page_title = 'Stock Management - Inventory System';
             color: #94a3b8;
             pointer-events: none;
         }
+
         .search-wrapper input {
-            padding-left: 32px; /* Space for icon */
+            padding-left: 32px;
+            /* Space for icon */
         }
 
         .filter-actions {
@@ -1732,7 +1765,7 @@ $page_title = 'Stock Management - Inventory System';
 
                     // Search match (Name or SKU)
                     const matchesSearch = !term || name.includes(term) || sku.includes(term);
-                    
+
                     // Filter matches
                     let matchesStore = true;
                     if (store) {
@@ -1740,13 +1773,12 @@ $page_title = 'Stock Management - Inventory System';
                         if (rowStore === store) {
                             matchesStore = true;
                             row.classList.add('highlight-store-match');
-                        } 
+                        }
                         // OR if it is the Main Product (no store) AND its group key is active in this store
                         else if (rowStore === '' && activeGroupKeysInStore.has(rowGroupKey)) {
                             matchesStore = true;
                             row.classList.remove('highlight-store-match'); // It's main, not the specific store variant
-                        }
-                        else {
+                        } else {
                             matchesStore = false;
                             row.classList.remove('highlight-store-match');
                         }
@@ -1765,7 +1797,7 @@ $page_title = 'Stock Management - Inventory System';
                         row.style.display = 'none';
                     }
                 });
-                
+
                 // Optional: Update a counter or show "No results" message
             }
 
@@ -1785,12 +1817,15 @@ $page_title = 'Stock Management - Inventory System';
             if (statusSelect) statusSelect.addEventListener('change', filterProducts);
 
             // --- Client-side Sorting ---
-            let sortHistory = [{ column: 'name', dir: 'asc' }]; // Default sort
+            let sortHistory = [{
+                column: 'name',
+                dir: 'asc'
+            }]; // Default sort
 
             function sortRows(column) {
                 // Update History
                 const existingIndex = sortHistory.findIndex(s => s.column === column);
-                
+
                 if (existingIndex === 0) {
                     // Toggle direction of primary sort
                     sortHistory[0].dir = sortHistory[0].dir === 'asc' ? 'desc' : 'asc';
@@ -1801,9 +1836,12 @@ $page_title = 'Stock Management - Inventory System';
                         sortHistory.splice(existingIndex, 1);
                     }
                     // Add as new primary (default to asc)
-                    sortHistory.unshift({ column: column, dir: 'asc' });
+                    sortHistory.unshift({
+                        column: column,
+                        dir: 'asc'
+                    });
                 }
-                
+
                 // Keep history manageable (max 3 levels of sort)
                 if (sortHistory.length > 3) sortHistory.pop();
 
@@ -1811,7 +1849,7 @@ $page_title = 'Stock Management - Inventory System';
                 document.querySelectorAll('th.sortable').forEach(th => {
                     const icon = th.querySelector('.sort-icon');
                     const isPrimary = th.dataset.sort === sortHistory[0].column;
-                    
+
                     if (isPrimary) {
                         th.classList.add('active-sort');
                         icon.innerHTML = sortHistory[0].dir === 'asc' ? '<i class="fas fa-sort-up"></i>' : '<i class="fas fa-sort-down"></i>';
@@ -1823,7 +1861,7 @@ $page_title = 'Stock Management - Inventory System';
 
                 // Perform Sort
                 const rowsArray = Array.from(tableBody.querySelectorAll('tr'));
-                
+
                 rowsArray.sort((a, b) => {
                     for (let sort of sortHistory) {
                         let valA = a.dataset[toCamelCase(sort.column)] || '';
@@ -1842,27 +1880,27 @@ $page_title = 'Stock Management - Inventory System';
                         if (valA > valB) return sort.dir === 'asc' ? 1 : -1;
 
                     }
-                    
+
                     // Tie-breaker: Keep Main Product before Store Variant if they are in the same group
                     // This ensures "Main, then Sub" order when names/values are identical
                     const groupA = a.dataset.groupKey || '';
                     const groupB = b.dataset.groupKey || '';
-                    
+
                     if (groupA && groupA === groupB) {
                         const isVarA = a.dataset.isVariant === '1';
                         const isVarB = b.dataset.isVariant === '1';
-                        
+
                         // Main (0) comes before Variant (1)
                         if (isVarA !== isVarB) {
                             return isVarA ? 1 : -1;
                         }
-                        
+
                         // If both are variants, sort by store name
                         const storeA = a.dataset.storeName || '';
                         const storeB = b.dataset.storeName || '';
                         return storeA.localeCompare(storeB);
                     }
-                    
+
                     return 0;
                 });
 
@@ -1872,7 +1910,9 @@ $page_title = 'Stock Management - Inventory System';
 
             // Helper to convert kebab-case to camelCase for dataset access
             function toCamelCase(str) {
-                return str.replace(/-([a-z])/g, function (g) { return g[1].toUpperCase(); });
+                return str.replace(/-([a-z])/g, function(g) {
+                    return g[1].toUpperCase();
+                });
             }
 
             // Attach sort listeners
@@ -1890,7 +1930,7 @@ $page_title = 'Stock Management - Inventory System';
             function updateBatchButtons() {
                 const checkedCount = document.querySelectorAll('.product-checkbox:checked').length;
                 const batchDeleteBtn = document.getElementById('batchDeleteBtn');
-                
+
                 if (checkedCount > 0) {
                     if (batchDeleteBtn) batchDeleteBtn.style.display = 'inline-block';
                     if (batchOrderBtn) batchOrderBtn.style.display = 'inline-block';
@@ -1921,7 +1961,7 @@ $page_title = 'Stock Management - Inventory System';
                 batchOrderBtn.addEventListener('click', function() {
                     const selectedIds = Array.from(document.querySelectorAll('.product-checkbox:checked')).map(cb => cb.value);
                     if (selectedIds.length === 0) return;
-                    
+
                     // Redirect to Create PO with selected IDs
                     window.location.href = '../purchase_orders/create.php?product_ids=' + selectedIds.join(',');
                 });
@@ -1935,15 +1975,15 @@ $page_title = 'Stock Management - Inventory System';
                     if (storeSelect) storeSelect.value = '';
                     if (categorySelect) categorySelect.value = '';
                     if (statusSelect) statusSelect.value = '';
-                    
+
                     // Reset Sort
                     sortHistory = [];
                     sortRows('name'); // Re-sort by name asc (default)
-                    
+
                     filterProducts();
                 });
             }
-            
+
             // Apply Filters Button (Manual Trigger) - Removed
             // const applyBtn = document.getElementById('applyFiltersBtn');
             // if (applyBtn) {
@@ -1962,16 +2002,16 @@ $page_title = 'Stock Management - Inventory System';
                 <h3 style="margin: 0;">Link Product to Store</h3>
                 <span class="close" onclick="closeLinkStoreModal()" style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer;">&times;</span>
             </div>
-            
+
             <form method="POST" action="list.php">
                 <input type="hidden" name="action" value="link_store">
                 <input type="hidden" id="link_product_id" name="product_id">
-                
+
                 <div style="margin-bottom: 15px;">
                     <label style="display: block; margin-bottom: 5px; font-weight: bold;">Product:</label>
                     <div id="link_product_name" style="padding: 8px; background: #f8f9fa; border-radius: 4px;"></div>
                 </div>
-                
+
                 <div style="margin-bottom: 20px;">
                     <label for="link_store_id" style="display: block; margin-bottom: 5px; font-weight: bold;">Select Store:</label>
                     <select id="link_store_id" name="store_id" class="form-control" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
@@ -1983,7 +2023,7 @@ $page_title = 'Stock Management - Inventory System';
                         <?php endforeach; ?>
                     </select>
                 </div>
-                
+
                 <div style="text-align: right;">
                     <button type="button" onclick="closeLinkStoreModal()" class="btn btn-secondary" style="margin-right: 10px;">Cancel</button>
                     <button type="submit" class="btn btn-primary">Save Changes</button>
@@ -1993,24 +2033,24 @@ $page_title = 'Stock Management - Inventory System';
     </div>
 
     <script>
-    function openLinkStoreModal(productId, productName, currentStoreId) {
-        document.getElementById('link_product_id').value = productId;
-        document.getElementById('link_product_name').textContent = productName;
-        document.getElementById('link_store_id').value = currentStoreId;
-        document.getElementById('linkStoreModal').style.display = 'block';
-    }
-
-    function closeLinkStoreModal() {
-        document.getElementById('linkStoreModal').style.display = 'none';
-    }
-
-    // Close modal when clicking outside
-    window.onclick = function(event) {
-        const modal = document.getElementById('linkStoreModal');
-        if (event.target == modal) {
-            modal.style.display = "none";
+        function openLinkStoreModal(productId, productName, currentStoreId) {
+            document.getElementById('link_product_id').value = productId;
+            document.getElementById('link_product_name').textContent = productName;
+            document.getElementById('link_store_id').value = currentStoreId;
+            document.getElementById('linkStoreModal').style.display = 'block';
         }
-    }
+
+        function closeLinkStoreModal() {
+            document.getElementById('linkStoreModal').style.display = 'none';
+        }
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('linkStoreModal');
+            if (event.target == modal) {
+                modal.style.display = "none";
+            }
+        }
     </script>
 
     <!-- Assign to Store Modal -->
@@ -2020,10 +2060,10 @@ $page_title = 'Stock Management - Inventory System';
                 <h2 style="margin: 0; font-size: 1.5rem;"><i class="fas fa-store"></i> Assign to Store</h2>
                 <span class="close" onclick="closeAssignModal()" style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer;">&times;</span>
             </div>
-            
+
             <form id="assignStoreForm" method="POST" action="assign_to_store.php">
                 <input type="hidden" id="assign_product_id" name="id">
-                
+
                 <div class="form-group" style="margin-bottom: 15px;">
                     <label style="display: block; margin-bottom: 5px; font-weight: bold;">Product:</label>
                     <div id="assign_product_name" style="padding: 8px; background: #f8f9fa; border-radius: 4px; border: 1px solid #ddd;"></div>
@@ -2031,10 +2071,10 @@ $page_title = 'Stock Management - Inventory System';
 
                 <div class="form-group" style="margin-bottom: 15px;">
                     <label style="display: block; margin-bottom: 5px; font-weight: bold;">Select Store:</label>
-                    
+
                     <!-- Searchable Store Selection -->
                     <input type="text" id="store_search" placeholder="Search stores..." class="form-control" onkeyup="filterStores()" style="width: 100%; padding: 8px; margin-bottom: 5px; border: 1px solid #ddd; border-radius: 4px;">
-                    
+
                     <div id="store_list_container" style="max-height: 200px; overflow-y: auto; border: 1px solid #ddd; border-radius: 4px;">
                         <!-- Stores will be populated here via JS -->
                         <div style="padding: 10px; text-align: center; color: #666;">Loading stores...</div>
@@ -2066,21 +2106,26 @@ $page_title = 'Stock Management - Inventory System';
             justify-content: space-between;
             align-items: center;
         }
+
         .store-option:last-child {
             border-bottom: none;
         }
+
         .store-option:hover {
             background-color: #f0f8ff;
         }
+
         .store-option.selected {
             background-color: #e3f2fd;
             border-left: 4px solid #2196F3;
         }
+
         .store-option.disabled {
             background-color: #f9f9f9;
             color: #aaa;
             cursor: not-allowed;
         }
+
         .store-option.disabled:hover {
             background-color: #f9f9f9;
         }
@@ -2105,49 +2150,49 @@ $page_title = 'Stock Management - Inventory System';
             formData.append('ajax', '1');
 
             fetch('assign_to_store.php', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    // Show success message (you might want a nicer toast here)
-                    alert(data.message);
-                    closeAssignModal();
-                    // Reload page to show changes
-                    location.reload();
-                } else {
-                    // Show errors
-                    const errorDiv = document.getElementById('store_selection_error');
-                    errorDiv.style.display = 'block';
-                    errorDiv.textContent = Array.isArray(data.errors) ? data.errors.join('\n') : 'An error occurred';
-                    
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Show success message (you might want a nicer toast here)
+                        alert(data.message);
+                        closeAssignModal();
+                        // Reload page to show changes
+                        location.reload();
+                    } else {
+                        // Show errors
+                        const errorDiv = document.getElementById('store_selection_error');
+                        errorDiv.style.display = 'block';
+                        errorDiv.textContent = Array.isArray(data.errors) ? data.errors.join('\n') : 'An error occurred';
+
+                        submitBtn.disabled = false;
+                        submitBtn.innerHTML = originalText;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('An error occurred while assigning the product.');
                     submitBtn.disabled = false;
                     submitBtn.innerHTML = originalText;
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                alert('An error occurred while assigning the product.');
-                submitBtn.disabled = false;
-                submitBtn.innerHTML = originalText;
-            });
+                });
         });
 
         function openAssignModal(productId, productName, maxQty) {
             document.getElementById('assignStoreModal').style.display = 'block';
             document.getElementById('assign_product_id').value = productId;
             document.getElementById('assign_product_name').textContent = productName;
-            
+
             const qtyInput = document.getElementById('assign_quantity');
-            qtyInput.value = 0; 
+            qtyInput.value = 0;
             qtyInput.max = maxQty;
 
             // Reset selection
             document.getElementById('assign_store_id').value = '';
             document.getElementById('store_search').value = '';
             document.getElementById('store_selection_error').style.display = 'none';
-            
+
             // Clear list and show loading
             const container = document.getElementById('store_list_container');
             container.innerHTML = '<div style="padding: 10px; text-align: center; color: #666;"><i class="fas fa-spinner fa-spin"></i> Loading stores...</div>';
@@ -2171,7 +2216,7 @@ $page_title = 'Stock Management - Inventory System';
             const container = document.getElementById('store_list_container');
             const searchTerm = document.getElementById('store_search').value.toLowerCase();
             const selectedId = String(document.getElementById('assign_store_id').value);
-            
+
             container.innerHTML = '';
 
             let visibleCount = 0;
@@ -2183,10 +2228,10 @@ $page_title = 'Stock Management - Inventory System';
                 }
 
                 const storeId = String(store.id);
-                
+
                 // Check if assigned - robust comparison
                 const isAssigned = assignedStoreIds.some(id => String(id) === storeId);
-                
+
                 // Skip assigned stores
                 if (isAssigned) {
                     return;
@@ -2196,15 +2241,15 @@ $page_title = 'Stock Management - Inventory System';
 
                 const div = document.createElement('div');
                 div.className = 'store-option' + (isSelected ? ' selected' : '');
-                
+
                 let html = `<span>${store.name}</span>`;
-                
+
                 div.onclick = function() {
                     document.getElementById('assign_store_id').value = store.id;
                     renderStoreList(); // Re-render to update selection styling
                     document.getElementById('store_selection_error').style.display = 'none';
                 };
-                
+
                 div.innerHTML = html;
 
                 container.appendChild(div);
@@ -2227,7 +2272,7 @@ $page_title = 'Stock Management - Inventory System';
                 document.getElementById('store_selection_error').textContent = 'Please select a store.';
                 return false;
             }
-            
+
             // Double check if store is already assigned (client-side check)
             const storeIdNum = parseInt(storeId);
             if (assignedStoreIds.includes(storeIdNum)) {
@@ -2235,7 +2280,7 @@ $page_title = 'Stock Management - Inventory System';
                 document.getElementById('store_selection_error').textContent = 'This store is already assigned.';
                 return false;
             }
-            
+
             return true;
         }
 
@@ -2258,7 +2303,7 @@ $page_title = 'Stock Management - Inventory System';
         function openRestockModal(productId, productName, supplierId, warehouseQty, isStoreProduct, manualAdjustUrl) {
             document.getElementById('restockOptionsModal').style.display = 'block';
             document.getElementById('restock_product_name').textContent = productName;
-            
+
             // Setup Supplier Link
             const supplierLink = document.getElementById('btn_restock_supplier');
             if (supplierId) {
@@ -2271,19 +2316,19 @@ $page_title = 'Stock Management - Inventory System';
             // Setup Manual Adjust Link
             const manualLink = document.getElementById('btn_manual_restock');
             manualLink.href = manualAdjustUrl;
-            
+
             // Setup Warehouse Transfer
             const transferSection = document.getElementById('warehouse_transfer_section');
             const warehouseQtyDisplay = document.getElementById('warehouse_qty_display');
             const transferBtn = document.getElementById('btn_transfer_warehouse');
             const transferQtyInput = document.getElementById('transfer_quantity');
             const transferProductId = document.getElementById('transfer_product_id');
-            
+
             if (isStoreProduct) {
                 transferSection.style.display = 'block';
                 warehouseQtyDisplay.textContent = warehouseQty;
                 transferProductId.value = productId;
-                
+
                 if (warehouseQty > 0) {
                     transferBtn.disabled = false;
                     transferQtyInput.disabled = false;
@@ -2306,7 +2351,7 @@ $page_title = 'Stock Management - Inventory System';
             <span class="close" onclick="document.getElementById('restockOptionsModal').style.display='none'" style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer;">&times;</span>
             <h3 style="margin-top: 0; color: #2c3e50;">Restock Options</h3>
             <p id="restock_product_name" style="font-weight: bold; margin-bottom: 20px;"></p>
-            
+
             <div style="display: flex; flex-direction: column; gap: 10px;">
                 <a id="btn_restock_supplier" href="#" class="btn btn-success" style="text-align: center; padding: 10px;">
                     <i class="fas fa-truck"></i> Restock from Supplier
@@ -2315,11 +2360,11 @@ $page_title = 'Stock Management - Inventory System';
                 <a id="btn_manual_restock" href="#" class="btn btn-warning" style="text-align: center; padding: 10px; background-color: #f39c12; border-color: #e67e22; color: white;">
                     <i class="fas fa-boxes"></i> Manual Stock Adjustment
                 </a>
-                
+
                 <div id="warehouse_transfer_section" style="border-top: 1px solid #eee; padding-top: 10px; margin-top: 5px;">
                     <h4 style="font-size: 14px; margin-bottom: 10px;">Transfer from Warehouse</h4>
                     <p style="font-size: 12px; color: #666; margin-bottom: 10px;">Available in Warehouse: <span id="warehouse_qty_display" style="font-weight: bold;">0</span></p>
-                    
+
                     <form id="warehouse_transfer_form" action="transfer_from_warehouse.php" method="POST" style="display: flex; gap: 5px;">
                         <input type="hidden" name="product_id" id="transfer_product_id">
                         <input type="number" name="quantity" id="transfer_quantity" placeholder="Qty" min="1" style="width: 80px; padding: 5px; border: 1px solid #ddd; border-radius: 4px;">
@@ -2333,29 +2378,29 @@ $page_title = 'Stock Management - Inventory System';
     </div>
 
     <script>
-    // Close modal when clicking outside
-    window.onclick = function(event) {
-        const modal = document.getElementById('restockOptionsModal');
-        if (event.target == modal) {
-            modal.style.display = "none";
-        }
-    }
-
-    // Warehouse transfer form submission
-    document.getElementById('warehouse_transfer_form').addEventListener('submit', function(e) {
-        e.preventDefault();
-
-        const productId = document.getElementById('transfer_product_id').value;
-        const quantity = document.getElementById('transfer_quantity').value;
-
-        if (!productId || !quantity) {
-            alert('Please enter a valid quantity.');
-            return;
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('restockOptionsModal');
+            if (event.target == modal) {
+                modal.style.display = "none";
+            }
         }
 
-        // Proceed with the transfer
-        this.submit();
-    });
+        // Warehouse transfer form submission
+        document.getElementById('warehouse_transfer_form').addEventListener('submit', function(e) {
+            e.preventDefault();
+
+            const productId = document.getElementById('transfer_product_id').value;
+            const quantity = document.getElementById('transfer_quantity').value;
+
+            if (!productId || !quantity) {
+                alert('Please enter a valid quantity.');
+                return;
+            }
+
+            // Proceed with the transfer
+            this.submit();
+        });
     </script>
 </body>
 

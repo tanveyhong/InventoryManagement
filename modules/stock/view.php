@@ -29,22 +29,32 @@ $stock = null;
 if ($id !== '') {
     try {
         $sqlDb = SQLDatabase::getInstance();
-        // If id looks like an integer, try ID lookup
+
         if (ctype_digit($id)) {
-            $row = $sqlDb->fetch("SELECT * FROM products WHERE id = ?", [$id]);
+            $row = $sqlDb->fetch("
+                SELECT p.*, s.name AS store_name
+                FROM products p
+                LEFT JOIN stores s ON p.store_id = s.id
+                WHERE p.id = ?
+            ", [$id]);
+
             if ($row) {
                 $stock = $row;
-                $stock['doc_id'] = (string)$row['id']; // Map ID to doc_id
-                // Ensure numeric types
+                $stock['doc_id'] = (string)$row['id'];
+
                 $stock['quantity'] = (int)$stock['quantity'];
                 $stock['reorder_level'] = (int)$stock['reorder_level'];
                 $stock['price'] = (float)$stock['price'];
+
+                // store name directly available now
+                $storeName = $stock['store_name'] ?? '—';
             }
         }
     } catch (Exception $e) {
         // SQL failed, ignore
     }
 }
+
 
 // 2. Fallback to Firestore
 if (!$stock) $stock = fs_get_product_by_doc($id);
@@ -56,8 +66,8 @@ if (!$stock) {
 
 // ---- Resolve store name (SQL first, Firestore fallback) --------------------
 // ---- Resolve store name (SQL only, same source as add.php) ----
-$storeName = '—';
-$storeId   = isset($stock['store_id']) ? trim((string)$stock['store_id']) : '';
+$storeName = $stock['store_name'] ?? '—';
+
 
 if ($storeId !== '') {
   try {
@@ -470,17 +480,7 @@ if ($returnRaw !== '') {
         padding: 1.5rem;
       }
     }
-      align-items: center;
-      gap: 0.4rem;
-      background: #ef4444;
-      /* red */
-      color: #fff;
-      font-weight: 600;
-      font-size: 0.85rem;
-      padding: 0.5rem 1rem;
-      border-radius: 50px;
-      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15);
-    }
+
   </style>
 </head>
 
