@@ -249,14 +249,6 @@ try {
         if (!empty($s['id'])) $storeLookup[$s['id']] = $s['name'];
     }
 
-    // Build warehouse stock map for transfer availability
-    $warehouseStock = [];
-    foreach ($all_products as $p) {
-        if (empty($p['store_id'])) {
-            $warehouseStock[$p['sku']] = $p['quantity'];
-        }
-    }
-
     foreach ($all_products as &$p) {
         if (!empty($p['store_id']) && isset($storeLookup[$p['store_id']])) {
             $p['store_name'] = $storeLookup[$p['store_id']];
@@ -282,6 +274,27 @@ try {
             if (!empty($p['category_name'])) $catNames[$p['category_name']] = true;
         }
         $categories = array_map(fn($n) => ['name' => $n], array_keys($catNames));
+    }
+}
+
+// Build warehouse stock map for transfer availability (Runs for both SQL and Firebase)
+$warehouseStock = [];
+$warehouseStockByName = [];
+
+foreach ($all_products as $p) {
+    if (empty($p['store_id'])) {
+        $sku = $p['sku'] ?? '';
+        $name = $p['name'] ?? '';
+        
+        $skuKey = strtoupper(trim($sku));
+        if ($skuKey) {
+            $warehouseStock[$skuKey] = $p['quantity'];
+        }
+        // Also map by name for fallback (normalized)
+        $nameKey = strtoupper(trim($name));
+        if ($nameKey) {
+            $warehouseStockByName[$nameKey] = $p['quantity'];
+        }
     }
 }
 
@@ -782,17 +795,10 @@ $page_title = 'Stock Management - Inventory System';
                                     <td>
                                         <div class="stock-info">
                                             <span class="current-stock status-<?php echo $product['status']; ?>">
-                                                <?php 
-                                                // Show total system stock for parent products
-                                                if (isset($product['_total_system_stock']) && $product['_total_system_stock'] > $product['quantity']) {
-                                                    echo number_format($product['_total_system_stock']);
-                                                } else {
-                                                    echo number_format($product['quantity']);
-                                                }
-                                                ?>
+                                                <?php echo number_format($product['quantity']); ?>
                                             </span>
-                                            <?php if (isset($product['_total_system_stock']) && $product['_total_system_stock'] > $product['quantity']): ?>
-                                                <br><small style="color: #2980b9; font-weight: 600;">Total Stock</small>
+                                            <?php if (isset($product['_total_system_stock']) && $product['_total_system_stock'] != $product['quantity']): ?>
+                                                <br><small style="color: #2980b9; font-weight: 600;" title="Total across all stores + warehouse">Total: <?php echo number_format($product['_total_system_stock']); ?></small>
                                             <?php endif; ?>
                                             <br><small>Min: <?php echo number_format($product['min_stock_level']); ?></small>
                                         </div>
@@ -907,23 +913,30 @@ $page_title = 'Stock Management - Inventory System';
                                                 </button>
                                                 <?php endif; ?>
                                                 
-                                                <?php if (!empty($product['supplier_id'])): ?>
-                                                    <?php 
-                                                    $whQty = 0;
-                                                    if (!empty($product['store_id']) && isset($warehouseStock[$product['sku']])) {
-                                                        $whQty = $warehouseStock[$product['sku']];
+                                                <?php 
+                                                $whQty = 0;
+                                                // Use the group key (base SKU) to find the warehouse stock
+                                                $baseSku = strtoupper(trim($product['_group_key'] ?? $product['sku']));
+                                                
+                                                if (!empty($product['store_id'])) {
+                                                    // 1. Try SKU match
+                                                    if (isset($warehouseStock[$baseSku])) {
+                                                        $whQty = $warehouseStock[$baseSku];
+                                                    } 
+                                                    // 2. Fallback: Try Name match
+                                                    else {
+                                                        $nameKey = strtoupper(trim($product['name'] ?? ''));
+                                                        if (isset($warehouseStockByName[$nameKey])) {
+                                                            $whQty = $warehouseStockByName[$nameKey];
+                                                        }
                                                     }
-                                                    ?>
-                                                    <button type="button" 
-                                                        onclick="openRestockModal('<?php echo $product['id']; ?>', '<?php echo htmlspecialchars(addslashes($product['name'])); ?>', '<?php echo $product['supplier_id']; ?>', <?php echo $whQty; ?>, <?php echo !empty($product['store_id']) ? 'true' : 'false'; ?>, 'adjust.php?id=<?php echo urlencode($linkId); ?>&return=<?php echo $return; ?>')"
-                                                        class="btn btn-sm btn-success" title="Restock Options" style="background-color: #2ecc71; border-color: #27ae60;">
-                                                        <i class="fas fa-truck"></i> Restock
-                                                    </button>
-                                                <?php else: ?>
-                                                    <a href="adjust.php?id=<?php echo urlencode($linkId); ?>&return=<?php echo $return; ?>" class="btn btn-sm btn-warning" title="Manual Stock Adjustment" style="background-color: #f39c12; border-color: #e67e22;">
-                                                        <i class="fas fa-boxes"></i> Stock
-                                                    </a>
-                                                <?php endif; ?>
+                                                }
+                                                ?>
+                                                <button type="button" 
+                                                    onclick="openRestockModal('<?php echo $product['id']; ?>', '<?php echo htmlspecialchars(addslashes($product['name'])); ?>', '<?php echo $product['supplier_id'] ?? ''; ?>', <?php echo $whQty; ?>, <?php echo !empty($product['store_id']) ? 'true' : 'false'; ?>, 'adjust.php?id=<?php echo urlencode($linkId); ?>&return=<?php echo $return; ?>')"
+                                                    class="btn btn-sm btn-success" title="Restock Options (WH: <?php echo $whQty; ?>)" style="background-color: #2ecc71; border-color: #27ae60;">
+                                                    <i class="fas fa-truck"></i> Restock
+                                                </button>
 
                                             <?php endif; ?>
                                             <?php if (currentUserHasPermission('can_delete_inventory')): ?>
@@ -2248,7 +2261,12 @@ $page_title = 'Stock Management - Inventory System';
             
             // Setup Supplier Link
             const supplierLink = document.getElementById('btn_restock_supplier');
-            supplierLink.href = `../purchase_orders/create.php?supplier_id=${supplierId}&product_id=${productId}`;
+            if (supplierId) {
+                supplierLink.href = `../purchase_orders/create.php?supplier_id=${supplierId}&product_id=${productId}`;
+                supplierLink.style.display = 'block';
+            } else {
+                supplierLink.style.display = 'none';
+            }
 
             // Setup Manual Adjust Link
             const manualLink = document.getElementById('btn_manual_restock');
