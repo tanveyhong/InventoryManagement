@@ -180,18 +180,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 VALUES
                     (?,    ?,   ?,           ?,        ?,        ?,           ?,        ?,          ?,     ?,             ?,             CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             ";
+            
+            // We are using 'category' text column, not category_id relation in this schema version
+            // But we still want to ensure the category exists in categories table for consistency if possible
+            // For now, just insert the text name as that's what the table expects
+
             $sqlDb->execute($sql, [
                 $name,
                 $sku !== '' ? $sku : null,
                 $description !== '' ? $description : null,
-                $category,
+                $category, // Insert text directly
                 $store_id > 0 ? $store_id : null,
                 $supplier_id,
                 $quantity,
                 $cost_price,
                 $unit_price,
                 $unit_price, // selling_price
-                $min_stock_level,
+                $min_stock_level, // reorder_level
             ]);
 
             $product_id = $sqlDb->lastInsertId();

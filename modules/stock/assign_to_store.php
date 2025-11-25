@@ -29,8 +29,13 @@ $db = getDB();
 $sqlDb = getSQLDB();
 $errors = [];
 
-// Get main product ID from URL
-$main_product_id = $_GET['id'] ?? null;
+// Get main product ID from URL or POST
+$main_product_id = $_REQUEST['id'] ?? null;
+if (!$main_product_id) {
+    // If POST, check if id is in POST
+    $main_product_id = $_POST['id'] ?? null;
+}
+
 if (!$main_product_id) {
     $_SESSION['error'] = 'No product specified';
     header('Location: list.php');
@@ -46,12 +51,12 @@ if (!$mainProduct) {
 }
 
 // Get all stores
-$stores = $sqlDb->fetchAll("SELECT * FROM stores WHERE active = 1 ORDER BY name");
+$stores = $sqlDb->fetchAll("SELECT * FROM stores WHERE active = true ORDER BY name");
 
 // Get already assigned stores
 $assignedStores = $sqlDb->fetchAll(
-    "SELECT store_id FROM products WHERE sku LIKE ? AND store_id IS NOT NULL",
-    [$mainProduct['sku'] . '-S%']
+    "SELECT store_id FROM products WHERE (sku = ? OR LOWER(sku) LIKE LOWER(?) OR name = ?) AND store_id IS NOT NULL",
+    [$mainProduct['sku'], $mainProduct['sku'] . '-%', $mainProduct['name']]
 );
 $assignedStoreIds = array_column($assignedStores, 'store_id');
 
@@ -64,7 +69,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Validation
     if ($store_id <= 0) $errors[] = 'Please select a store';
     if ($quantity < 0) $errors[] = 'Quantity cannot be negative';
-    if ($quantity > $mainProduct['quantity']) {
+    // Allow assigning 0 quantity even if main product has 0
+    if ($quantity > 0 && $quantity > $mainProduct['quantity']) {
         $errors[] = 'Cannot assign more than available quantity (' . $mainProduct['quantity'] . ')';
     }
 
@@ -81,65 +87,83 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $store = $sqlDb->fetch("SELECT * FROM stores WHERE id = ?", [$store_id]);
             if (!$store) throw new Exception('Store not found');
 
-            // Create store variant SKU
-            $variantSku = $mainProduct['sku'] . '-S' . $store_id;
+            // Create store variant SKU (Format: SKU-STORENAME)
+            $storeNameRaw = $store['name'];
+            $storeSuffix = strtoupper(preg_replace('/[^a-zA-Z0-9]/', '', $storeNameRaw));
+            if (empty($storeSuffix)) $storeSuffix = 'S' . $store_id;
+            
+            $variantSku = $mainProduct['sku'] . '-' . $storeSuffix;
 
             // Create store variant
             $sql = "
                 INSERT INTO products
-                    (name, sku, barcode, description, category, unit, cost_price, price, quantity, reorder_level, expiry_date, store_id, active, created_at, updated_at)
+                    (name, sku, barcode, description, category, unit, cost_price, price, selling_price, quantity, reorder_level, store_id, active, created_at, updated_at)
                 VALUES
-                    (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             ";
             $sqlDb->execute($sql, [
                 $mainProduct['name'],
                 $variantSku,
                 $mainProduct['barcode'],
                 $mainProduct['description'],
-                $mainProduct['category'],
+                $mainProduct['category'] ?? $mainProduct['category_id'] ?? null,
                 $mainProduct['unit'],
-                $mainProduct['cost_price'],
+                $mainProduct['cost_price'] ?? $mainProduct['cost'] ?? 0,
                 $mainProduct['price'],
-                $quantity,
-                $mainProduct['reorder_level'],
-                $mainProduct['expiry_date'],
+                $mainProduct['price'], // selling_price defaults to price
+                $quantity, // Set initial quantity
+                $mainProduct['reorder_level'] ?? $mainProduct['min_stock_level'] ?? 0,
                 $store_id
             ]);
 
             $variant_id = $sqlDb->lastInsertId();
 
             // Update main product quantity (subtract assigned quantity)
-            $newMainQty = $mainProduct['quantity'] - $quantity;
-            $sqlDb->execute(
-                "UPDATE products SET quantity = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                [$newMainQty, $main_product_id]
-            );
+            if ($quantity > 0) {
+                $newMainQty = $mainProduct['quantity'] - $quantity;
+                $sqlDb->execute(
+                    "UPDATE products SET quantity = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    [$newMainQty, $main_product_id]
+                );
 
-            // Log stock movements
-            // 1. Movement OUT from main product
-            $sqlDb->execute("
-                INSERT INTO stock_movements (product_id, store_id, movement_type, quantity, reference, notes, user_id, created_at)
-                VALUES (?, NULL, 'out', ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ", [
-                $main_product_id,
-                $quantity,
-                'Store Assignment',
-                "Assigned to {$store['name']} (Store variant created: {$variantSku})",
-                $_SESSION['user_id'] ?? null
-            ]);
+                // Log stock movements
+                // 1. Movement OUT from main product
+                $sqlDb->execute("
+                    INSERT INTO stock_movements (product_id, store_id, movement_type, quantity, reference, notes, user_id, created_at)
+                    VALUES (?, NULL, 'out', ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ", [
+                    $main_product_id,
+                    $quantity,
+                    'Store Assignment',
+                    "Assigned to {$store['name']} (Store variant created: {$variantSku})",
+                    $_SESSION['user_id'] ?? null
+                ]);
 
-            // 2. Movement IN to store variant
-            $sqlDb->execute("
-                INSERT INTO stock_movements (product_id, store_id, movement_type, quantity, reference, notes, user_id, created_at)
-                VALUES (?, ?, 'in', ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ", [
-                $variant_id,
-                $store_id,
-                $quantity,
-                'Store Assignment',
-                "Assigned from main product (ID: {$main_product_id})",
-                $_SESSION['user_id'] ?? null
-            ]);
+                // 2. Movement IN to store variant
+                $sqlDb->execute("
+                    INSERT INTO stock_movements (product_id, store_id, movement_type, quantity, reference, notes, user_id, created_at)
+                    VALUES (?, ?, 'in', ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ", [
+                    $variant_id,
+                    $store_id,
+                    $quantity,
+                    'Store Assignment',
+                    "Assigned from main product (ID: {$main_product_id})",
+                    $_SESSION['user_id'] ?? null
+                ]);
+            } else {
+                // If quantity is 0, we still log the creation but no movement
+                 $sqlDb->execute("
+                    INSERT INTO stock_movements (product_id, store_id, movement_type, quantity, reference, notes, user_id, created_at)
+                    VALUES (?, ?, 'adjustment', 0, ?, ?, ?, CURRENT_TIMESTAMP)
+                ", [
+                    $variant_id,
+                    $store_id,
+                    'Store Assignment',
+                    "Store variant created (0 stock assigned)",
+                    $_SESSION['user_id'] ?? null
+                ]);
+            }
 
             $sqlDb->commit();
 
@@ -151,15 +175,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'sku'           => $variantSku,
                     'barcode'       => $mainProduct['barcode'],
                     'description'   => $mainProduct['description'],
-                    'category'      => $mainProduct['category'],
+                    'category'      => $mainProduct['category_id'] ?? $mainProduct['category'] ?? null,
                     'unit'          => $mainProduct['unit'],
-                    'cost_price'    => floatval($mainProduct['cost_price'] ?? 0),
+                    'cost_price'    => floatval($mainProduct['cost'] ?? $mainProduct['cost_price'] ?? 0),
                     'selling_price' => floatval($mainProduct['price'] ?? 0),
                     'price'         => floatval($mainProduct['price'] ?? 0),
                     'quantity'      => $quantity,
-                    'reorder_level' => intval($mainProduct['reorder_level'] ?? 0),
-                    'min_stock_level' => intval($mainProduct['reorder_level'] ?? 0),
-                    'expiry_date'   => $mainProduct['expiry_date'],
+                    'reorder_level' => intval($mainProduct['min_stock_level'] ?? $mainProduct['reorder_level'] ?? 0),
+                    'min_stock_level' => intval($mainProduct['min_stock_level'] ?? $mainProduct['reorder_level'] ?? 0),
                     'store_id'      => $store_id,
                     'active'        => 1,
                     'created_at'    => date('c'),
@@ -168,33 +191,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $db->create('products', $variantDoc, (string)$variant_id);
 
                 // Update main product in Firebase
-                $db->update('products', (string)$main_product_id, [
-                    'quantity' => $newMainQty,
-                    'updated_at' => date('c')
-                ]);
+                if ($quantity > 0) {
+                    $db->update('products', (string)$main_product_id, [
+                        'quantity' => $newMainQty,
+                        'updated_at' => date('c')
+                    ]);
 
-                // Log stock movements in Firebase
-                $db->create('stock_movements', [
-                    'product_id'    => $main_product_id,
-                    'store_id'      => null,
-                    'movement_type' => 'out',
-                    'quantity'      => $quantity,
-                    'reference'     => 'Store Assignment',
-                    'notes'         => "Assigned to {$store['name']}",
-                    'user_id'       => $_SESSION['user_id'] ?? null,
-                    'created_at'    => date('c'),
-                ]);
+                    // Log stock movements in Firebase
+                    $db->create('stock_movements', [
+                        'product_id'    => $main_product_id,
+                        'store_id'      => null,
+                        'movement_type' => 'out',
+                        'quantity'      => $quantity,
+                        'reference'     => 'Store Assignment',
+                        'notes'         => "Assigned to {$store['name']}",
+                        'user_id'       => $_SESSION['user_id'] ?? null,
+                        'created_at'    => date('c'),
+                    ]);
 
-                $db->create('stock_movements', [
-                    'product_id'    => $variant_id,
-                    'store_id'      => $store_id,
-                    'movement_type' => 'in',
-                    'quantity'      => $quantity,
-                    'reference'     => 'Store Assignment',
-                    'notes'         => "Assigned from main product",
-                    'user_id'       => $_SESSION['user_id'] ?? null,
-                    'created_at'    => date('c'),
-                ]);
+                    $db->create('stock_movements', [
+                        'product_id'    => $variant_id,
+                        'store_id'      => $store_id,
+                        'movement_type' => 'in',
+                        'quantity'      => $quantity,
+                        'reference'     => 'Store Assignment',
+                        'notes'         => "Assigned from main product",
+                        'user_id'       => $_SESSION['user_id'] ?? null,
+                        'created_at'    => date('c'),
+                    ]);
+                }
             } catch (Throwable $t) {
                 error_log('Firebase sync failed: ' . $t->getMessage());
             }
@@ -218,14 +243,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             @unlink(__DIR__ . '/../../storage/cache/stock_list_data.cache');
             @unlink(__DIR__ . '/../../storage/cache/pos_products.cache');
 
+            // Check for AJAX request
+            if (isset($_POST['ajax']) && $_POST['ajax'] === '1') {
+                header('Content-Type: application/json');
+                echo json_encode([
+                    'success' => true, 
+                    'message' => "Product assigned to {$store['name']} successfully! Store variant {$variantSku} created."
+                ]);
+                exit;
+            }
+
             $_SESSION['success'] = "Product assigned to {$store['name']} successfully! Store variant {$variantSku} created.";
-            header('Location: list.php?refresh=1');
+            header('Location: list.php');
             exit;
 
         } catch (Throwable $t) {
             if ($sqlDb->inTransaction()) $sqlDb->rollBack();
             $errors[] = 'Error assigning product: ' . $t->getMessage();
         }
+    }
+    
+    // Handle AJAX errors
+    if (isset($_POST['ajax']) && $_POST['ajax'] === '1' && !empty($errors)) {
+        header('Content-Type: application/json');
+        echo json_encode(['success' => false, 'errors' => $errors]);
+        exit;
     }
 }
 

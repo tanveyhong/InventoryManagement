@@ -248,6 +248,15 @@ try {
     foreach ($stores as $s) {
         if (!empty($s['id'])) $storeLookup[$s['id']] = $s['name'];
     }
+
+    // Build warehouse stock map for transfer availability
+    $warehouseStock = [];
+    foreach ($all_products as $p) {
+        if (empty($p['store_id'])) {
+            $warehouseStock[$p['sku']] = $p['quantity'];
+        }
+    }
+
     foreach ($all_products as &$p) {
         if (!empty($p['store_id']) && isset($storeLookup[$p['store_id']])) {
             $p['store_name'] = $storeLookup[$p['store_id']];
@@ -354,8 +363,16 @@ foreach ($filtered_products as $product) {
     // Check for meaningful suffix (e.g. -MAINSTORE) derived from store name
     $sanitizedStoreName = $product['store_name'] ? strtoupper(preg_replace('/[^a-zA-Z0-9]/', '', $product['store_name'])) : '';
     $meaningfulSuffix = $sanitizedStoreName ? '-' . $sanitizedStoreName : '';
+    $posSuffix = $sanitizedStoreName ? '-POS-' . $sanitizedStoreName : '';
     
-    if (preg_match('/^(.+)-S(\d+)$/', $sku, $matches)) {
+    if ($posSuffix && strlen($sku) > strlen($posSuffix) && substr($sku, -strlen($posSuffix)) === $posSuffix) {
+        // POS Variant (e.g. PRODUCT-POS-MAINSTORE)
+        $baseSku = substr($sku, 0, -strlen($posSuffix));
+        $isStoreVariant = true;
+        $product['_is_store_variant'] = true;
+        $product['_store_suffix'] = $product['store_name'];
+        $product['_is_pos_variant'] = true;
+    } elseif (preg_match('/^(.+)-S(\d+)$/', $sku, $matches)) {
         // Properly formatted store variant (e.g., COM-BREAD-WHT-S6)
         $baseSku = $matches[1];
         $isStoreVariant = true;
@@ -742,9 +759,11 @@ $page_title = 'Stock Management - Inventory System';
                                                     <span style="color: #3498db; font-size: 11px; font-weight: 600; background: #e8f4fd; padding: 2px 6px; border-radius: 3px; margin-left: 5px;">
                                                         <?php echo htmlspecialchars($product['_store_suffix'] ?? ''); ?>
                                                     </span>
-                                                    <span style="color: #fff; font-size: 10px; font-weight: 600; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 2px 6px; border-radius: 3px; margin-left: 3px; box-shadow: 0 1px 2px rgba(0,0,0,0.1);" title="Linked to POS System">
-                                                        <i class="fas fa-link" style="font-size: 9px;"></i> POS
-                                                    </span>
+                                                    <?php if ($product['_is_pos_variant'] ?? false): ?>
+                                                        <span style="color: #fff; font-size: 10px; font-weight: 600; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 2px 6px; border-radius: 3px; margin-left: 3px; box-shadow: 0 1px 2px rgba(0,0,0,0.1);" title="Linked to POS System">
+                                                            <i class="fas fa-link" style="font-size: 9px;"></i> POS
+                                                        </span>
+                                                    <?php endif; ?>
                                                     <?php if ($product['_malformed_sku'] ?? false): ?>
                                                         <span style="color: #e67e22; font-size: 10px; font-weight: 600; background: #ffeaa7; padding: 2px 6px; border-radius: 3px; margin-left: 3px;" title="SKU should include store suffix">
                                                             ⚠️ Needs Fix
@@ -879,15 +898,27 @@ $page_title = 'Stock Management - Inventory System';
                                                 </a>
                                                 
                                                 <?php if (!($product['_is_store_variant'] ?? false)): ?>
-                                                <a href="assign_to_store.php?id=<?php echo $product['id']; ?>" class="btn btn-sm btn-info" title="Assign Stock to Store" style="background-color: #17a2b8; border-color: #17a2b8; color: white;">
+                                                <button type="button" 
+                                                        onclick="openAssignModal('<?php echo $product['id']; ?>', '<?php echo htmlspecialchars(addslashes($product['name'])); ?>', <?php echo $product['quantity']; ?>)" 
+                                                        class="btn btn-sm btn-info" 
+                                                        title="Assign Stock to Store" 
+                                                        style="background-color: #17a2b8; border-color: #17a2b8; color: white;">
                                                     <i class="fas fa-share-alt"></i> Assign
-                                                </a>
+                                                </button>
                                                 <?php endif; ?>
                                                 
                                                 <?php if (!empty($product['supplier_id'])): ?>
-                                                    <a href="../purchase_orders/create.php?supplier_id=<?php echo $product['supplier_id']; ?>&product_id=<?php echo $product['id']; ?>" class="btn btn-sm btn-success" title="Restock from Supplier" style="background-color: #2ecc71; border-color: #27ae60;">
+                                                    <?php 
+                                                    $whQty = 0;
+                                                    if (!empty($product['store_id']) && isset($warehouseStock[$product['sku']])) {
+                                                        $whQty = $warehouseStock[$product['sku']];
+                                                    }
+                                                    ?>
+                                                    <button type="button" 
+                                                        onclick="openRestockModal('<?php echo $product['id']; ?>', '<?php echo htmlspecialchars(addslashes($product['name'])); ?>', '<?php echo $product['supplier_id']; ?>', <?php echo $whQty; ?>, <?php echo !empty($product['store_id']) ? 'true' : 'false'; ?>, 'adjust.php?id=<?php echo urlencode($linkId); ?>&return=<?php echo $return; ?>')"
+                                                        class="btn btn-sm btn-success" title="Restock Options" style="background-color: #2ecc71; border-color: #27ae60;">
                                                         <i class="fas fa-truck"></i> Restock
-                                                    </a>
+                                                    </button>
                                                 <?php else: ?>
                                                     <a href="adjust.php?id=<?php echo urlencode($linkId); ?>&return=<?php echo $return; ?>" class="btn btn-sm btn-warning" title="Manual Stock Adjustment" style="background-color: #f39c12; border-color: #e67e22;">
                                                         <i class="fas fa-boxes"></i> Stock
@@ -1967,6 +1998,346 @@ $page_title = 'Stock Management - Inventory System';
             modal.style.display = "none";
         }
     }
+    </script>
+
+    <!-- Assign to Store Modal -->
+    <div id="assignStoreModal" class="modal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4);">
+        <div class="modal-content" style="background-color: #fefefe; margin: 10% auto; padding: 20px; border: 1px solid #888; width: 500px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
+            <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 10px;">
+                <h2 style="margin: 0; font-size: 1.5rem;"><i class="fas fa-store"></i> Assign to Store</h2>
+                <span class="close" onclick="closeAssignModal()" style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer;">&times;</span>
+            </div>
+            
+            <form id="assignStoreForm" method="POST" action="assign_to_store.php">
+                <input type="hidden" id="assign_product_id" name="id">
+                
+                <div class="form-group" style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">Product:</label>
+                    <div id="assign_product_name" style="padding: 8px; background: #f8f9fa; border-radius: 4px; border: 1px solid #ddd;"></div>
+                </div>
+
+                <div class="form-group" style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">Select Store:</label>
+                    
+                    <!-- Searchable Store Selection -->
+                    <input type="text" id="store_search" placeholder="Search stores..." class="form-control" onkeyup="filterStores()" style="width: 100%; padding: 8px; margin-bottom: 5px; border: 1px solid #ddd; border-radius: 4px;">
+                    
+                    <div id="store_list_container" style="max-height: 200px; overflow-y: auto; border: 1px solid #ddd; border-radius: 4px;">
+                        <!-- Stores will be populated here via JS -->
+                        <div style="padding: 10px; text-align: center; color: #666;">Loading stores...</div>
+                    </div>
+                    <input type="hidden" id="assign_store_id" name="store_id" required>
+                    <div id="store_selection_error" style="color: red; font-size: 0.9em; display: none; margin-top: 5px;">Please select a store.</div>
+                </div>
+
+                <div class="form-group" style="margin-bottom: 20px;">
+                    <label for="assign_quantity" style="display: block; margin-bottom: 5px; font-weight: bold;">Initial Quantity:</label>
+                    <input type="number" id="assign_quantity" name="quantity" value="0" readonly style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; background-color: #e9ecef; cursor: not-allowed;">
+                    <small style="color: #666; display: block; margin-top: 5px;">Quantity is fixed to 0 for initial assignment.</small>
+                </div>
+
+                <div class="form-actions" style="text-align: right;">
+                    <button type="button" onclick="closeAssignModal()" class="btn btn-secondary" style="margin-right: 10px;">Cancel</button>
+                    <button type="submit" class="btn btn-primary" onclick="return validateAssignForm()">Assign Product</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <style>
+        .store-option {
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .store-option:last-child {
+            border-bottom: none;
+        }
+        .store-option:hover {
+            background-color: #f0f8ff;
+        }
+        .store-option.selected {
+            background-color: #e3f2fd;
+            border-left: 4px solid #2196F3;
+        }
+        .store-option.disabled {
+            background-color: #f9f9f9;
+            color: #aaa;
+            cursor: not-allowed;
+        }
+        .store-option.disabled:hover {
+            background-color: #f9f9f9;
+        }
+    </style>
+
+    <script>
+        // Pass PHP stores array to JS
+        const allStores = <?php echo json_encode($stores); ?>;
+        let assignedStoreIds = [];
+
+        // Handle AJAX form submission
+        document.getElementById('assignStoreForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            if (!validateAssignForm()) return;
+
+            const submitBtn = this.querySelector('button[type="submit"]');
+            const originalText = submitBtn.innerHTML;
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Assigning...';
+
+            const formData = new FormData(this);
+            formData.append('ajax', '1');
+
+            fetch('assign_to_store.php', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Show success message (you might want a nicer toast here)
+                    alert(data.message);
+                    closeAssignModal();
+                    // Reload page to show changes
+                    location.reload();
+                } else {
+                    // Show errors
+                    const errorDiv = document.getElementById('store_selection_error');
+                    errorDiv.style.display = 'block';
+                    errorDiv.textContent = Array.isArray(data.errors) ? data.errors.join('\n') : 'An error occurred';
+                    
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = originalText;
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('An error occurred while assigning the product.');
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = originalText;
+            });
+        });
+
+        function openAssignModal(productId, productName, maxQty) {
+            document.getElementById('assignStoreModal').style.display = 'block';
+            document.getElementById('assign_product_id').value = productId;
+            document.getElementById('assign_product_name').textContent = productName;
+            
+            const qtyInput = document.getElementById('assign_quantity');
+            qtyInput.value = 0; 
+            qtyInput.max = maxQty;
+
+            // Reset selection
+            document.getElementById('assign_store_id').value = '';
+            document.getElementById('store_search').value = '';
+            document.getElementById('store_selection_error').style.display = 'none';
+            
+            // Clear list and show loading
+            const container = document.getElementById('store_list_container');
+            container.innerHTML = '<div style="padding: 10px; text-align: center; color: #666;"><i class="fas fa-spinner fa-spin"></i> Loading stores...</div>';
+            assignedStoreIds = []; // Clear previous data
+
+            // Fetch assigned stores
+            fetch('get_assigned_stores.php?id=' + productId + '&t=' + new Date().getTime())
+                .then(response => response.json())
+                .then(data => {
+                    assignedStoreIds = data.assigned_stores || [];
+                    renderStoreList();
+                })
+                .catch(err => {
+                    console.error('Error fetching assigned stores:', err);
+                    assignedStoreIds = [];
+                    renderStoreList();
+                });
+        }
+
+        function renderStoreList() {
+            const container = document.getElementById('store_list_container');
+            const searchTerm = document.getElementById('store_search').value.toLowerCase();
+            const selectedId = String(document.getElementById('assign_store_id').value);
+            
+            container.innerHTML = '';
+
+            let visibleCount = 0;
+
+            allStores.forEach(store => {
+                // Filter by search
+                if (searchTerm && !store.name.toLowerCase().includes(searchTerm)) {
+                    return;
+                }
+
+                const storeId = String(store.id);
+                
+                // Check if assigned - robust comparison
+                const isAssigned = assignedStoreIds.some(id => String(id) === storeId);
+                
+                // Skip assigned stores
+                if (isAssigned) {
+                    return;
+                }
+
+                const isSelected = storeId === selectedId;
+
+                const div = document.createElement('div');
+                div.className = 'store-option' + (isSelected ? ' selected' : '');
+                
+                let html = `<span>${store.name}</span>`;
+                
+                div.onclick = function() {
+                    document.getElementById('assign_store_id').value = store.id;
+                    renderStoreList(); // Re-render to update selection styling
+                    document.getElementById('store_selection_error').style.display = 'none';
+                };
+                
+                div.innerHTML = html;
+
+                container.appendChild(div);
+                visibleCount++;
+            });
+
+            if (visibleCount === 0) {
+                container.innerHTML = '<div style="padding: 10px; text-align: center; color: #999;">No available stores found</div>';
+            }
+        }
+
+        function filterStores() {
+            renderStoreList();
+        }
+
+        function validateAssignForm() {
+            const storeId = document.getElementById('assign_store_id').value;
+            if (!storeId) {
+                document.getElementById('store_selection_error').style.display = 'block';
+                document.getElementById('store_selection_error').textContent = 'Please select a store.';
+                return false;
+            }
+            
+            // Double check if store is already assigned (client-side check)
+            const storeIdNum = parseInt(storeId);
+            if (assignedStoreIds.includes(storeIdNum)) {
+                document.getElementById('store_selection_error').style.display = 'block';
+                document.getElementById('store_selection_error').textContent = 'This store is already assigned.';
+                return false;
+            }
+            
+            return true;
+        }
+
+        function closeAssignModal() {
+            document.getElementById('assignStoreModal').style.display = 'none';
+        }
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('assignStoreModal');
+            if (event.target == modal) {
+                modal.style.display = "none";
+            }
+            const restockModal = document.getElementById('restockOptionsModal');
+            if (event.target == restockModal) {
+                restockModal.style.display = "none";
+            }
+        }
+
+        function openRestockModal(productId, productName, supplierId, warehouseQty, isStoreProduct, manualAdjustUrl) {
+            document.getElementById('restockOptionsModal').style.display = 'block';
+            document.getElementById('restock_product_name').textContent = productName;
+            
+            // Setup Supplier Link
+            const supplierLink = document.getElementById('btn_restock_supplier');
+            supplierLink.href = `../purchase_orders/create.php?supplier_id=${supplierId}&product_id=${productId}`;
+
+            // Setup Manual Adjust Link
+            const manualLink = document.getElementById('btn_manual_restock');
+            manualLink.href = manualAdjustUrl;
+            
+            // Setup Warehouse Transfer
+            const transferSection = document.getElementById('warehouse_transfer_section');
+            const warehouseQtyDisplay = document.getElementById('warehouse_qty_display');
+            const transferBtn = document.getElementById('btn_transfer_warehouse');
+            const transferQtyInput = document.getElementById('transfer_quantity');
+            const transferProductId = document.getElementById('transfer_product_id');
+            
+            if (isStoreProduct) {
+                transferSection.style.display = 'block';
+                warehouseQtyDisplay.textContent = warehouseQty;
+                transferProductId.value = productId;
+                
+                if (warehouseQty > 0) {
+                    transferBtn.disabled = false;
+                    transferQtyInput.disabled = false;
+                    transferQtyInput.max = warehouseQty;
+                    transferBtn.title = "Transfer stock from warehouse";
+                } else {
+                    transferBtn.disabled = true;
+                    transferQtyInput.disabled = true;
+                    transferBtn.title = "No stock available in warehouse";
+                }
+            } else {
+                transferSection.style.display = 'none';
+            }
+        }
+    </script>
+
+    <!-- Restock Options Modal -->
+    <div id="restockOptionsModal" class="modal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4);">
+        <div class="modal-content" style="background-color: #fefefe; margin: 15% auto; padding: 20px; border: 1px solid #888; width: 400px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
+            <span class="close" onclick="document.getElementById('restockOptionsModal').style.display='none'" style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer;">&times;</span>
+            <h3 style="margin-top: 0; color: #2c3e50;">Restock Options</h3>
+            <p id="restock_product_name" style="font-weight: bold; margin-bottom: 20px;"></p>
+            
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+                <a id="btn_restock_supplier" href="#" class="btn btn-success" style="text-align: center; padding: 10px;">
+                    <i class="fas fa-truck"></i> Restock from Supplier
+                </a>
+
+                <a id="btn_manual_restock" href="#" class="btn btn-warning" style="text-align: center; padding: 10px; background-color: #f39c12; border-color: #e67e22; color: white;">
+                    <i class="fas fa-boxes"></i> Manual Stock Adjustment
+                </a>
+                
+                <div id="warehouse_transfer_section" style="border-top: 1px solid #eee; padding-top: 10px; margin-top: 5px;">
+                    <h4 style="font-size: 14px; margin-bottom: 10px;">Transfer from Warehouse</h4>
+                    <p style="font-size: 12px; color: #666; margin-bottom: 10px;">Available in Warehouse: <span id="warehouse_qty_display" style="font-weight: bold;">0</span></p>
+                    
+                    <form id="warehouse_transfer_form" action="transfer_from_warehouse.php" method="POST" style="display: flex; gap: 5px;">
+                        <input type="hidden" name="product_id" id="transfer_product_id">
+                        <input type="number" name="quantity" id="transfer_quantity" placeholder="Qty" min="1" style="width: 80px; padding: 5px; border: 1px solid #ddd; border-radius: 4px;">
+                        <button type="submit" id="btn_transfer_warehouse" class="btn btn-info" style="flex: 1;">
+                            <i class="fas fa-exchange-alt"></i> Transfer
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    // Close modal when clicking outside
+    window.onclick = function(event) {
+        const modal = document.getElementById('restockOptionsModal');
+        if (event.target == modal) {
+            modal.style.display = "none";
+        }
+    }
+
+    // Warehouse transfer form submission
+    document.getElementById('warehouse_transfer_form').addEventListener('submit', function(e) {
+        e.preventDefault();
+
+        const productId = document.getElementById('transfer_product_id').value;
+        const quantity = document.getElementById('transfer_quantity').value;
+
+        if (!productId || !quantity) {
+            alert('Please enter a valid quantity.');
+            return;
+        }
+
+        // Proceed with the transfer
+        this.submit();
+    });
     </script>
 </body>
 

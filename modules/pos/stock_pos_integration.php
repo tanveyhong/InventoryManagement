@@ -85,8 +85,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['batch_add_products'])
                     continue;
                 }
                 
-                // Create store variant SKU
-                $variantSku = $sku . '-' . $storeSuffix;
+                // Create store variant SKU (Format: SKU-POS-STORENAME)
+                // This distinguishes POS-assigned products from normal store assignments
+                $variantSku = $sku . '-POS-' . $storeSuffix;
                 error_log("Creating store variant with SKU: $variantSku");
                 
                 // Check if variant already exists
