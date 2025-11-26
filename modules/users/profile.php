@@ -138,6 +138,7 @@ $messageType = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $db = getDB(); // Firebase for write operations (will migrate later)
+    $sqlDb = SQLDatabase::getInstance(); // PostgreSQL for sync
     $action = $_POST['action'] ?? '';
     
     if ($action === 'update_profile') {
@@ -198,6 +199,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
                 $result = $db->update('users', $userId, $updateData);
                 
+                // Update PostgreSQL
+                try {
+                    $fullName = trim($updateData['first_name'] . ' ' . $updateData['last_name']);
+                    $sqlDb->execute(
+                        "UPDATE users SET username = ?, full_name = ?, email = ?, phone = ?, updated_at = NOW() WHERE id = ? OR firebase_id = ?",
+                        [
+                            $updateData['username'],
+                            $fullName,
+                            $updateData['email'],
+                            $updateData['phone'],
+                            $userId,
+                            $userId
+                        ]
+                    );
+                } catch (Exception $e) {
+                    error_log("Failed to update PostgreSQL profile: " . $e->getMessage());
+                }
+
                 error_log("Update result: " . ($result ? 'SUCCESS' : 'FAILED'));
                 
                 if ($result !== false) {
@@ -241,26 +260,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif (strlen($newPassword) < 8) {
             $message = 'Password must be at least 8 characters long.';
             $messageType = 'error';
-        } elseif (!preg_match('/[A-Z]/', $newPassword) || !preg_match('/[a-z]/', $newPassword) || !preg_match('/[0-9]/', $newPassword)) {
-            $message = 'Password must contain at least one uppercase letter, one lowercase letter, and one number.';
-            $messageType = 'error';
         } else {
             // Verify current password
             if (verifyPassword($currentPassword, $user['password_hash'])) {
                 $hashedPassword = hashPassword($newPassword);
-                if ($db->update('users', $userId, [
-                    'password_hash' => $hashedPassword,
-                    'require_password_change' => false,
-                    'updated_at' => date('c')
-                ])) {
+                
+                // Update PostgreSQL FIRST (Primary Source of Truth)
+                $pgUpdateSuccess = false;
+                try {
+                    // Check if user exists in PostgreSQL first
+                    $pgUser = $sqlDb->fetch("SELECT id FROM users WHERE id = ? OR firebase_id = ?", [$userId, $userId]);
+                    
+                    if ($pgUser) {
+                        $sqlDb->execute(
+                            "UPDATE users SET password_hash = ?, updated_at = NOW() WHERE id = ?",
+                            [$hashedPassword, $pgUser['id']]
+                        );
+                        $pgUpdateSuccess = true;
+                    } else {
+                        error_log("User not found in PostgreSQL for password update: " . $userId);
+                        $message = 'User record not found in database.';
+                        $messageType = 'error';
+                    }
+                } catch (Exception $e) {
+                    error_log("Failed to update PostgreSQL password: " . $e->getMessage());
+                    $message = 'Failed to update password in database: ' . $e->getMessage();
+                    $messageType = 'error';
+                }
+
+                if ($pgUpdateSuccess) {
+                    // Update Firebase (Secondary)
+                    $db->update('users', $userId, [
+                        'password_hash' => $hashedPassword,
+                        'require_password_change' => false,
+                        'updated_at' => date('c')
+                    ]);
+
                     // Log password change activity
                     logProfileActivity('password_changed', $userId);
                     
                     $message = 'Password changed successfully!';
                     $messageType = 'success';
-                } else {
-                    $message = 'Failed to change password.';
-                    $messageType = 'error';
                 }
             } else {
                 $message = 'Current password is incorrect.';
@@ -1246,13 +1286,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             </div>
                             <div class="strength-text" id="strengthText">Enter a password</div>
                         </div>
-                        <small style="color: #6b7280; display: block; margin-top: 8px;">
-                            Password must contain: 
-                            <span id="req-length" style="color: #ef4444;">✗ 8+ characters</span>
-                            <span id="req-uppercase" style="color: #ef4444;">✗ Uppercase</span>
-                            <span id="req-lowercase" style="color: #ef4444;">✗ Lowercase</span>
-                            <span id="req-number" style="color: #ef4444;">✗ Number</span>
-                        </small>
                     </div>
                     
                     <div class="form-group">
@@ -1350,14 +1383,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                     
                     // Type filter (fastest check first)
-                    if (filterType && !(activity.action_type || '').toLowerCase().includes(filterType)) {
+                    const actType = activity.action || activity.action_type || activity.activity_type || '';
+                    if (filterType && !actType.toLowerCase().includes(filterType)) {
                         continue;
                     }
                     
                     // Search filter
                     if (searchTerm) {
                         const desc = (activity.description || '').toLowerCase();
-                        const type = (activity.action_type || '').toLowerCase();
+                        const type = actType.toLowerCase();
                         const user = (activity.user_name || '').toLowerCase();
                         
                         if (!desc.includes(searchTerm) && !type.includes(searchTerm) && !user.includes(searchTerm)) {
@@ -1398,13 +1432,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </span>
                     ` : '';
                     
+                    const displayType = activity.action || activity.action_type || activity.activity_type;
+                    
                     item.innerHTML = `
                         <div class="activity-icon">
-                            <i class="fas fa-${getActivityIcon(activity.action_type || activity.activity_type)}"></i>
+                            <i class="fas fa-${getActivityIcon(displayType)}"></i>
                         </div>
                         <div class="activity-content">
                             <div class="activity-title">
-                                ${escapeHtml(activity.description || activity.action_type || activity.activity_type)}
+                                ${escapeHtml(activity.description || displayType)}
                                 ${userBadge}
                             </div>
                             <div class="activity-meta">
@@ -2223,24 +2259,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             
             // Calculate account age
-            if (document.getElementById('stat-account-age') && createdAt) {
-                const created = new Date(createdAt);
-                const now = new Date();
-                const diffTime = Math.abs(now - created);
-                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                
-                let ageText = '';
-                if (diffDays < 30) {
-                    ageText = diffDays + ' days';
-                } else if (diffDays < 365) {
-                    const months = Math.floor(diffDays / 30);
-                    ageText = months + ' month' + (months > 1 ? 's' : '');
+            if (document.getElementById('stat-account-age')) {
+                if (createdAt) {
+                    const created = new Date(createdAt);
+                    const now = new Date();
+                    const diffTime = Math.abs(now - created);
+                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                    
+                    let ageText = '';
+                    if (diffDays < 30) {
+                        ageText = diffDays + ' days';
+                    } else if (diffDays < 365) {
+                        const months = Math.floor(diffDays / 30);
+                        ageText = months + ' month' + (months > 1 ? 's' : '');
+                    } else {
+                        const years = Math.floor(diffDays / 365);
+                        ageText = years + ' year' + (years > 1 ? 's' : '');
+                    }
+                    document.getElementById('stat-account-age').innerHTML = 
+                        `<span style="font-size: 24px;">${ageText}</span>`;
                 } else {
-                    const years = Math.floor(diffDays / 365);
-                    ageText = years + ' year' + (years > 1 ? 's' : '');
+                    document.getElementById('stat-account-age').innerHTML = 
+                        `<span style="font-size: 24px;">N/A</span>`;
                 }
-                document.getElementById('stat-account-age').innerHTML = 
-                    `<span style="font-size: 24px;">${ageText}</span>`;
             }
             
             // Get last login from activities
@@ -2250,7 +2291,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
                 if (activitiesData.data && activitiesData.data.length > 0) {
                     // Find the most recent login activity
-                    const loginActivity = activitiesData.data.find(a => a.action_type === 'login');
+                    const loginActivity = activitiesData.data.find(a => (a.action === 'login' || a.action_type === 'login'));
                     if (loginActivity && loginActivity.created_at) {
                         const lastLogin = new Date(loginActivity.created_at);
                         const now = new Date();
@@ -2930,15 +2971,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     return;
                 }
                 
-                // Check complexity
-                const hasUpper = /[A-Z]/.test(newPass);
-                const hasLower = /[a-z]/.test(newPass);
-                const hasNumber = /[0-9]/.test(newPass);
-                const hasLength = newPass.length >= 8;
-                
-                if (!hasUpper || !hasLower || !hasNumber || !hasLength) {
+                // Check length only
+                if (newPass.length < 8) {
                     e.preventDefault();
-                    alert('Password must meet all complexity requirements.');
+                    alert('Password must be at least 8 characters long.');
                     return;
                 }
             });
@@ -3025,7 +3061,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         allActivitiesCache.forEach(activity => {
             const activityDate = new Date(activity.created_at);
-            uniqueTypes.add(activity.action_type || activity.activity_type);
+            uniqueTypes.add(activity.action || activity.action_type || activity.activity_type);
             
             if (activityDate.toDateString() === today) {
                 todayCount++;
@@ -3100,7 +3136,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         const dayCount = {};
         
         allActivitiesCache.forEach(activity => {
-            const type = activity.action_type || activity.activity_type || 'unknown';
+            const type = activity.action || activity.action_type || activity.activity_type || 'unknown';
             typeCount[type] = (typeCount[type] || 0) + 1;
             
             const date = new Date(activity.created_at);
