@@ -834,6 +834,7 @@ try {
                                         data-store-name="<?php echo htmlspecialchars($product['store_name'] ?? ''); ?>"
                                         data-store-id="<?php echo htmlspecialchars($product['store_id'] ?? ''); ?>"
                                         data-category="<?php echo htmlspecialchars($product['category_name'] ?? ''); ?>"
+                                        data-supplier-id="<?= htmlspecialchars($product['supplier_id'] ?? '') ?>"
                                         data-status="<?php echo htmlspecialchars($product['status']); ?>">
 
                                         <td style="text-align: center;">
@@ -1100,7 +1101,8 @@ try {
                 name,
                 sku,
                 qty,
-                min
+                min,
+                supplierId
             }) {
                 const host = document.getElementById('lowStockHost') || document.body;
                 const wrap = document.createElement('div');
@@ -1119,27 +1121,51 @@ try {
             <tr><th>Current Quantity</th><td><strong>${qty}</strong></td></tr>
             <tr><th>Minimum Stock Level</th><td><strong>${min}</strong></td></tr>
           </table>
-          <div class="lsk-reco"><strong>Recommended:</strong> Reorder or add stock to avoid stockouts.</div>
+          <div class="lsk-reco"><strong>Recommended:</strong> Reorder from supplier to avoid stockouts.</div>
         </div>
         <div class="lsk-actions">
           <button class="btn-lsk btn-outline" data-act="dismiss">Dismiss</button>
-          <a class="btn-lsk btn-primary" href="adjust.php?id=${encodeURIComponent(docId)}">Add Stock</a>
-          <a class="btn-lsk btn-danger" href="edit.php?id=${encodeURIComponent(docId)}">Reorder / Edit</a>
+          ${supplierId ? `
+<a class="btn-lsk btn-primary"
+   data-act="restock"
+   href="../purchase_orders/create.php?supplier_id=${encodeURIComponent(supplierId)}&product_id=${encodeURIComponent(docId)}"
+   style="text-align:center; padding:8px 12px; text-decoration:none;">
+   <i class="fas fa-truck"></i> Restock from Supplier
+</a>
+          ` : ''}
         </div>
       </div>
     `;
+
 
                 function close() {
                     wrap.remove();
                     if (docId) markSeenToday(docId, qty);
                 }
+
+                // Close when clicking backdrop
                 wrap.addEventListener('click', (e) => {
                     if (e.target === wrap) close();
                 });
-                wrap.querySelector('[data-act="dismiss"]').addEventListener('click', close);
+
+                // Dismiss button
+                const dismissBtn = wrap.querySelector('[data-act="dismiss"]');
+                if (dismissBtn) {
+                    dismissBtn.addEventListener('click', close);
+                }
+
+                // Restock from Supplier button → also mark as seen before navigation
+                const restockLink = wrap.querySelector('[data-act="restock"]');
+                if (restockLink) {
+                    restockLink.addEventListener('click', () => {
+                        if (docId) markSeenToday(docId, qty);
+                        // Let the browser follow the href normally
+                    });
+                }
 
                 host.appendChild(wrap);
             }
+
 
             // Find the first row that is genuinely low stock (qty > 0 && qty <= min)
             document.addEventListener('DOMContentLoaded', function() {
@@ -1150,6 +1176,7 @@ try {
                     const docId = row.getAttribute('data-doc-id') || '';
                     const name = row.getAttribute('data-name') || '';
                     const sku = row.getAttribute('data-sku') || '';
+                    const supplierId = row.getAttribute('data-supplier-id') || ''; // ✅ new
 
                     // ✅ If NOT low stock anymore, clear any old keys
                     if (!(docId && min > 0 && qty > 0 && qty <= min)) {
@@ -1169,13 +1196,15 @@ try {
                                 name,
                                 sku,
                                 qty,
-                                min
+                                min,
+                                supplierId // ✅ pass through
                             });
                         }
                         break; // show one per page load
                     }
                 }
             });
+
 
         })();
 

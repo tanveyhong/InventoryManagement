@@ -1,7 +1,6 @@
 <?php
 /**
  * modules/alerts/low_stock.php
- * Usage: include via <div id="lowStockHost"></div> then fetch('?id=DOC_ID') and inject.
  * Shows a modal only if the product is in LOW STOCK (qty <= reorder_level and qty > 0).
  */
 declare(strict_types=1);
@@ -9,7 +8,7 @@ session_start();
 
 require_once __DIR__ . '/../../config.php';
 require_once __DIR__ . '/../../functions.php';
-require_once __DIR__ . '/../../sql_db.php';   // ✅ use Supabase / SQL wrapper
+require_once __DIR__ . '/../../sql_db.php';   // Supabase / SQL wrapper
 
 header('Content-Type: text/html; charset=UTF-8');
 
@@ -18,7 +17,7 @@ $key = '';
 if (!empty($_GET['id']))  $key = trim((string)$_GET['id']);
 if (!empty($_GET['sku'])) $key = trim((string)$_GET['sku']) ?: $key;
 
-if ($key === '') { echo '<!-- low_stock.php: missing id/sku -->'; exit; }
+if ($key === '') { echo '<!-- low_stock.php v2: missing id/sku -->'; exit; }
 
 // ---------- Load product from Supabase (SQL) ----------
 $product = null;
@@ -26,7 +25,7 @@ try {
     $sqlDb = SQLDatabase::getInstance();
 
     if (ctype_digit($key)) {
-        // If numeric → treat as primary key id
+        // numeric => id
         $product = $sqlDb->fetch(
             "SELECT * FROM products 
              WHERE id = ? 
@@ -35,7 +34,7 @@ try {
             [$key]
         );
     } else {
-        // Otherwise treat as SKU (case-insensitive)
+        // otherwise treat as SKU (case-insensitive)
         $sku = strtoupper($key);
         $product = $sqlDb->fetch(
             "SELECT * FROM products 
@@ -50,162 +49,29 @@ try {
     error_log('low_stock.php SQL load failed: ' . $e->getMessage());
 }
 
-if (!$product) { echo '<!-- low_stock.php: product not found -->'; exit; }
+if (!$product) { echo '<!-- low_stock.php v2: product not found -->'; exit; }
 
-// Compute status (same logic as before)
+// Compute status
 $qty = (int)($product['quantity'] ?? 0);
 $min = (int)($product['reorder_level'] ?? 0);
 
 $isLow = ($qty > 0 && $min > 0 && $qty <= $min);
-if (!$isLow) { echo '<!-- low_stock.php: not low stock -->'; exit; }
+if (!$isLow) { echo '<!-- low_stock.php v2: not low stock -->'; exit; }
 
-// Basic values (adapted to SQL columns)
-$docId   = (string)($product['id'] ?? $key); // use SQL id as product id
-$name    = $product['name'] ?? '(no name)';
-$sku     = $product['sku'] ?? '—';
-$created = $product['created_at'] ?? null;
-$minLbl  = $min > 0 ? number_format($min) : '—';
-$qtyLbl  = number_format($qty);
+// Basic values
+$docId      = (string)($product['id'] ?? $key);
+$name       = $product['name'] ?? '(no name)';
+$sku        = $product['sku'] ?? '—';
+$created    = $product['created_at'] ?? null;
+$minLbl     = $min > 0 ? number_format($min) : '—';
+$qtyLbl     = number_format($qty);
+$supplierId = $product['supplier_id'] ?? null;
 
 // LocalStorage dismiss key (don’t nag repeatedly same day)
 $dismissKey = 'lowstock_dismiss_' . preg_replace('/[^a-zA-Z0-9_\-]/', '_', (string)$docId) . '_' . date('Ymd');
 ?>
-<style>
-  /* Overlay + modal container */
-  .lsk-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(15,23,42,.45);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 9999;
-  }
 
-  /* Modal box */
-  .lsk-modal {
-    width: 100%;
-    max-width: 460px;              /* narrower than before */
-    background: #fff;
-    border-radius: 14px;
-    box-shadow: 0 30px 80px rgba(15,23,42,.35);
-    border: 1px solid #e5e7eb;
-    font-family: system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;
-    overflow: hidden;
-  }
-
-  /* Header with centered title */
-  .lsk-head {
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 16px 18px;
-    border-bottom: 1px solid #f1f5f9;
-    background: linear-gradient(180deg,#fff 0,#f8fafc 100%);
-  }
-
-  .lsk-head .icon {
-    position: absolute;
-    left: 18px;
-    top: 50%;
-    transform: translateY(-50%);
-    color: #f59e0b;
-    font-size: 20px;
-  }
-
-  .lsk-head .title {
-    text-align: center;
-    font-size: 1.5rem;
-    font-weight: 800;
-    color: #b91c1c;
-    line-height: 1.2;
-  }
-
-  .lsk-close {
-    position: absolute;
-    right: 14px;
-    top: 50%;
-    transform: translateY(-50%);
-    background: transparent;
-    border: none;
-    font-size: 20px;
-    cursor: pointer;
-    color: #475569;
-  }
-  .lsk-close:hover { color: #0f172a; }
-
-  /* Body */
-  .lsk-body { padding: 18px; }
-  .lsk-body p.lead { margin: 0 0 12px; color: #334155; }
-
-  /* Info table */
-  .lsk-table {
-    width: 100%;
-    border-collapse: collapse;
-    border: 1px solid #e2e8f0;
-  }
-  .lsk-table th, .lsk-table td {
-    padding: 10px 12px;
-    border-top: 1px solid #e2e8f0;
-  }
-  .lsk-table th {
-    width: 42%;
-    background: #f8fafc;
-    color: #0f172a;
-    text-align: left;
-    font-weight: 700;
-  }
-  .lsk-table tr:first-child th, .lsk-table tr:first-child td { border-top: none; }
-
-  /* Alert box */
-  .lsk-alert {
-    margin-top: 14px;
-    background: #fff7ed;
-    border: 1px dashed #f59e0b;
-    padding: 12px 14px;
-    border-radius: 10px;
-    color: #7c2d12;
-    font-weight: 600;
-    text-align: center;
-  }
-
-  /* Action buttons */
-  .lsk-actions {
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    padding: 14px 18px;
-    background: #f8fafc;
-    border-top: 1px solid #e5e7eb;
-  }
-
-  .btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 14px;
-    border-radius: 10px;
-    font-weight: 700;
-    text-decoration: none;
-    border: 1px solid transparent;
-    cursor: pointer;
-  }
-  .btn-green { background:#22c55e;color:#fff; }
-  .btn-green:hover { background:#16a34a; }
-  .btn-blue { background:#1d4ed8;color:#fff; }
-  .btn-blue:hover { background:#1e40af; }
-  .btn-ghost { background:#e5e7eb;color:#334155; }
-  .btn-ghost:hover { background:#d1d5db; }
-  .btn i { font-size:14px; }
-
-  @media (max-width: 420px) {
-    .lsk-modal { max-width: 92vw; }
-    .lsk-head .title { font-size: 1.35rem; }
-  }
-</style>
-
+<!-- DEBUG: low_stock.php v2 -->
 <div class="lsk-overlay" role="dialog" aria-modal="true" aria-label="Low Stock Alert" data-dismiss-key="<?= htmlspecialchars($dismissKey) ?>">
   <div class="lsk-modal">
     <div class="lsk-head">
@@ -234,13 +100,17 @@ $dismissKey = 'lowstock_dismiss_' . preg_replace('/[^a-zA-Z0-9_\-]/', '_', (stri
     </div>
 
     <div class="lsk-actions">
-      <a class="btn btn-green" href="../stock/edit.php?id=<?= rawurlencode((string)$docId) ?>">
-        <i class="fas fa-truck"></i> Reorder Now
-      </a>
-      <a class="btn btn-blue" href="../stock/adjust.php?id=<?= rawurlencode((string)$docId) ?>">
-        <i class="fas fa-circle-plus"></i> Add Stock
-      </a>
-      <button class="btn btn-ghost" type="button" onclick="LSK_dismiss(this)">Dismiss</button>
+      <?php if (!empty($supplierId)): ?>
+        <a class="btn btn-green"
+           href="../purchase_orders/create.php?supplier_id=<?= rawurlencode((string)$supplierId) ?>&product_id=<?= rawurlencode((string)$docId) ?>"
+           style="text-align:center; padding:10px;">
+          <i class="fas fa-truck"></i> Restock from Supplier
+        </a>
+      <?php endif; ?>
+
+      <button class="btn btn-ghost" type="button" onclick="LSK_dismiss(this)">
+        Dismissss
+      </button>
     </div>
   </div>
 </div>
@@ -258,7 +128,6 @@ $dismissKey = 'lowstock_dismiss_' . preg_replace('/[^a-zA-Z0-9_\-]/', '_', (stri
     });
   } catch (e) {}
 })();
-
 
 function LSK_close(btn){
   var root = btn.closest('.lsk-overlay'); if(root) root.remove();
