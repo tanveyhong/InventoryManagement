@@ -9,6 +9,7 @@ session_start();
 
 require_once __DIR__ . '/../../config.php';
 require_once __DIR__ . '/../../functions.php';
+require_once __DIR__ . '/../../sql_db.php';   // ✅ use Supabase / SQL wrapper
 
 header('Content-Type: text/html; charset=UTF-8');
 
@@ -19,21 +20,50 @@ if (!empty($_GET['sku'])) $key = trim((string)$_GET['sku']) ?: $key;
 
 if ($key === '') { echo '<!-- low_stock.php: missing id/sku -->'; exit; }
 
-$p = fs_get_product($key);
-if (!$p) { echo '<!-- low_stock.php: product not found -->'; exit; }
+// ---------- Load product from Supabase (SQL) ----------
+$product = null;
+try {
+    $sqlDb = SQLDatabase::getInstance();
 
-// Compute status
-$qty = (int)($p['quantity'] ?? 0);
-$min = (int)($p['reorder_level'] ?? 0);
+    if (ctype_digit($key)) {
+        // If numeric → treat as primary key id
+        $product = $sqlDb->fetch(
+            "SELECT * FROM products 
+             WHERE id = ? 
+               AND active = TRUE 
+               AND deleted_at IS NULL",
+            [$key]
+        );
+    } else {
+        // Otherwise treat as SKU (case-insensitive)
+        $sku = strtoupper($key);
+        $product = $sqlDb->fetch(
+            "SELECT * FROM products 
+             WHERE UPPER(sku) = ? 
+               AND active = TRUE 
+               AND deleted_at IS NULL
+             LIMIT 1",
+            [$sku]
+        );
+    }
+} catch (Throwable $e) {
+    error_log('low_stock.php SQL load failed: ' . $e->getMessage());
+}
+
+if (!$product) { echo '<!-- low_stock.php: product not found -->'; exit; }
+
+// Compute status (same logic as before)
+$qty = (int)($product['quantity'] ?? 0);
+$min = (int)($product['reorder_level'] ?? 0);
 
 $isLow = ($qty > 0 && $min > 0 && $qty <= $min);
 if (!$isLow) { echo '<!-- low_stock.php: not low stock -->'; exit; }
 
-// Basic values
-$docId   = $p['doc_id'] ?? ($p['id'] ?? (string)$key);
-$name    = $p['name'] ?? '(no name)';
-$sku     = $p['sku'] ?? '—';
-$created = $p['created_at'] ?? null;
+// Basic values (adapted to SQL columns)
+$docId   = (string)($product['id'] ?? $key); // use SQL id as product id
+$name    = $product['name'] ?? '(no name)';
+$sku     = $product['sku'] ?? '—';
+$created = $product['created_at'] ?? null;
 $minLbl  = $min > 0 ? number_format($min) : '—';
 $qtyLbl  = number_format($qty);
 
@@ -215,20 +245,20 @@ $dismissKey = 'lowstock_dismiss_' . preg_replace('/[^a-zA-Z0-9_\-]/', '_', (stri
   </div>
 </div>
 
-
 <script>
-(function(){
-  // If dismissed earlier today, auto-close
-  try{
-    var overlay = document.currentScript.previousElementSibling;
-    if(overlay && overlay.classList && overlay.classList.contains('lsk-overlay')){
+(function () {
+  // If dismissed earlier today, auto-close the matching overlay(s)
+  try {
+    var overlays = document.querySelectorAll('.lsk-overlay');
+    overlays.forEach(function (overlay) {
       var key = overlay.getAttribute('data-dismiss-key');
-      if(key && localStorage.getItem(key)==='1'){
+      if (key && localStorage.getItem(key) === '1') {
         overlay.remove();
       }
-    }
-  }catch(e){}
+    });
+  } catch (e) {}
 })();
+
 
 function LSK_close(btn){
   var root = btn.closest('.lsk-overlay'); if(root) root.remove();

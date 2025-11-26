@@ -284,7 +284,7 @@ foreach ($all_products as $p) {
     if (empty($p['store_id'])) {
         $sku = $p['sku'] ?? '';
         $name = $p['name'] ?? '';
-        
+
         $skuKey = strtoupper(trim($sku));
         if ($skuKey) {
             $warehouseStock[$skuKey] = $p['quantity'];
@@ -644,12 +644,14 @@ try {
             <!-- Display Messages -->
             <?php if (isset($_SESSION['success'])): ?>
                 <div class="alert alert-success" style="background-color: #d4edda; color: #155724; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #c3e6cb;">
-                    <i class="fas fa-check-circle"></i> <?php echo $_SESSION['success']; unset($_SESSION['success']); ?>
+                    <i class="fas fa-check-circle"></i> <?php echo $_SESSION['success'];
+                                                        unset($_SESSION['success']); ?>
                 </div>
             <?php endif; ?>
             <?php if (isset($_SESSION['error'])): ?>
                 <div class="alert alert-danger" style="background-color: #f8d7da; color: #721c24; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #f5c6cb;">
-                    <i class="fas fa-exclamation-circle"></i> <?php echo $_SESSION['error']; unset($_SESSION['error']); ?>
+                    <i class="fas fa-exclamation-circle"></i> <?php echo $_SESSION['error'];
+                                                                unset($_SESSION['error']); ?>
                 </div>
             <?php endif; ?>
 
@@ -781,13 +783,13 @@ try {
                             <thead>
                                 <tr>
                                     <th style="width: 40px; text-align: center;"><input type="checkbox" id="selectAll"></th>
-                                    <th class="sortable" data-sort="name" style="width: 35%;">Product <span class="sort-icon"></span></th>
+                                    <th class="sortable" data-sort="name" style="width: 25%;">Product <span class="sort-icon"></span></th>
                                     <th class="sortable" data-sort="qty" style="text-align: center;">Stock <span class="sort-icon"></span></th>
                                     <th class="sortable" data-sort="price">Pricing <span class="sort-icon"></span></th>
                                     <th class="sortable" data-sort="status" style="text-align: center;">Status <span class="sort-icon"></span></th>
                                     <th class="sortable" data-sort="store-name">Location & Category <span class="sort-icon"></span></th>
                                     <th class="sortable" data-sort="updated">Last Updated <span class="sort-icon"></span></th>
-                                    <th style="text-align: right;">Actions</th>
+                                    <th style="text-align: center;">Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="productTableBody">
@@ -843,7 +845,7 @@ try {
                                                     <span style="color: #bdc3c7; margin-right: 8px;">└─</span>
                                                 <?php endif; ?>
                                                 <div style="display: flex; flex-direction: column;">
-                                                    <strong style="font-size: 1.05em; color: #2c3e50;">
+                                                    <strong style="font-size: 1.20em; color: #2c3e50;">
                                                         <?php echo htmlspecialchars($product['name']); ?>
                                                         <?php if ($product['_is_store_variant'] ?? false): ?>
                                                             <span style="color: #3498db; font-size: 11px; font-weight: 600; background: #e8f4fd; padding: 2px 6px; border-radius: 3px; margin-left: 5px;">
@@ -862,8 +864,14 @@ try {
                                                         <?php endif; ?>
                                                     </strong>
                                                     <?php if (!empty($product['sku'])): ?>
-                                                        <span style="font-size: 0.85em; color: #95a5a6; margin-top: 2px;">SKU: <?php echo htmlspecialchars($product['sku']); ?></span>
+                                                        <div style="margin-top:3px;">
+                                                            <span style="font-size:1em; font-weight:400; color:#2c3e50;">SKU:</span>
+                                                            <span style="font-size:1em; font-weight:600; color:#2c3e50;">
+                                                                <?php echo htmlspecialchars($product['sku']); ?>
+                                                            </span>
+                                                        </div>
                                                     <?php endif; ?>
+
                                                     <?php if (!empty($product['description'])): ?>
                                                         <span style="display: block; color: #999; font-size: 0.85em; margin-top: 4px; line-height: 1.3;"><?php echo htmlspecialchars(substr($product['description'], 0, 80)); ?><?php echo strlen($product['description']) > 80 ? '...' : ''; ?></span>
                                                     <?php endif; ?>
@@ -885,7 +893,7 @@ try {
                                                 <?php if (isset($product['_total_system_stock']) && $product['_total_system_stock'] > $product['quantity']): ?>
                                                     <small style="color: #2980b9; font-size: 0.75em;">Total</small>
                                                 <?php endif; ?>
-                                                <span style="font-size: 0.75em; color: #95a5a6; margin-top: 2px;">Min: <?php echo number_format($product['min_stock_level']); ?></span>
+                                                <span style="font-size: 0.95em; color: #95a5a6; margin-top: 2px;">Min: <?php echo number_format($product['min_stock_level']); ?></span>
                                             </div>
                                         </td>
                                         <td>
@@ -893,7 +901,7 @@ try {
                                                 <div style="font-size: 0.85em; color: #7f8c8d;">
                                                     Cost: <span style="color: #555; font-weight: 600;">RM <?php echo number_format($product['cost_price'], 2); ?></span>
                                                 </div>
-                                                <div style="font-size: 0.9em; color: #7f8c8d;">
+                                                <div style="font-size: 1.1em; color: #7f8c8d;">
                                                     Sell: <span style="color: #2c3e50; font-weight: 700;">RM <?php echo number_format($product['unit_price'], 2); ?></span>
                                                 </div>
                                             </div>
@@ -904,7 +912,7 @@ try {
                                                     In Stores
                                                 </span>
                                             <?php else: ?>
-                                                <span class="status-badge status-<?php echo $product['status']; ?>" style="font-size: 0.75em;">
+                                                <span class="status-badge status-<?php echo $product['status']; ?>" style="font-size: 0.95em;">
                                                     <?php
                                                     switch ($product['status']) {
                                                         case 'out_of_stock':
@@ -924,12 +932,12 @@ try {
                                         <td>
                                             <div style="display: flex; flex-direction: column; gap: 4px;">
                                                 <?php if ($product['store_name']): ?>
-                                                    <span style="background: #f8f9fa; border: 1px solid #e9ecef; color: #495057; padding: 2px 6px; border-radius: 4px; font-size: 0.75em; font-weight: 600; display: inline-block; text-align: center;">
+                                                    <span style="background: #f8f9fa; border: 1px solid #e9ecef; color: #495057; padding: 2px 6px; border-radius: 4px; font-size: 0.95em; font-weight: 600; display: inline-block; text-align: center;">
                                                         <i class="fas fa-store" style="margin-right: 3px; color: #adb5bd;"></i> <?php echo htmlspecialchars($product['store_name']); ?>
                                                     </span>
                                                 <?php endif; ?>
                                                 <?php if ($product['category_name']): ?>
-                                                    <span style="background: #fff3cd; border: 1px solid #ffeeba; color: #856404; padding: 2px 6px; border-radius: 4px; font-size: 0.75em; display: inline-block; text-align: center;">
+                                                    <span style="background: #fff3cd; border: 1px solid #ffeeba; color: #856404; padding: 2px 6px; border-radius: 4px; font-size: 0.95em; font-weight: 600; display: inline-block; text-align: center;">
                                                         <?php echo htmlspecialchars($product['category_name']); ?>
                                                     </span>
                                                 <?php endif; ?>
@@ -937,108 +945,108 @@ try {
                                         </td>
                                         <td>
                                             <?php if (!empty($product['updated_at'])): ?>
-                                                <?php 
-                                                    $updatedTime = strtotime($product['updated_at']);
-                                                    $isStale = (time() - $updatedTime) > (90 * 24 * 60 * 60); // 90 days
+                                                <?php
+                                                $updatedTime = strtotime($product['updated_at']);
+                                                $isStale = (time() - $updatedTime) > (90 * 24 * 60 * 60); // 90 days
                                                 ?>
-                                                <span class="updated-at" style="font-size: 0.85em; color: <?php echo $isStale ? '#e74c3c' : '#555'; ?>;">
+                                                <span class="updated-at" style="font-size: 1em; color: <?php echo $isStale ? '#e74c3c' : '#555'; ?>;">
                                                     <?php echo date('M j, Y', $updatedTime); ?>
-                                                    <div style="font-size: 0.85em; color: #999;"><?php echo date('h:i A', $updatedTime); ?></div>
+                                                    <div style="font-size: 1em; color: #999;"><?php echo date('h:i A', $updatedTime); ?></div>
                                                     <?php if ($isStale): ?>
-                                                        <span style="font-size: 0.8em; font-weight: bold; color: #e74c3c;">(Stale)</span>
+                                                        <span style="font-size: 1em; font-weight: bold; color: #e74c3c;">(Stale)</span>
                                                     <?php endif; ?>
                                                 </span>
                                             <?php else: ?>
                                                 <span style="color: #999;">-</span>
                                             <?php endif; ?>
                                         </td>
-                                    <td>
-                                        <div class="action-buttons">
-                                            <?php
-                                            // Determine correct Firestore document id
-                                            $linkId = $product['doc_id'] ?? '';
+                                        <td>
+                                            <div class="action-buttons">
+                                                <?php
+                                                // Determine correct Firestore document id
+                                                $linkId = $product['doc_id'] ?? '';
 
-                                            // if doc_id missing, try using the array key or id (but only if it's a string Firestore id)
-                                            if ($linkId === '' && isset($product['id'])) {
-                                                $pid = (string)$product['id'];
-                                                if (!ctype_digit($pid) || strlen($pid) > 6) {
-                                                    $linkId = $pid;
-                                                }
-                                            }
-
-                                            // final fallback: if still empty, use numeric id (legacy)
-                                            if ($linkId === '' && isset($product['id'])) {
-                                                $linkId = (string)$product['id'];
-                                            }
-                                            ?>
-                                            <a class="btn btn-sm btn-primary" title="View Product"
-                                                href="view.php?id=<?php echo urlencode($linkId); ?>&return=<?php echo $return; ?>">
-                                                <i class="fas fa-eye"></i>
-                                            </a>
-                                            <?php if (currentUserHasPermission('can_edit_inventory')): ?>
-
-                                                <a href="edit.php?id=<?php echo urlencode($linkId); ?>&return=<?php echo $return; ?>" class="btn btn-sm btn-primary" title="Edit Product Details">
-                                                    <i class="fas fa-edit"></i> Edit Info
-                                                </a>
-                                                
-                                                <?php if (!($product['_is_store_variant'] ?? false)): ?>
-                                                <button type="button" 
-                                                        onclick="openAssignModal('<?php echo $product['id']; ?>', '<?php echo htmlspecialchars(addslashes($product['name'])); ?>', <?php echo $product['quantity']; ?>)" 
-                                                        class="btn btn-sm btn-info" 
-                                                        title="Assign Stock to Store" 
-                                                        style="background-color: #17a2b8; border-color: #17a2b8; color: white;">
-                                                    <i class="fas fa-share-alt"></i> Assign
-                                                </button>
-                                                <?php endif; ?>
-                                                
-                                                <?php 
-                                                $whQty = 0;
-                                                // Use the group key (base SKU) to find the warehouse stock
-                                                $baseSku = strtoupper(trim($product['_group_key'] ?? $product['sku']));
-                                                
-                                                // Try to find warehouse stock for this product group
-                                                // 1. Try SKU match
-                                                if (isset($warehouseStock[$baseSku])) {
-                                                    $whQty = $warehouseStock[$baseSku];
-                                                } 
-                                                // 2. Fallback: Try Name match
-                                                else {
-                                                    $nameKey = strtoupper(trim($product['name'] ?? ''));
-                                                    if (isset($warehouseStockByName[$nameKey])) {
-                                                        $whQty = $warehouseStockByName[$nameKey];
+                                                // if doc_id missing, try using the array key or id (but only if it's a string Firestore id)
+                                                if ($linkId === '' && isset($product['id'])) {
+                                                    $pid = (string)$product['id'];
+                                                    if (!ctype_digit($pid) || strlen($pid) > 6) {
+                                                        $linkId = $pid;
                                                     }
                                                 }
-                                                
-                                                // If this IS the warehouse product (no store_id), then its own quantity is the warehouse stock
-                                                if (empty($product['store_id']) && $whQty == 0) {
-                                                    $whQty = (int)$product['quantity'];
+
+                                                // final fallback: if still empty, use numeric id (legacy)
+                                                if ($linkId === '' && isset($product['id'])) {
+                                                    $linkId = (string)$product['id'];
                                                 }
                                                 ?>
-                                                <button type="button" 
-                                                    onclick="openRestockModal('<?php echo $product['id']; ?>', '<?php echo htmlspecialchars(addslashes($product['name'])); ?>', '<?php echo $product['supplier_id'] ?? ''; ?>', <?php echo $whQty; ?>, <?php echo !empty($product['store_id']) ? 'true' : 'false'; ?>, 'adjust.php?id=<?php echo urlencode($linkId); ?>&return=<?php echo $return; ?>')"
-                                                    class="btn btn-sm btn-success" title="Restock Options (WH: <?php echo $whQty; ?>)" style="background-color: #2ecc71; border-color: #27ae60;">
-                                                    <i class="fas fa-truck"></i> Restock
-                                                </button>
-                                                <?php if ($whQty > 0): ?>
-                                                    <div style="margin-top: 5px; font-size: 0.85em; color: #0056b3; background-color: #e3f2fd; padding: 2px 5px; border-radius: 4px; border: 1px solid #b3e5fc; display: inline-block;">
-                                                        <i class="fas fa-warehouse"></i> WH: <?php echo $whQty; ?>
-                                                    </div>
-                                                <?php endif; ?>
-
-                                            <?php endif; ?>
-                                            <?php if (currentUserHasPermission('can_delete_inventory')): ?>
-                                                <a href="delete.php?id=<?php echo $product['id']; ?>" class="btn btn-sm btn-danger"
-                                                    onclick="return confirm('Are you sure you want to delete this product?')" title="Delete Product">
-                                                    <i class="fas fa-trash"></i>
+                                                <a class="btn btn-sm btn-primary" title="View Product"
+                                                    href="view.php?id=<?php echo urlencode($linkId); ?>&return=<?php echo $return; ?>">
+                                                    <i class="fas fa-eye"></i>
                                                 </a>
-                                            <?php endif; ?>
-                                        </div>
-                                    </td>
-                                </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
+                                                <?php if (currentUserHasPermission('can_edit_inventory')): ?>
+
+                                                    <a href="edit.php?id=<?php echo urlencode($linkId); ?>&return=<?php echo $return; ?>" class="btn btn-sm btn-primary" title="Edit Product Details">
+                                                        <i class="fas fa-edit"></i> Edit Info
+                                                    </a>
+
+                                                    <?php if (!($product['_is_store_variant'] ?? false)): ?>
+                                                        <button type="button"
+                                                            onclick="openAssignModal('<?php echo $product['id']; ?>', '<?php echo htmlspecialchars(addslashes($product['name'])); ?>', <?php echo $product['quantity']; ?>)"
+                                                            class="btn btn-sm btn-info"
+                                                            title="Assign Stock to Store"
+                                                            style="background-color: #17a2b8; border-color: #17a2b8; color: white;">
+                                                            <i class="fas fa-share-alt"></i> Assign
+                                                        </button>
+                                                    <?php endif; ?>
+
+                                                    <?php
+                                                    $whQty = 0;
+                                                    // Use the group key (base SKU) to find the warehouse stock
+                                                    $baseSku = strtoupper(trim($product['_group_key'] ?? $product['sku']));
+
+                                                    // Try to find warehouse stock for this product group
+                                                    // 1. Try SKU match
+                                                    if (isset($warehouseStock[$baseSku])) {
+                                                        $whQty = $warehouseStock[$baseSku];
+                                                    }
+                                                    // 2. Fallback: Try Name match
+                                                    else {
+                                                        $nameKey = strtoupper(trim($product['name'] ?? ''));
+                                                        if (isset($warehouseStockByName[$nameKey])) {
+                                                            $whQty = $warehouseStockByName[$nameKey];
+                                                        }
+                                                    }
+
+                                                    // If this IS the warehouse product (no store_id), then its own quantity is the warehouse stock
+                                                    if (empty($product['store_id']) && $whQty == 0) {
+                                                        $whQty = (int)$product['quantity'];
+                                                    }
+                                                    ?>
+                                                    <button type="button"
+                                                        onclick="openRestockModal('<?php echo $product['id']; ?>', '<?php echo htmlspecialchars(addslashes($product['name'])); ?>', '<?php echo $product['supplier_id'] ?? ''; ?>', <?php echo $whQty; ?>, <?php echo !empty($product['store_id']) ? 'true' : 'false'; ?>, 'adjust.php?id=<?php echo urlencode($linkId); ?>&return=<?php echo $return; ?>')"
+                                                        class="btn btn-sm btn-success" title="Restock Options (WH: <?php echo $whQty; ?>)" style="background-color: #2ecc71; border-color: #27ae60;">
+                                                        <i class="fas fa-truck"></i> Restock
+                                                    </button>
+                                                    <?php if ($whQty > 0): ?>
+                                                        <div style="margin-top: 5px; font-size: 0.85em; color: #0056b3; background-color: #e3f2fd; padding: 2px 5px; border-radius: 4px; border: 1px solid #b3e5fc; display: inline-block;">
+                                                            <i class="fas fa-warehouse"></i> WH: <?php echo $whQty; ?>
+                                                        </div>
+                                                    <?php endif; ?>
+
+                                                <?php endif; ?>
+                                                <?php if (currentUserHasPermission('can_delete_inventory')): ?>
+                                                    <a href="delete.php?id=<?php echo $product['id']; ?>" class="btn btn-sm btn-danger"
+                                                        onclick="return confirm('Are you sure you want to delete this product?')" title="Delete Product">
+                                                        <i class="fas fa-trash"></i>
+                                                    </a>
+                                                <?php endif; ?>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
                 </form>
                 <div id="lowStockHost"></div>
 
@@ -1750,7 +1758,7 @@ try {
         .filter-actions {
             display: flex;
             gap: 10px;
-               }
+        }
 
         /* Pending Transfers Panel */
         .pending-transfers-panel {

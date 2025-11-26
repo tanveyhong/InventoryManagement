@@ -745,7 +745,7 @@ if ($returnRaw !== '') {
           <div class="field">
             <label class="label">Quantity (Read-only)</label>
             <input class="control" type="number" name="quantity" value="<?php echo h((string)$stock['quantity']); ?>" readonly style="background-color: #f0f0f0; cursor: not-allowed;">
-            <div class="hint">Click the "Stock" button to change quantity.</div>
+            <div class="hint">Click the "Restock" button to change quantity.</div>
           </div>
           <div class="field">
             <label class="label">Reorder level</label>
