@@ -75,12 +75,14 @@ try {
     
     // Get recent sales (if sales table has data)
     $recent_sales = $sqlDb->fetchAll("SELECT s.*, 
+                                      u.username as cashier_name,
                                       COUNT(si.id) as items_count,
                                       COALESCE(SUM(CAST(si.subtotal AS NUMERIC)), 0) as total_amount
                                       FROM sales s
                                       LEFT JOIN sale_items si ON s.id = si.sale_id
+                                      LEFT JOIN users u ON s.user_id = u.id
                                       WHERE s.store_id = ?
-                                      GROUP BY s.id
+                                      GROUP BY s.id, u.username
                                       ORDER BY s.created_at DESC
                                       LIMIT 10", [$store_id]);
     
@@ -116,54 +118,95 @@ $page_title = "Store Profile - {$store['name']} - Inventory System";
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     
     <style>
+        :root {
+            --primary: #4f46e5;
+            --primary-dark: #4338ca;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --background: #f3f4f6;
+            --surface: #ffffff;
+            --text-main: #1f2937;
+            --text-light: #6b7280;
+            --border: #e5e7eb;
+        }
+
         body {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background-color: var(--background);
             min-height: 100vh;
             margin: 0;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: 'Inter', 'Segoe UI', sans-serif;
+            color: var(--text-main);
         }
         
         .container {
-            max-width: 1600px;
+            max-width: 1400px;
             margin: 0 auto;
             padding: 20px;
         }
         
         .header {
-            background: white;
+            background: var(--surface);
             border-radius: 12px;
             padding: 25px;
             margin-bottom: 25px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            gap: 20px;
         }
         
-        .header h1 {
-            margin: 0 0 5px 0;
-            color: #667eea;
-            font-size: 28px;
+        .header-content h1 {
+            margin: 0 0 8px 0;
+            color: var(--text-main);
+            font-size: 24px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 12px;
         }
         
-        .header .subtitle {
-            color: #666;
+        .header-content .subtitle {
+            color: var(--text-light);
             font-size: 14px;
-            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .header-content .subtitle span {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 10px;
         }
         
         .back-btn {
-            display: inline-block;
-            padding: 8px 15px;
-            background: #667eea;
-            color: white;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            background: white;
+            color: var(--text-main);
             text-decoration: none;
-            border-radius: 6px;
+            border-radius: 8px;
             font-size: 14px;
-            margin-bottom: 15px;
-            transition: all 0.3s ease;
+            font-weight: 500;
+            border: 1px solid var(--border);
+            transition: all 0.2s;
+            margin-bottom: 10px;
         }
         
         .back-btn:hover {
-            background: #5568d3;
-            transform: translateY(-2px);
+            background: #f9fafb;
+            border-color: #d1d5db;
         }
         
         .stats-grid {
@@ -174,271 +217,221 @@ $page_title = "Store Profile - {$store['name']} - Inventory System";
         }
         
         .stat-card {
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
-            text-align: center;
-            transition: transform 0.3s ease;
+            background: var(--surface);
+            padding: 15px;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            border: 1px solid var(--border);
+            transition: transform 0.2s ease;
         }
         
         .stat-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
         }
         
         .stat-card .icon {
-            font-size: 36px;
-            margin-bottom: 10px;
-            color: #667eea;
+            font-size: 20px;
+            color: var(--primary);
+            background: #e0e7ff;
+            width: 40px;
+            height: 40px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 10px;
+            flex-shrink: 0;
+            margin-bottom: 0;
         }
         
-        .stat-card .value {
-            font-size: 32px;
-            font-weight: bold;
-            color: #333;
-            margin-bottom: 5px;
-        }
-        
-        .stat-card .label {
-            font-size: 14px;
-            color: #666;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        
-        .stat-card.warning .icon { color: #f39c12; }
-        .stat-card.danger .icon { color: #e74c3c; }
-        .stat-card.success .icon { color: #27ae60; }
-        
-        .filters {
-            background: white;
-            border-radius: 12px;
-            padding: 20px;
-            margin-bottom: 20px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
-        }
-        
-        .filter-form {
-            display: grid;
-            grid-template-columns: 2fr 1fr 1fr 1fr auto;
-            gap: 15px;
-            align-items: end;
-        }
-        
-        .form-group {
+        .stat-card .content {
             display: flex;
             flex-direction: column;
         }
         
-        .form-group label {
-            font-size: 13px;
-            color: #666;
-            margin-bottom: 5px;
+        .stat-card .value {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--text-main);
+            line-height: 1.2;
+            margin-bottom: 0;
+        }
+        
+        .stat-card .label {
+            font-size: 11px;
+            color: var(--text-light);
             font-weight: 500;
-        }
-        
-        .form-group input,
-        .form-group select {
-            padding: 10px 12px;
-            border: 2px solid #e1e4e8;
-            border-radius: 8px;
-            font-size: 14px;
-            transition: border-color 0.3s;
-        }
-        
-        .form-group input:focus,
-        .form-group select:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-        
-        .btn {
-            padding: 10px 20px;
-            border-radius: 8px;
-            border: none;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: 600;
-            text-decoration: none;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            transition: all 0.3s;
-        }
-        
-        .btn-primary {
-            background: #667eea;
-            color: white;
-        }
-        
-        .btn-primary:hover {
-            background: #5568d3;
-            transform: translateY(-2px);
-        }
-        
-        .btn-secondary {
-            background: #6c757d;
-            color: white;
-        }
-        
-        .products-table-container {
-            background: white;
-            border-radius: 12px;
-            padding: 20px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
-            overflow-x: auto;
-        }
-        
-        .products-table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        
-        .products-table thead {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-        }
-        
-        .products-table th,
-        .products-table td {
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid #e1e4e8;
-        }
-        
-        .products-table th {
-            font-weight: 600;
-            font-size: 13px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
         
-        .products-table tbody tr {
-            transition: background 0.2s;
-        }
+        .stat-card.warning .icon { color: #d97706; background: #fef3c7; }
+        .stat-card.danger .icon { color: #dc2626; background: #fee2e2; }
+        .stat-card.success .icon { color: #059669; background: #d1fae5; }
         
-        .products-table tbody tr:hover {
-            background: #f8f9fa;
-        }
-        
-        .status-badge {
-            display: inline-block;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 600;
-            text-transform: uppercase;
-        }
-        
-        .status-badge.in-stock {
-            background: #d4edda;
-            color: #155724;
-        }
-        
-        .status-badge.low-stock {
-            background: #fff3cd;
-            color: #856404;
-        }
-        
-        .status-badge.out-of-stock {
-            background: #f8d7da;
-            color: #721c24;
-        }
-        
-        .status-badge.expired {
-            background: #f8d7da;
-            color: #721c24;
-        }
-        
-        .status-badge.expiring-soon {
-            background: #fff3cd;
-            color: #856404;
-        }
-        
-        .pagination {
-            background: white;
+        .card {
+            background: var(--surface);
             border-radius: 12px;
             padding: 20px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+            border: 1px solid var(--border);
+            margin-bottom: 20px;
+        }
+
+        .card h2 {
+            margin: 0 0 20px 0;
+            color: var(--text-main);
+            font-size: 16px;
+            font-weight: 600;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 15px;
             display: flex;
-            justify-content: space-between;
             align-items: center;
-        }
-        
-        .pagination-info {
-            color: #6b7280;
-            font-size: 14px;
-        }
-        
-        .pagination-links {
-            display: flex;
             gap: 8px;
         }
+
+        .card h2 i {
+            color: var(--primary);
+        }
         
-        .pagination-links a,
-        .pagination-links span {
-            padding: 8px 12px;
-            border-radius: 6px;
-            text-decoration: none;
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 0;
+            border-bottom: 1px solid #f3f4f6;
             font-size: 14px;
-            font-weight: 600;
         }
-        
-        .pagination-links a {
-            background: #f3f4f6;
-            color: #667eea;
+
+        .info-row:last-child {
+            border-bottom: none;
         }
-        
-        .pagination-links a:hover {
-            background: #667eea;
-            color: white;
+
+        .info-label {
+            font-weight: 500;
+            color: var(--text-light);
         }
-        
-        .pagination-links .current {
-            background: #667eea;
-            color: white;
-        }
-        
-        .message {
-            padding: 15px 20px;
-            border-radius: 8px;
-            margin-bottom: 20px;
+
+        .info-value {
+            color: var(--text-main);
             font-weight: 500;
         }
         
-        .message.success {
-            background: #d1fae5;
-            color: #065f46;
-            border-left: 4px solid #10b981;
+        .btn {
+            padding: 8px 16px;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s;
         }
         
-        .message.error {
-            background: #fee2e2;
-            color: #991b1b;
-            border-left: 4px solid #ef4444;
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
         }
         
-        .no-products {
+        .btn-primary:hover {
+            background: var(--primary-dark);
+        }
+        
+        .btn-secondary {
             background: white;
+            color: var(--text-main);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover {
+            background: #f9fafb;
+            border-color: #d1d5db;
+        }
+
+        .btn-edit {
+            background: #ffedd5;
+            color: #c2410c;
+        }
+
+        .btn-edit:hover {
+            background: #c2410c;
+            color: white;
+        }
+        
+        .products-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+        }
+        
+        .products-table th {
+            background: #f9fafb;
+            color: var(--text-light);
+            font-weight: 600;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 12px 16px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .products-table td {
+            padding: 12px 16px;
+            border-bottom: 1px solid #f3f4f6;
+            color: var(--text-main);
+            font-size: 14px;
+        }
+        
+        .products-table tr:last-child td {
+            border-bottom: none;
+        }
+        
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 8px;
             border-radius: 12px;
-            padding: 60px 20px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .badge-success { background: #d1fae5; color: #065f46; }
+        .badge-secondary { background: #f3f4f6; color: #6b7280; }
+        .badge-warning { background: #fef3c7; color: #92400e; }
+
+        .content-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .table-responsive {
+            overflow-x: auto;
+        }
+
+        .empty-state {
             text-align: center;
-            color: #6b7280;
+            padding: 40px;
+            color: var(--text-light);
         }
-        
-        .no-products i {
+
+        .empty-state i {
             font-size: 48px;
+            margin-bottom: 15px;
             color: #d1d5db;
-            margin-bottom: 20px;
         }
         
-        @media (max-width: 768px) {
-            .filter-form {
-                grid-template-columns: 1fr;
-            }
-            .stats-grid {
-                grid-template-columns: repeat(2, 1fr);
+        @media (max-width: 1024px) {
+            .content-grid {
+                grid-template-columns: 1fr !important;
             }
         }
     </style>
@@ -449,47 +442,78 @@ $page_title = "Store Profile - {$store['name']} - Inventory System";
     <div class="container">
         <!-- Header -->
         <div class="header">
-            <a href="list.php" class="back-btn">
-                <i class="fas fa-arrow-left"></i> Back to Stores
-            </a>
-            <h1><i class="fas fa-store"></i> <?php echo htmlspecialchars($store['name']); ?></h1>
-            <div class="subtitle">
-                <i class="fas fa-map-marker-alt"></i> <?php echo htmlspecialchars($store['address'] ?? 'N/A'); ?>, 
-                <?php echo htmlspecialchars($store['city'] ?? 'N/A'); ?>
-                <?php if (!empty($store['region_name'])): ?>
-                    · <i class="fas fa-map"></i> <?php echo htmlspecialchars($store['region_name']); ?>
-                <?php endif; ?>
+            <div class="header-content">
+                <a href="list.php" class="back-btn">
+                    <i class="fas fa-arrow-left"></i> Back to Stores
+                </a>
+                <h1>
+                    <i class="fas fa-store"></i> <?php echo htmlspecialchars($store['name']); ?>
+                    <?php if (!empty($store['has_pos'])): ?>
+                        <span class="badge badge-success" style="font-size: 12px; vertical-align: middle;">POS Enabled</span>
+                    <?php else: ?>
+                        <span class="badge badge-secondary" style="font-size: 12px; vertical-align: middle;">POS Disabled</span>
+                    <?php endif; ?>
+                </h1>
+                <div class="subtitle">
+                    <span><i class="fas fa-map-marker-alt"></i> <?php echo htmlspecialchars($store['address'] ?? 'N/A'); ?>, <?php echo htmlspecialchars($store['city'] ?? 'N/A'); ?></span>
+                    <?php if (!empty($store['region_name'])): ?>
+                        <span><i class="fas fa-map"></i> <?php echo htmlspecialchars($store['region_name']); ?></span>
+                    <?php endif; ?>
+                </div>
             </div>
             
-            <!-- Inventory Statistics -->
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <div class="icon"><i class="fas fa-box"></i></div>
+            <div class="header-actions">
+                <?php if (currentUserHasPermission('can_edit_stores')): ?>
+                <a href="edit.php?id=<?php echo $store_id; ?>" class="btn btn-edit">
+                    <i class="fas fa-edit"></i> Edit Store
+                </a>
+                <?php endif; ?>
+                <a href="inventory_viewer.php?id=<?php echo $store_id; ?>" class="btn btn-primary">
+                    <i class="fas fa-boxes"></i> View Inventory
+                </a>
+            </div>
+        </div>
+            
+        <!-- Inventory Statistics -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="icon"><i class="fas fa-box"></i></div>
+                <div class="content">
                     <div class="value"><?php echo number_format($inventory['total_products']); ?></div>
                     <div class="label">Total Products</div>
                 </div>
-                <div class="stat-card success">
-                    <div class="icon"><i class="fas fa-cubes"></i></div>
+            </div>
+            <div class="stat-card success">
+                <div class="icon"><i class="fas fa-cubes"></i></div>
+                <div class="content">
                     <div class="value"><?php echo number_format($inventory['total_stock']); ?></div>
                     <div class="label">Total Stock</div>
                 </div>
-                <div class="stat-card success">
-                    <div class="icon"><i class="fas fa-dollar-sign"></i></div>
+            </div>
+            <div class="stat-card success">
+                <div class="icon"><i class="fas fa-dollar-sign"></i></div>
+                <div class="content">
                     <div class="value">$<?php echo number_format($inventory['inventory_value'], 2); ?></div>
                     <div class="label">Inventory Value</div>
                 </div>
-                <div class="stat-card warning">
-                    <div class="icon"><i class="fas fa-exclamation-triangle"></i></div>
+            </div>
+            <div class="stat-card warning">
+                <div class="icon"><i class="fas fa-exclamation-triangle"></i></div>
+                <div class="content">
                     <div class="value"><?php echo number_format($inventory['low_stock']); ?></div>
                     <div class="label">Low Stock</div>
                 </div>
-                <div class="stat-card danger">
-                    <div class="icon"><i class="fas fa-times-circle"></i></div>
+            </div>
+            <div class="stat-card danger">
+                <div class="icon"><i class="fas fa-times-circle"></i></div>
+                <div class="content">
                     <div class="value"><?php echo number_format($inventory['out_of_stock']); ?></div>
                     <div class="label">Out of Stock</div>
                 </div>
-                <div class="stat-card">
-                    <div class="icon"><i class="fas fa-tags"></i></div>
+            </div>
+            <div class="stat-card">
+                <div class="icon"><i class="fas fa-tags"></i></div>
+                <div class="content">
                     <div class="value"><?php echo number_format($inventory['categories']); ?></div>
                     <div class="label">Categories</div>
                 </div>
@@ -497,19 +521,23 @@ $page_title = "Store Profile - {$store['name']} - Inventory System";
             
             <!-- Sales Statistics (Last 30 Days) -->
             <?php if ($sales_summary['total_transactions'] > 0): ?>
-            <div class="stats-grid" style="margin-top: 20px;">
-                <div class="stat-card success">
-                    <div class="icon"><i class="fas fa-shopping-cart"></i></div>
+            <div class="stat-card success">
+                <div class="icon"><i class="fas fa-shopping-cart"></i></div>
+                <div class="content">
                     <div class="value"><?php echo number_format($sales_summary['total_transactions']); ?></div>
                     <div class="label">Total Sales (30d)</div>
                 </div>
-                <div class="stat-card success">
-                    <div class="icon"><i class="fas fa-dollar-sign"></i></div>
+            </div>
+            <div class="stat-card success">
+                <div class="icon"><i class="fas fa-dollar-sign"></i></div>
+                <div class="content">
                     <div class="value">$<?php echo number_format($sales_summary['total_revenue'], 2); ?></div>
                     <div class="label">Revenue (30d)</div>
                 </div>
-                <div class="stat-card">
-                    <div class="icon"><i class="fas fa-receipt"></i></div>
+            </div>
+            <div class="stat-card">
+                <div class="icon"><i class="fas fa-receipt"></i></div>
+                <div class="content">
                     <div class="value">$<?php echo number_format($sales_summary['avg_transaction'], 2); ?></div>
                     <div class="label">Avg Transaction</div>
                 </div>
@@ -518,39 +546,14 @@ $page_title = "Store Profile - {$store['name']} - Inventory System";
         </div>
         
         <!-- Store Profile Content -->
-        <div class="content-grid" style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-top: 20px;">
+        <div class="content-grid">
             <!-- Main Content -->
             <div>
-                <!-- Store Information Card -->
-                <div class="card" style="background: white; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.08);">
-                    <h2 style="margin: 0 0 20px 0; color: #333; font-size: 18px; border-bottom: 2px solid #667eea; padding-bottom: 10px;"><i class="fas fa-info-circle"></i> Store Information</h2>
-                    <div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #f0f0f0;">
-                        <span style="font-weight: 600; color: #666;">Store Code:</span>
-                        <span style="color: #333;"><?php echo htmlspecialchars($store['code'] ?? 'N/A'); ?></span>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #f0f0f0;">
-                        <span style="font-weight: 600; color: #666;">Phone:</span>
-                        <span style="color: #333;"><?php echo htmlspecialchars($store['phone'] ?? 'N/A'); ?></span>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #f0f0f0;">
-                        <span style="font-weight: 600; color: #666;">Email:</span>
-                        <span style="color: #333;"><?php echo htmlspecialchars($store['email'] ?? 'N/A'); ?></span>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #f0f0f0;">
-                        <span style="font-weight: 600; color: #666;">Manager:</span>
-                        <span style="color: #333;"><?php echo htmlspecialchars($store['contact_person'] ?? 'Not assigned'); ?></span>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; padding: 10px 0;">
-                        <span style="font-weight: 600; color: #666;">Created:</span>
-                        <span style="color: #333;"><?php echo date('M d, Y', strtotime($store['created_at'])); ?></span>
-                    </div>
-                </div>
-                
                 <!-- Recent Products Card -->
-                <div class="card" style="background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.08);">
-                    <h2 style="margin: 0 0 20px 0; color: #333; font-size: 18px; border-bottom: 2px solid #667eea; padding-bottom: 10px;"><i class="fas fa-box-open"></i> Recently Added Products</h2>
+                <div class="card">
+                    <h2><i class="fas fa-box-open"></i> Recently Added Products</h2>
                     <?php if (!empty($recent_products)): ?>
-                    <div style="overflow-x: auto;">
+                    <div class="table-responsive">
                         <table class="products-table">
                             <thead>
                                 <tr>
@@ -586,13 +589,15 @@ $page_title = "Store Profile - {$store['name']} - Inventory System";
                 
                 <!-- Recent Sales Card -->
                 <?php if (!empty($recent_sales)): ?>
-                <div class="card" style="background: white; border-radius: 12px; padding: 20px; margin-top: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.08);">
-                    <h2 style="margin: 0 0 20px 0; color: #333; font-size: 18px; border-bottom: 2px solid #667eea; padding-bottom: 10px;"><i class="fas fa-shopping-cart"></i> Recent Sales</h2>
-                    <div style="overflow-x: auto;">
+                <div class="card">
+                    <h2><i class="fas fa-shopping-cart"></i> Recent Sales</h2>
+                    <div class="table-responsive">
                         <table class="products-table">
                             <thead>
                                 <tr>
                                     <th>Date</th>
+                                    <th>Customer</th>
+                                    <th>Cashier</th>
                                     <th>Items</th>
                                     <th>Amount</th>
                                     <th>Payment</th>
@@ -602,6 +607,8 @@ $page_title = "Store Profile - {$store['name']} - Inventory System";
                                 <?php foreach ($recent_sales as $sale): ?>
                                 <tr>
                                     <td><?php echo date('M d, Y H:i', strtotime($sale['created_at'])); ?></td>
+                                    <td><?php echo htmlspecialchars($sale['customer_name'] ?? 'Walk-in Customer'); ?></td>
+                                    <td><?php echo htmlspecialchars($sale['cashier_name'] ?? 'Unknown'); ?></td>
                                     <td><?php echo $sale['items_count']; ?> items</td>
                                     <td>$<?php echo number_format($sale['total_amount'], 2); ?></td>
                                     <td><?php echo htmlspecialchars($sale['payment_method'] ?? 'N/A'); ?></td>
@@ -616,10 +623,45 @@ $page_title = "Store Profile - {$store['name']} - Inventory System";
             
             <!-- Sidebar -->
             <div>
+                <!-- Store Information Card -->
+                <div class="card">
+                    <h2><i class="fas fa-info-circle"></i> Store Information</h2>
+                    <div class="info-row">
+                        <span class="info-label">Store Code:</span>
+                        <span class="info-value"><?php echo htmlspecialchars($store['code'] ?? 'N/A'); ?></span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Phone:</span>
+                        <span class="info-value"><?php echo htmlspecialchars($store['phone'] ?? 'N/A'); ?></span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Email:</span>
+                        <span class="info-value"><?php echo htmlspecialchars($store['email'] ?? 'N/A'); ?></span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Manager:</span>
+                        <span class="info-value"><?php echo htmlspecialchars($store['manager_name'] ?? $store['contact_person'] ?? 'Not assigned'); ?></span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">POS Status:</span>
+                        <span class="info-value">
+                            <?php if (!empty($store['has_pos'])): ?>
+                                <span class="badge badge-success">Enabled</span>
+                            <?php else: ?>
+                                <span class="badge badge-secondary">Disabled</span>
+                            <?php endif; ?>
+                        </span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Created:</span>
+                        <span class="info-value"><?php echo date('M d, Y', strtotime($store['created_at'])); ?></span>
+                    </div>
+                </div>
+
                 <!-- Low Stock Alert Card -->
                 <?php if (!empty($low_stock_products)): ?>
-                <div class="card" style="background: white; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.08);">
-                    <h2 style="margin: 0 0 20px 0; color: #333; font-size: 18px; border-bottom: 2px solid #667eea; padding-bottom: 10px;"><i class="fas fa-exclamation-triangle"></i> Low Stock Alert</h2>
+                <div class="card">
+                    <h2><i class="fas fa-exclamation-triangle"></i> Low Stock Alert</h2>
                     <table class="products-table">
                         <thead>
                             <tr>
@@ -633,7 +675,7 @@ $page_title = "Store Profile - {$store['name']} - Inventory System";
                             <tr>
                                 <td>
                                     <?php echo htmlspecialchars($product['name']); ?>
-                                    <br><small style="color: #999;"><?php echo htmlspecialchars($product['sku']); ?></small>
+                                    <br><small style="color: var(--text-light);"><?php echo htmlspecialchars($product['sku']); ?></small>
                                 </td>
                                 <td><span class="badge badge-warning"><?php echo $product['quantity']; ?></span></td>
                                 <td><?php echo $product['reorder_level']; ?></td>
@@ -645,13 +687,13 @@ $page_title = "Store Profile - {$store['name']} - Inventory System";
                 <?php endif; ?>
                 
                 <!-- Quick Actions Card -->
-                <div class="card" style="background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.08);">
-                    <h2 style="margin: 0 0 20px 0; color: #333; font-size: 18px; border-bottom: 2px solid #667eea; padding-bottom: 10px;"><i class="fas fa-bolt"></i> Quick Actions</h2>
+                <div class="card">
+                    <h2><i class="fas fa-bolt"></i> Quick Actions</h2>
                     <div style="display: flex; flex-direction: column; gap: 10px;">
-                        <a href="inventory_viewer.php?id=<?php echo $store_id; ?>" style="width: 100%; text-align: center; background: #667eea; color: white; padding: 10px; border-radius: 6px; text-decoration: none;">
+                        <a href="inventory_viewer.php?id=<?php echo $store_id; ?>" class="btn btn-primary" style="justify-content: center;">
                             <i class="fas fa-boxes"></i> View Full Inventory
                         </a>
-                        <a href="map.php" style="width: 100%; text-align: center; background: #6c757d; color: white; padding: 10px; border-radius: 6px; text-decoration: none;">
+                        <a href="map.php" class="btn btn-secondary" style="justify-content: center;">
                             <i class="fas fa-map"></i> Back to Map
                         </a>
                     </div>

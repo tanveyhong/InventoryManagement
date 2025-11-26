@@ -45,55 +45,20 @@ try {
     die("Database error: " . $e->getMessage());
 }
 
-// Filtering and pagination
-$page = isset($_GET['page']) ? max(1, intval($_GET['page'])) : 1;
-$per_page = 25;
-$search = sanitizeInput($_GET['search'] ?? '');
-$category = sanitizeInput($_GET['category'] ?? '');
-$status = sanitizeInput($_GET['status'] ?? '');
-$sort = sanitizeInput($_GET['sort'] ?? 'name');
-$order = sanitizeInput($_GET['order'] ?? 'asc');
-$offset = ($page - 1) * $per_page;
-
-// Build WHERE clause
-$where = "WHERE p.store_id = ? AND p.active = TRUE";
-$params = [$store_id];
-
-if (!empty($search)) {
-    $where .= " AND (p.name ILIKE ? OR p.sku ILIKE ? OR p.barcode ILIKE ?)";
-    $searchPattern = "%$search%";
-    $params[] = $searchPattern;
-    $params[] = $searchPattern;
-    $params[] = $searchPattern;
-}
-
-if (!empty($category)) {
-    $where .= " AND p.category = ?";
-    $params[] = $category;
-}
-
-if (!empty($status)) {
-    if ($status === 'low_stock') {
-        $where .= " AND p.quantity <= p.reorder_level AND p.quantity > 0";
-    } elseif ($status === 'out_of_stock') {
-        $where .= " AND p.quantity = 0";
-    }
-}
-
-// Validate sort
-$allowed_sorts = ['name', 'sku', 'category', 'quantity', 'price', 'created_at'];
-if (!in_array($sort, $allowed_sorts)) {
-    $sort = 'name';
-}
-$order = ($order === 'desc') ? 'DESC' : 'ASC';
-
+// Get all products for client-side processing
 try {
-    // Get total count
-    $countSql = "SELECT COUNT(*) as total FROM products p $where";
-    $countResult = $sqlDb->fetch($countSql, $params);
-    $total_records = $countResult['total'] ?? 0;
-    
-    // Get products
+    // Get summary stats first
+    $summary = $sqlDb->fetch("SELECT 
+                                COUNT(*) as total_products,
+                                COALESCE(SUM(quantity), 0) as total_quantity,
+                                COALESCE(SUM(quantity * CAST(NULLIF(price, '') AS NUMERIC)), 0) as total_value,
+                                COUNT(CASE WHEN quantity = 0 THEN 1 END) as out_of_stock,
+                                COUNT(CASE WHEN quantity <= reorder_level AND quantity > 0 THEN 1 END) as low_stock
+                            FROM products 
+                            WHERE store_id = ? AND active = TRUE", [$store_id]);
+
+    // Fetch ALL active products for this store
+    // Limit to 5000 to prevent browser crash
     $sql = "SELECT p.*,
                    CASE 
                        WHEN p.quantity = 0 THEN 'out_of_stock'
@@ -101,36 +66,26 @@ try {
                        ELSE 'in_stock'
                    END as stock_status
             FROM products p
-            $where
-            ORDER BY p.$sort $order
-            LIMIT ? OFFSET ?";
+            WHERE p.store_id = ? AND p.active = TRUE
+            ORDER BY p.name ASC
+            LIMIT 5000";
     
-    $queryParams = array_merge($params, [$per_page, $offset]);
-    $products = $sqlDb->fetchAll($sql, $queryParams);
+    $all_products = $sqlDb->fetchAll($sql, [$store_id]);
     
-    // Get categories for filter
-    $categories = $sqlDb->fetchAll("SELECT DISTINCT category FROM products WHERE store_id = ? AND active = TRUE AND category IS NOT NULL ORDER BY category", [$store_id]);
-    
-    // Get summary stats
-    $summary = $sqlDb->fetch("SELECT 
-                                COUNT(*) as total_products,
-                                COALESCE(SUM(quantity), 0) as total_quantity,
-                                COALESCE(SUM(quantity * CAST(price AS NUMERIC)), 0) as total_value,
-                                COUNT(CASE WHEN quantity = 0 THEN 1 END) as out_of_stock,
-                                COUNT(CASE WHEN quantity <= reorder_level AND quantity > 0 THEN 1 END) as low_stock
-                            FROM products 
-                            WHERE store_id = ? AND active = TRUE", [$store_id]);
+    // Get categories from the fetched products to avoid extra query
+    $categories = [];
+    $cats = array_unique(array_column($all_products, 'category'));
+    sort($cats);
+    foreach ($cats as $c) {
+        if ($c) $categories[] = ['category' => $c];
+    }
     
 } catch (Exception $e) {
     error_log('Error fetching products: ' . $e->getMessage());
-    $products = [];
-    $total_records = 0;
+    $all_products = [];
     $categories = [];
     $summary = ['total_products' => 0, 'total_quantity' => 0, 'total_value' => 0, 'out_of_stock' => 0, 'low_stock' => 0];
 }
-
-// Calculate pagination
-$total_pages = ceil($total_records / $per_page);
 
 $page_title = "Inventory - {$store['name']} - Inventory System";
 ?>
@@ -145,11 +100,26 @@ $page_title = "Inventory - {$store['name']} - Inventory System";
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     
     <style>
+        /* ...existing code... */
+        :root {
+            --primary: #4f46e5;
+            --primary-dark: #4338ca;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --background: #f3f4f6;
+            --surface: #ffffff;
+            --text-main: #1f2937;
+            --text-light: #6b7280;
+            --border: #e5e7eb;
+        }
+
         body {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background-color: var(--background);
             min-height: 100vh;
             margin: 0;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: 'Inter', 'Segoe UI', sans-serif;
+            color: var(--text-main);
         }
         
         .container {
@@ -158,43 +128,67 @@ $page_title = "Inventory - {$store['name']} - Inventory System";
             padding: 20px;
         }
         
+        /* Header Styles */
         .header {
-            background: white;
+            background: var(--surface);
             border-radius: 12px;
             padding: 25px;
             margin-bottom: 25px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            gap: 20px;
         }
         
-        .header h1 {
-            margin: 0 0 5px 0;
-            color: #667eea;
-            font-size: 28px;
+        .header-content h1 {
+            margin: 0 0 8px 0;
+            color: var(--text-main);
+            font-size: 24px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 12px;
         }
         
-        .header .subtitle {
-            color: #666;
+        .header-content .subtitle {
+            color: var(--text-light);
             font-size: 14px;
-            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .header-content .subtitle span {
+            display: flex;
+            align-items: center;
+            gap: 6px;
         }
         
         .back-btn {
-            display: inline-block;
-            padding: 8px 15px;
-            background: #667eea;
-            color: white;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            background: white;
+            color: var(--text-main);
             text-decoration: none;
-            border-radius: 6px;
+            border-radius: 8px;
             font-size: 14px;
-            margin-bottom: 15px;
-            transition: all 0.3s ease;
+            font-weight: 500;
+            border: 1px solid var(--border);
+            transition: all 0.2s;
+            margin-bottom: 10px;
         }
         
         .back-btn:hover {
-            background: #5568d3;
-            transform: translateY(-2px);
+            background: #f9fafb;
+            border-color: #d1d5db;
         }
-        
+
+        /* Stats Grid */
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -203,54 +197,126 @@ $page_title = "Inventory - {$store['name']} - Inventory System";
         }
         
         .stat-card {
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
-            text-align: center;
-            transition: transform 0.3s ease;
+            background: var(--surface);
+            padding: 15px;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            border: 1px solid var(--border);
+            transition: transform 0.2s ease;
         }
         
         .stat-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
         }
         
         .stat-card .icon {
-            font-size: 36px;
-            margin-bottom: 10px;
-            color: #667eea;
+            font-size: 20px;
+            color: var(--primary);
+            background: #e0e7ff;
+            width: 40px;
+            height: 40px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 10px;
+            flex-shrink: 0;
+            margin-bottom: 0;
+        }
+        
+        .stat-card .content {
+            display: flex;
+            flex-direction: column;
         }
         
         .stat-card .value {
-            font-size: 32px;
-            font-weight: bold;
-            color: #333;
-            margin-bottom: 5px;
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--text-main);
+            line-height: 1.2;
+            margin-bottom: 0;
         }
         
         .stat-card .label {
-            font-size: 14px;
-            color: #666;
+            font-size: 11px;
+            color: var(--text-light);
+            font-weight: 500;
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
         
-        .stat-card.warning .icon { color: #f39c12; }
-        .stat-card.danger .icon { color: #e74c3c; }
-        .stat-card.success .icon { color: #27ae60; }
-        
-        .filters {
-            background: white;
+        .stat-card.warning .icon { color: #d97706; background: #fef3c7; }
+        .stat-card.danger .icon { color: #dc2626; background: #fee2e2; }
+        .stat-card.success .icon { color: #059669; background: #d1fae5; }
+
+        /* Card & Table Styles */
+        .card {
+            background: var(--surface);
             border-radius: 12px;
             padding: 20px;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+            border: 1px solid var(--border);
             margin-bottom: 20px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+        }
+
+        .products-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
         }
         
+        .products-table th {
+            background: #f9fafb;
+            color: var(--text-light);
+            font-weight: 600;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 12px 16px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+            white-space: nowrap;
+        }
+        
+        .products-table th a {
+            color: var(--text-light);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            transition: color 0.2s;
+        }
+        
+        .products-table th a:hover {
+            color: var(--primary);
+        }
+        
+        .products-table th a.active {
+            color: var(--primary);
+        }
+        
+        .products-table td {
+            padding: 12px 16px;
+            border-bottom: 1px solid #f3f4f6;
+            color: var(--text-main);
+            font-size: 14px;
+        }
+        
+        .products-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .table-responsive {
+            overflow-x: auto;
+        }
+
+        /* Filter Styles */
         .filter-form {
             display: grid;
-            grid-template-columns: 2fr 1fr 1fr 1fr auto;
+            grid-template-columns: 2fr 1fr 1fr auto;
             gap: 15px;
             align-items: end;
         }
@@ -262,7 +328,7 @@ $page_title = "Inventory - {$store['name']} - Inventory System";
         
         .form-group label {
             font-size: 13px;
-            color: #666;
+            color: var(--text-light);
             margin-bottom: 5px;
             font-weight: 500;
         }
@@ -270,18 +336,22 @@ $page_title = "Inventory - {$store['name']} - Inventory System";
         .form-group input,
         .form-group select {
             padding: 10px 12px;
-            border: 2px solid #e1e4e8;
+            border: 1px solid var(--border);
             border-radius: 8px;
             font-size: 14px;
-            transition: border-color 0.3s;
+            color: var(--text-main);
+            background: white;
+            transition: border-color 0.2s;
         }
         
         .form-group input:focus,
         .form-group select:focus {
             outline: none;
-            border-color: #667eea;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
         }
-        
+
+        /* Buttons */
         .btn {
             padding: 10px 20px;
             border-radius: 8px;
@@ -293,110 +363,56 @@ $page_title = "Inventory - {$store['name']} - Inventory System";
             display: inline-flex;
             align-items: center;
             gap: 8px;
-            transition: all 0.3s;
+            transition: all 0.2s;
         }
         
         .btn-primary {
-            background: #667eea;
+            background: var(--primary);
             color: white;
         }
         
         .btn-primary:hover {
-            background: #5568d3;
-            transform: translateY(-2px);
+            background: var(--primary-dark);
         }
         
         .btn-secondary {
-            background: #6c757d;
-            color: white;
-        }
-        
-        .products-table-container {
             background: white;
-            border-radius: 12px;
-            padding: 20px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
-            overflow-x: auto;
+            color: var(--text-main);
+            border: 1px solid var(--border);
         }
         
-        .products-table {
-            width: 100%;
-            border-collapse: collapse;
+        .btn-secondary:hover {
+            background: #f9fafb;
+            border-color: #d1d5db;
         }
-        
-        .products-table thead {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-        }
-        
-        .products-table th,
-        .products-table td {
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid #e1e4e8;
-        }
-        
-        .products-table th {
-            font-weight: 600;
-            font-size: 13px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        
-        .products-table tbody tr {
-            transition: background 0.2s;
-        }
-        
-        .products-table tbody tr:hover {
-            background: #f8f9fa;
-        }
-        
+
+        /* Status Badges */
         .status-badge {
-            display: inline-block;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 12px;
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 11px;
             font-weight: 600;
             text-transform: uppercase;
         }
         
-        .status-badge.in-stock {
-            background: #d4edda;
-            color: #155724;
-        }
-        
-        .status-badge.low-stock {
-            background: #fff3cd;
-            color: #856404;
-        }
-        
-        .status-badge.out-of-stock {
-            background: #f8d7da;
-            color: #721c24;
-        }
-        
-        .status-badge.expired {
-            background: #f8d7da;
-            color: #721c24;
-        }
-        
-        .status-badge.expiring-soon {
-            background: #fff3cd;
-            color: #856404;
-        }
-        
+        .status-badge.in-stock { background: #d1fae5; color: #065f46; }
+        .status-badge.low-stock { background: #fef3c7; color: #92400e; }
+        .status-badge.out-of-stock { background: #fee2e2; color: #991b1b; }
+        .status-badge.expired { background: #fee2e2; color: #991b1b; }
+        .status-badge.expiring-soon { background: #fef3c7; color: #92400e; }
+
+        /* Pagination */
         .pagination {
-            background: white;
-            border-radius: 12px;
-            padding: 20px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
             display: flex;
             justify-content: space-between;
             align-items: center;
+            margin-top: 20px;
         }
         
         .pagination-info {
-            color: #6b7280;
+            color: var(--text-light);
             font-size: 14px;
         }
         
@@ -415,45 +431,26 @@ $page_title = "Inventory - {$store['name']} - Inventory System";
         }
         
         .pagination-links a {
-            background: #f3f4f6;
-            color: #667eea;
+            background: white;
+            color: var(--text-main);
+            border: 1px solid var(--border);
         }
         
         .pagination-links a:hover {
-            background: #667eea;
-            color: white;
+            background: #f9fafb;
+            border-color: #d1d5db;
         }
         
         .pagination-links .current {
-            background: #667eea;
+            background: var(--primary);
             color: white;
+            border: 1px solid var(--primary);
         }
-        
-        .message {
-            padding: 15px 20px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            font-weight: 500;
-        }
-        
-        .message.success {
-            background: #d1fae5;
-            color: #065f46;
-            border-left: 4px solid #10b981;
-        }
-        
-        .message.error {
-            background: #fee2e2;
-            color: #991b1b;
-            border-left: 4px solid #ef4444;
-        }
-        
+
         .no-products {
-            background: white;
-            border-radius: 12px;
-            padding: 60px 20px;
             text-align: center;
-            color: #6b7280;
+            padding: 60px 20px;
+            color: var(--text-light);
         }
         
         .no-products i {
@@ -461,13 +458,16 @@ $page_title = "Inventory - {$store['name']} - Inventory System";
             color: #d1d5db;
             margin-bottom: 20px;
         }
+
+        @media (max-width: 1024px) {
+            .filter-form {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
         
         @media (max-width: 768px) {
             .filter-form {
                 grid-template-columns: 1fr;
-            }
-            .stats-grid {
-                grid-template-columns: repeat(2, 1fr);
             }
         }
     </style>
@@ -478,47 +478,60 @@ $page_title = "Inventory - {$store['name']} - Inventory System";
     <div class="container">
         <!-- Header -->
         <div class="header">
-            <a href="list.php" class="back-btn">
-                <i class="fas fa-arrow-left"></i> Back to Stores
-            </a>
-            <h1><i class="fas fa-boxes"></i> <?php echo htmlspecialchars($store['name']); ?> - Inventory</h1>
-            <div class="subtitle">
-                <i class="fas fa-map-marker-alt"></i> <?php echo htmlspecialchars($store['address'] ?? 'N/A'); ?>, 
-                <?php echo htmlspecialchars($store['city'] ?? 'N/A'); ?>
-                <?php if (!empty($store['region_name'])): ?>
-                    · <i class="fas fa-map"></i> <?php echo htmlspecialchars($store['region_name']); ?>
-                <?php endif; ?>
+            <div class="header-content">
+                <a href="profile.php?id=<?php echo $store_id; ?>" class="back-btn">
+                    <i class="fas fa-arrow-left"></i> Back to Profile
+                </a>
+                <h1><i class="fas fa-boxes"></i> <?php echo htmlspecialchars($store['name']); ?> - Inventory</h1>
+                <div class="subtitle">
+                    <span><i class="fas fa-map-marker-alt"></i> <?php echo htmlspecialchars($store['address'] ?? 'N/A'); ?>, <?php echo htmlspecialchars($store['city'] ?? 'N/A'); ?></span>
+                    <?php if (!empty($store['region_name'])): ?>
+                        <span>· <i class="fas fa-map"></i> <?php echo htmlspecialchars($store['region_name']); ?></span>
+                    <?php endif; ?>
+                </div>
             </div>
+        </div>
             
-            <!-- Summary Statistics -->
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <div class="icon"><i class="fas fa-box"></i></div>
+        <!-- Summary Statistics -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="icon"><i class="fas fa-box"></i></div>
+                <div class="content">
                     <div class="value"><?php echo number_format($summary['total_products']); ?></div>
                     <div class="label">Total Products</div>
                 </div>
-                <div class="stat-card success">
-                    <div class="icon"><i class="fas fa-cubes"></i></div>
+            </div>
+            <div class="stat-card success">
+                <div class="icon"><i class="fas fa-cubes"></i></div>
+                <div class="content">
                     <div class="value"><?php echo number_format($summary['total_quantity']); ?></div>
                     <div class="label">Total Stock</div>
                 </div>
-                <div class="stat-card success">
-                    <div class="icon"><i class="fas fa-dollar-sign"></i></div>
+            </div>
+            <div class="stat-card success">
+                <div class="icon"><i class="fas fa-dollar-sign"></i></div>
+                <div class="content">
                     <div class="value">$<?php echo number_format($summary['total_value'], 2); ?></div>
                     <div class="label">Total Value</div>
                 </div>
-                <div class="stat-card warning">
-                    <div class="icon"><i class="fas fa-exclamation-triangle"></i></div>
+            </div>
+            <div class="stat-card warning">
+                <div class="icon"><i class="fas fa-exclamation-triangle"></i></div>
+                <div class="content">
                     <div class="value"><?php echo number_format($summary['low_stock']); ?></div>
                     <div class="label">Low Stock</div>
                 </div>
-                <div class="stat-card danger">
-                    <div class="icon"><i class="fas fa-times-circle"></i></div>
+            </div>
+            <div class="stat-card danger">
+                <div class="icon"><i class="fas fa-times-circle"></i></div>
+                <div class="content">
                     <div class="value"><?php echo number_format($summary['out_of_stock']); ?></div>
                     <div class="label">Out of Stock</div>
                 </div>
-                <div class="stat-card danger">
-                    <div class="icon"><i class="fas fa-calendar-times"></i></div>
+            </div>
+            <div class="stat-card danger">
+                <div class="icon"><i class="fas fa-calendar-times"></i></div>
+                <div class="content">
                     <div class="value"><?php echo number_format($summary['expired'] + $summary['expiring_soon']); ?></div>
                     <div class="label">Expired/Expiring</div>
                 </div>
@@ -526,23 +539,19 @@ $page_title = "Inventory - {$store['name']} - Inventory System";
         </div>
         
         <!-- Filters -->
-        <div class="filters">
-            <form class="filter-form" method="get" action="">
-                <input type="hidden" name="id" value="<?php echo $store_id; ?>">
-                
+        <div class="card">
+            <form class="filter-form" id="filterForm">
                 <div class="form-group">
                     <label>Search</label>
-                    <input type="text" name="search" placeholder="Product name, SKU, or barcode..." 
-                           value="<?php echo htmlspecialchars($search); ?>">
+                    <input type="text" id="searchInput" placeholder="Product name, SKU, or barcode...">
                 </div>
                 
                 <div class="form-group">
                     <label>Category</label>
-                    <select name="category">
+                    <select id="categorySelect">
                         <option value="">All Categories</option>
                         <?php foreach ($categories as $cat): ?>
-                            <option value="<?php echo htmlspecialchars($cat['category']); ?>" 
-                                    <?php echo $category === $cat['category'] ? 'selected' : ''; ?>>
+                            <option value="<?php echo htmlspecialchars($cat['category']); ?>">
                                 <?php echo htmlspecialchars($cat['category']); ?>
                             </option>
                         <?php endforeach; ?>
@@ -551,121 +560,281 @@ $page_title = "Inventory - {$store['name']} - Inventory System";
                 
                 <div class="form-group">
                     <label>Status</label>
-                    <select name="status">
+                    <select id="statusSelect">
                         <option value="">All Status</option>
-                        <option value="low_stock" <?php echo $status === 'low_stock' ? 'selected' : ''; ?>>Low Stock</option>
-                        <option value="out_of_stock" <?php echo $status === 'out_of_stock' ? 'selected' : ''; ?>>Out of Stock</option>
-                        <option value="expired" <?php echo $status === 'expired' ? 'selected' : ''; ?>>Expired</option>
-                        <option value="expiring_soon" <?php echo $status === 'expiring_soon' ? 'selected' : ''; ?>>Expiring Soon</option>
+                        <option value="low_stock">Low Stock</option>
+                        <option value="out_of_stock">Out of Stock</option>
+                        <option value="expired">Expired</option>
+                        <option value="expiring_soon">Expiring Soon</option>
                     </select>
                 </div>
                 
                 <div class="form-group">
-                    <label>Sort By</label>
-                    <select name="sort">
-                        <option value="name" <?php echo $sort === 'name' ? 'selected' : ''; ?>>Product Name</option>
-                        <option value="sku" <?php echo $sort === 'sku' ? 'selected' : ''; ?>>SKU</option>
-                        <option value="category" <?php echo $sort === 'category' ? 'selected' : ''; ?>>Category</option>
-                        <option value="quantity" <?php echo $sort === 'quantity' ? 'selected' : ''; ?>>Quantity</option>
-                        <option value="price" <?php echo $sort === 'price' ? 'selected' : ''; ?>>Price</option>
-                        <option value="created_at" <?php echo $sort === 'created_at' ? 'selected' : ''; ?>>Date Added</option>
-                    </select>
+                    <button type="button" id="clearFiltersBtn" class="btn btn-secondary" style="justify-content: center;">
+                        <i class="fas fa-times"></i> Clear Filters
+                    </button>
                 </div>
-                
-                <button type="submit" class="btn btn-primary">
-                    <i class="fas fa-filter"></i> Apply
-                </button>
             </form>
         </div>
         
         <!-- Products Table -->
-        <?php if (!empty($products)): ?>
-        <div class="products-table-container">
-            <table class="products-table">
-                <thead>
-                    <tr>
-                        <th>SKU</th>
-                        <th>Product Name</th>
-                        <th>Category</th>
-                        <th>Quantity</th>
-                        <th>Price</th>
-                        <th>Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($products as $product): ?>
-                    <tr>
-                        <td><strong><?php echo htmlspecialchars($product['sku'] ?? 'N/A'); ?></strong></td>
-                        <td><?php echo htmlspecialchars($product['name']); ?></td>
-                        <td><?php echo htmlspecialchars($product['category'] ?? 'Uncategorized'); ?></td>
-                        <td><?php echo number_format($product['quantity']); ?></td>
-                        <td>$<?php echo number_format($product['price'], 2); ?></td>
-                        <td>
-                            <?php
-                            $status_class = str_replace('_', '-', $product['stock_status']);
-                            $status_text = ucwords(str_replace('_', ' ', $product['stock_status']));
-                            ?>
-                            <span class="status-badge <?php echo $status_class; ?>">
-                                <?php echo $status_text; ?>
-                            </span>
-                        </td>
-                    </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
+        <div class="card">
+            <div class="table-responsive">
+                <table class="products-table" id="productsTable">
+                    <thead>
+                        <tr>
+                            <th>SKU</th>
+                            <th><a href="#" data-sort="name" class="sort-link active">Product Name <i class="fas fa-sort-up"></i></a></th>
+                            <th>Category</th>
+                            <th><a href="#" data-sort="quantity" class="sort-link">Quantity <i class="fas fa-sort" style="color: #d1d5db;"></i></a></th>
+                            <th><a href="#" data-sort="price" class="sort-link">Price <i class="fas fa-sort" style="color: #d1d5db;"></i></a></th>
+                            <th><a href="#" data-sort="status" class="sort-link">Status <i class="fas fa-sort" style="color: #d1d5db;"></i></a></th>
+                        </tr>
+                    </thead>
+                    <tbody id="productsBody">
+                        <!-- Rows will be populated by JS -->
+                    </tbody>
+                </table>
+            </div>
+            
+            <div id="noProductsMsg" class="no-products" style="display: none;">
+                <i class="fas fa-box-open"></i>
+                <h2>No Products Found</h2>
+                <p>No products match your filters.</p>
+            </div>
         </div>
         
         <!-- Pagination -->
-        <?php if ($total_pages > 1): ?>
-        <div class="pagination">
-            <div class="pagination-info">
-                Showing <?php echo ($offset + 1); ?>-<?php echo min($offset + $per_page, $total_records); ?> 
-                of <?php echo number_format($total_records); ?> products
+        <div class="pagination" id="paginationContainer">
+            <div class="pagination-info" id="paginationInfo">
+                Showing 0-0 of 0 products
             </div>
-            
-            <div class="pagination-links">
-                <?php if ($page > 1): ?>
-                <a href="?id=<?php echo $store_id; ?>&page=<?php echo ($page - 1); ?><?php echo $search ? '&search=' . urlencode($search) : ''; ?><?php echo $category ? '&category=' . urlencode($category) : ''; ?><?php echo $status ? '&status=' . urlencode($status) : ''; ?>&sort=<?php echo $sort; ?>&order=<?php echo $order; ?>">
-                    <i class="fas fa-chevron-left"></i> Previous
-                </a>
-                <?php endif; ?>
-                
-                <?php
-                // Show page numbers
-                $start_page = max(1, $page - 2);
-                $end_page = min($total_pages, $page + 2);
-                
-                for ($i = $start_page; $i <= $end_page; $i++):
-                ?>
-                    <?php if ($i == $page): ?>
-                    <span class="current"><?php echo $i; ?></span>
-                    <?php else: ?>
-                    <a href="?id=<?php echo $store_id; ?>&page=<?php echo $i; ?><?php echo $search ? '&search=' . urlencode($search) : ''; ?><?php echo $category ? '&category=' . urlencode($category) : ''; ?><?php echo $status ? '&status=' . urlencode($status) : ''; ?>&sort=<?php echo $sort; ?>&order=<?php echo $order; ?>">
-                        <?php echo $i; ?>
-                    </a>
-                    <?php endif; ?>
-                <?php endfor; ?>
-                
-                <?php if ($page < $total_pages): ?>
-                <a href="?id=<?php echo $store_id; ?>&page=<?php echo ($page + 1); ?><?php echo $search ? '&search=' . urlencode($search) : ''; ?><?php echo $category ? '&category=' . urlencode($category) : ''; ?><?php echo $status ? '&status=' . urlencode($status) : ''; ?>&sort=<?php echo $sort; ?>&order=<?php echo $order; ?>">
-                    Next <i class="fas fa-chevron-right"></i>
-                </a>
-                <?php endif; ?>
+            <div class="pagination-links" id="paginationLinks">
+                <!-- Links generated by JS -->
             </div>
         </div>
-        <?php endif; ?>
-        
-        <?php else: ?>
-        <div class="no-products">
-            <i class="fas fa-box-open"></i>
-            <h2>No Products Found</h2>
-            <p><?php echo $search || $category || $status ? 'No products match your filters.' : 'This store has no products yet.'; ?></p>
-            <br>
-            <a href="?id=<?php echo $store_id; ?>" class="btn btn-secondary">
-                <i class="fas fa-redo"></i> Clear Filters
-            </a>
-        </div>
-        <?php endif; ?>
     </div>
+
+    <script>
+        // Pass PHP data to JS
+        const allProducts = <?php echo json_encode($all_products); ?>;
+        let currentProducts = [...allProducts];
+        
+        // State
+        let currentPage = 1;
+        const perPage = 25;
+        let currentSort = 'name';
+        let currentOrder = 'asc';
+        
+        // DOM Elements
+        const tableBody = document.getElementById('productsBody');
+        const searchInput = document.getElementById('searchInput');
+        const categorySelect = document.getElementById('categorySelect');
+        const statusSelect = document.getElementById('statusSelect');
+        const clearBtn = document.getElementById('clearFiltersBtn');
+        const paginationInfo = document.getElementById('paginationInfo');
+        const paginationLinks = document.getElementById('paginationLinks');
+        const noProductsMsg = document.getElementById('noProductsMsg');
+        const tableElement = document.getElementById('productsTable');
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            renderTable();
+            setupEventListeners();
+        });
+
+        function setupEventListeners() {
+            // Search & Filter
+            searchInput.addEventListener('input', handleFilter);
+            categorySelect.addEventListener('change', handleFilter);
+            statusSelect.addEventListener('change', handleFilter);
+            
+            // Clear
+            clearBtn.addEventListener('click', function() {
+                searchInput.value = '';
+                categorySelect.value = '';
+                statusSelect.value = '';
+                handleFilter();
+            });
+
+            // Sorting
+            document.querySelectorAll('.sort-link').forEach(link => {
+                link.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const field = this.dataset.sort;
+                    
+                    if (currentSort === field) {
+                        currentOrder = currentOrder === 'asc' ? 'desc' : 'asc';
+                    } else {
+                        currentSort = field;
+                        currentOrder = 'asc';
+                    }
+                    
+                    updateSortIcons();
+                    sortProducts();
+                    renderTable();
+                });
+            });
+        }
+
+        function updateSortIcons() {
+            document.querySelectorAll('.sort-link').forEach(link => {
+                const icon = link.querySelector('i');
+                link.classList.remove('active');
+                icon.className = 'fas fa-sort';
+                icon.style.color = '#d1d5db';
+                
+                if (link.dataset.sort === currentSort) {
+                    link.classList.add('active');
+                    icon.className = currentOrder === 'asc' ? 'fas fa-sort-up' : 'fas fa-sort-down';
+                    icon.style.color = '';
+                }
+            });
+        }
+
+        function handleFilter() {
+            const search = searchInput.value.toLowerCase();
+            const category = categorySelect.value;
+            const status = statusSelect.value;
+            
+            currentProducts = allProducts.filter(p => {
+                // Search
+                const matchSearch = !search || 
+                    (p.name && p.name.toLowerCase().includes(search)) || 
+                    (p.sku && p.sku.toLowerCase().includes(search)) || 
+                    (p.barcode && p.barcode.toLowerCase().includes(search));
+                
+                // Category
+                const matchCategory = !category || p.category === category;
+                
+                // Status
+                let matchStatus = true;
+                if (status) {
+                    if (status === 'low_stock') matchStatus = p.stock_status === 'low_stock';
+                    else if (status === 'out_of_stock') matchStatus = p.stock_status === 'out_of_stock';
+                    // Add logic for expired if data available, currently assuming stock_status covers basic needs
+                    // For expired, we'd need expiry_date logic in JS or pre-calculated in PHP
+                }
+                
+                return matchSearch && matchCategory && matchStatus;
+            });
+            
+            currentPage = 1;
+            sortProducts();
+            renderTable();
+        }
+
+        function sortProducts() {
+            currentProducts.sort((a, b) => {
+                let valA = a[currentSort];
+                let valB = b[currentSort];
+                
+                // Handle numeric sorting
+                if (currentSort === 'quantity' || currentSort === 'price') {
+                    valA = parseFloat(valA) || 0;
+                    valB = parseFloat(valB) || 0;
+                }
+                
+                // Handle status sorting (custom order)
+                if (currentSort === 'status') {
+                    const statusRank = { 'out_of_stock': 0, 'low_stock': 1, 'in_stock': 2 };
+                    valA = statusRank[a.stock_status] ?? 2;
+                    valB = statusRank[b.stock_status] ?? 2;
+                }
+
+                // String comparison for names
+                if (typeof valA === 'string') valA = valA.toLowerCase();
+                if (typeof valB === 'string') valB = valB.toLowerCase();
+
+                if (valA < valB) return currentOrder === 'asc' ? -1 : 1;
+                if (valA > valB) return currentOrder === 'asc' ? 1 : -1;
+                return 0;
+            });
+        }
+
+        function renderTable() {
+            const start = (currentPage - 1) * perPage;
+            const end = start + perPage;
+            const pageData = currentProducts.slice(start, end);
+            
+            // Toggle No Products
+            if (currentProducts.length === 0) {
+                tableElement.style.display = 'none';
+                noProductsMsg.style.display = 'block';
+                paginationContainer.style.display = 'none';
+                return;
+            } else {
+                tableElement.style.display = 'table';
+                noProductsMsg.style.display = 'none';
+                paginationContainer.style.display = 'flex';
+            }
+
+            // Render Rows
+            let html = '';
+            pageData.forEach(p => {
+                const price = parseFloat(p.price).toFixed(2);
+                const statusText = p.stock_status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                const statusClass = p.stock_status.replace(/_/g, '-');
+                
+                html += `
+                    <tr>
+                        <td><strong>${p.sku || 'N/A'}</strong></td>
+                        <td>${p.name}</td>
+                        <td>${p.category || 'Uncategorized'}</td>
+                        <td>${parseInt(p.quantity).toLocaleString()}</td>
+                        <td>$${price}</td>
+                        <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+                    </tr>
+                `;
+            });
+            tableBody.innerHTML = html;
+            
+            renderPagination();
+        }
+
+        function renderPagination() {
+            const totalPages = Math.ceil(currentProducts.length / perPage);
+            const start = (currentPage - 1) * perPage + 1;
+            const end = Math.min(currentPage * perPage, currentProducts.length);
+            
+            paginationInfo.textContent = `Showing ${start}-${end} of ${currentProducts.length.toLocaleString()} products`;
+            
+            let linksHtml = '';
+            
+            // Prev
+            if (currentPage > 1) {
+                linksHtml += `<a href="#" onclick="changePage(${currentPage - 1}); return false;"><i class="fas fa-chevron-left"></i> Previous</a>`;
+            }
+            
+            // Pages (simplified window)
+            let minPage = Math.max(1, currentPage - 2);
+            let maxPage = Math.min(totalPages, currentPage + 2);
+            
+            for (let i = minPage; i <= maxPage; i++) {
+                if (i === currentPage) {
+                    linksHtml += `<span class="current">${i}</span>`;
+                } else {
+                    linksHtml += `<a href="#" onclick="changePage(${i}); return false;">${i}</a>`;
+                }
+            }
+            
+            // Next
+            if (currentPage < totalPages) {
+                linksHtml += `<a href="#" onclick="changePage(${currentPage + 1}); return false;">Next <i class="fas fa-chevron-right"></i></a>`;
+            }
+            
+            paginationLinks.innerHTML = linksHtml;
+        }
+
+        // Global function for pagination onclick
+        window.changePage = function(page) {
+            currentPage = page;
+            renderTable();
+            // Scroll to top of table
+            document.querySelector('.card').scrollIntoView({ behavior: 'smooth' });
+        };
+    </script>
+</body>
+</html>
 </body>
 </html>

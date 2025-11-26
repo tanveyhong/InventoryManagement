@@ -419,7 +419,7 @@ $page_title = 'Store Management - Inventory System';
         
         .store-actions {
             display: grid;
-            grid-template-columns: 1fr;
+            grid-template-columns: 1fr 1fr;
             gap: 10px;
         }
         
