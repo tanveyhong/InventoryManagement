@@ -31,82 +31,64 @@ $message = '';
 $messageType = '';
 $dataSource = 'postgresql';
 
-// Fetch from PostgreSQL (fast, no caching needed)
-try {
-    $sqlDb = SQLDatabase::getInstance();
-    
-    // Get current user info for store access filtering
-    $userId = $_SESSION['user_id'] ?? null;
-    $currentUser = $sqlDb->fetch("SELECT * FROM users WHERE id = ? OR firebase_id = ?", [$userId, $userId]);
-    $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
-    $isManager = (strtolower($currentUser['role'] ?? '') === 'manager');
-    
-    // Build query based on user role - admins/managers see all stores
-    if ($isAdmin || $isManager) {
-        $storeRecords = $sqlDb->fetchAll("
-            SELECT 
-                id, name, code, address, city, state, zip_code, phone, email, 
-                manager, manager_name, description, latitude, longitude, region_id, 
-                store_type, status, operating_hours, active, created_at, updated_at
-            FROM stores 
-            WHERE active = TRUE 
-            ORDER BY name ASC
-        ");
-    } else {
-        // Regular users only see their assigned stores
-        $storeRecords = $sqlDb->fetchAll("
-            SELECT 
-                s.id, s.name, s.code, s.address, s.city, s.state, s.zip_code, s.phone, s.email, 
-                s.manager, s.manager_name, s.description, s.latitude, s.longitude, s.region_id, 
-                s.store_type, s.status, s.operating_hours, s.active, s.created_at, s.updated_at
-            FROM stores s
-            INNER JOIN user_store_access usa ON s.id = usa.store_id
-            WHERE s.active = TRUE AND usa.user_id = ?
-            ORDER BY s.name ASC
-        ", [$currentUser['id']]);
-    }
-    
-    // Fetch all active regions
-    $regionRecords = $sqlDb->fetchAll("
-        SELECT id, name, description, active 
-        FROM regions 
-        WHERE active = TRUE 
-        ORDER BY name ASC
-    ");
-    
-    // Convert to array format expected by the map
-    $all_stores = array_map(function($s) {
-        return [
-            'id' => $s['id'],
-            'name' => $s['name'],
-            'code' => $s['code'] ?? '',
-            'address' => $s['address'] ?? '',
-            'city' => $s['city'] ?? '',
-            'state' => $s['state'] ?? '',
-            'postal_code' => $s['zip_code'] ?? '',
-            'latitude' => $s['latitude'] ?? null,
-            'longitude' => $s['longitude'] ?? null,
-            'phone' => $s['phone'] ?? '',
-            'email' => $s['email'] ?? '',
-            'manager' => $s['manager'] ?? ($s['manager_name'] ?? ''),
-            'store_type' => $s['store_type'] ?? 'retail',
-            'opening_hours' => $s['operating_hours'] ?? '',
-            'status' => $s['status'] ?? 'active',
-            'region' => $s['region_id'] ?? '',
-            'active' => 1,
-            'created_at' => $s['created_at'] ?? null,
-            'updated_at' => $s['updated_at'] ?? null
-        ];
-    }, $storeRecords);
-    
-    $regions = array_map(function($r) {
-        return [
-            'id' => $r['id'],
-            'name' => $r['name'],
-            'description' => $r['description'] ?? '',
-            'active' => 1
-        ];
-    }, $regionRecords);
+    // Fetch from PostgreSQL (fast, no caching needed)
+    try {
+        $sqlDb = SQLDatabase::getInstance();
+        
+        // Get current user info for store access filtering
+        $userId = $_SESSION['user_id'] ?? null;
+        $currentUser = $sqlDb->fetch("SELECT * FROM users WHERE id = ? OR firebase_id = ?", [$userId, $userId]);
+        $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
+        $isManager = (strtolower($currentUser['role'] ?? '') === 'manager');
+        
+        // Build query based on user role - admins/managers see all stores
+        if ($isAdmin || $isManager) {
+            $storeRecords = $sqlDb->fetchAll("
+                SELECT 
+                    id, name, code, address, city, state, zip_code, phone, email, 
+                    manager, manager_name, description, latitude, longitude, 
+                    store_type, status, operating_hours, active, created_at, updated_at
+                FROM stores 
+                WHERE active = TRUE 
+                ORDER BY name ASC
+            ");
+        } else {
+            // Regular users only see their assigned stores
+            $storeRecords = $sqlDb->fetchAll("
+                SELECT 
+                    s.id, s.name, s.code, s.address, s.city, s.state, s.zip_code, s.phone, s.email, 
+                    s.manager, s.manager_name, s.description, s.latitude, s.longitude, 
+                    s.store_type, s.status, s.operating_hours, s.active, s.created_at, s.updated_at
+                FROM stores s
+                INNER JOIN user_store_access usa ON s.id = usa.store_id
+                WHERE s.active = TRUE AND usa.user_id = ?
+                ORDER BY s.name ASC
+            ", [$currentUser['id']]);
+        }
+        
+        // Convert to array format expected by the map
+        $all_stores = array_map(function($s) {
+            return [
+                'id' => $s['id'],
+                'name' => $s['name'],
+                'code' => $s['code'] ?? '',
+                'address' => $s['address'] ?? '',
+                'city' => $s['city'] ?? '',
+                'state' => $s['state'] ?? '',
+                'postal_code' => $s['zip_code'] ?? '',
+                'latitude' => $s['latitude'] ?? null,
+                'longitude' => $s['longitude'] ?? null,
+                'phone' => $s['phone'] ?? '',
+                'email' => $s['email'] ?? '',
+                'manager' => $s['manager'] ?? ($s['manager_name'] ?? ''),
+                'store_type' => $s['store_type'] ?? 'retail',
+                'opening_hours' => $s['operating_hours'] ?? '',
+                'status' => $s['status'] ?? 'active',
+                'active' => 1,
+                'created_at' => $s['created_at'] ?? null,
+                'updated_at' => $s['updated_at'] ?? null
+            ];
+        }, $storeRecords);
     
     if (isset($_GET['refresh_cache']) && !isset($_GET['silent'])) {
         $message = 'Data loaded successfully from database!';
@@ -120,16 +102,11 @@ try {
     try {
         $client = new FirebaseRestClient();
         $firebaseStores = $client->queryCollection('stores', 200);
-        $firebaseRegions = $client->queryCollection('regions', 50);
         
         if (is_array($firebaseStores) && count($firebaseStores) > 0) {
             $all_stores = array_filter($firebaseStores, function($s) {
                 return isset($s['active']) && $s['active'] == 1;
             });
-            
-            $regions = is_array($firebaseRegions) ? array_filter($firebaseRegions, function($r) {
-                return isset($r['active']) && $r['active'] == 1;
-            }) : [];
             
             $dataSource = 'firebase';
         }
@@ -618,10 +595,6 @@ $page_title = 'Interactive Store Map - Inventory System';
                     <div class="mini-stat-value"><?php echo $stores_with_location; ?></div>
                     <div class="mini-stat-label">Mapped</div>
                 </div>
-                <div class="mini-stat">
-                    <div class="mini-stat-value"><?php echo count($regions); ?></div>
-                    <div class="mini-stat-label">Regions</div>
-                </div>
             </div>
 
             <div class="nav-links" style="display: flex; align-items: center; gap: 10px;">
@@ -647,15 +620,6 @@ $page_title = 'Interactive Store Map - Inventory System';
                 <!-- Filter Controls -->
                 <div class="filter-controls">
                     <input type="text" id="search-input" placeholder="Search stores..." style="width: 150px;">
-                    
-                    <select id="region-filter">
-                        <option value="">All Regions</option>
-                        <?php foreach ($regions as $region): ?>
-                            <option value="<?php echo htmlspecialchars($region['id']); ?>">
-                                <?php echo htmlspecialchars($region['name']); ?>
-                            </option>
-                        <?php endforeach; ?>
-                    </select>
                     
                     <select id="type-filter">
                         <option value="">All Types</option>
@@ -729,8 +693,6 @@ $page_title = 'Interactive Store Map - Inventory System';
                 </div>
             </div>
         </div>
-            </div>
-        </div>
     </div>
     
     <!-- Leaflet JS -->
@@ -742,7 +704,6 @@ $page_title = 'Interactive Store Map - Inventory System';
     <script>
         // Store data from PHP
         const storesData = <?php echo json_encode($all_stores); ?>;
-        const regionsData = <?php echo json_encode($regions); ?>;
         const canEditStores = <?php echo currentUserHasPermission('can_edit_stores') ? 'true' : 'false'; ?>;
         
         // Map and layer variables
@@ -967,7 +928,6 @@ $page_title = 'Interactive Store Map - Inventory System';
         // Apply filters
         function applyFilters() {
             const searchTerm = document.getElementById('search-input').value.toLowerCase();
-            const regionFilter = document.getElementById('region-filter').value;
             const typeFilter = document.getElementById('type-filter').value;
             
             filteredStores = storesData.filter(store => {
@@ -983,11 +943,6 @@ $page_title = 'Interactive Store Map - Inventory System';
                     if (!searchFields.includes(searchTerm)) {
                         return false;
                     }
-                }
-                
-                // Region filter
-                if (regionFilter && store.region_id !== regionFilter) {
-                    return false;
                 }
                 
                 // Type filter
@@ -1023,7 +978,6 @@ $page_title = 'Interactive Store Map - Inventory System';
         // Reset filters
         function resetFilters() {
             document.getElementById('search-input').value = '';
-            document.getElementById('region-filter').value = '';
             document.getElementById('type-filter').value = '';
             
             filteredStores = [...storesData];

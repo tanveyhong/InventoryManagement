@@ -26,23 +26,8 @@ $sqlDb = SQLDatabase::getInstance(); // PostgreSQL - PRIMARY
 $errors = [];
 $success = false;
 
-if (isset($_POST['demo_add'])) {
-    // Demo data for quick testing
-    $name = 'Demo Store ' . rand(1000,9999);
-    $code = 'DEMO' . rand(100,999);
-    $address = '123 Demo Street';
-    $city = 'Demo City';
-    $state = 'Demo State';
-    $zip_code = '12345';
-    $phone = '555-1234';
-    $email = 'demo' . rand(100,999) . '@example.com';
-    $manager_name = 'Demo Manager';
-    $description = 'This is a demo store added for testing.';
-}
-
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $name = sanitizeInput($_POST['name'] ?? '');
-    $code = sanitizeInput($_POST['code'] ?? '');
     $address = sanitizeInput($_POST['address'] ?? '');
     $city = sanitizeInput($_POST['city'] ?? '');
     $state = sanitizeInput($_POST['state'] ?? '');
@@ -54,36 +39,65 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $latitude = sanitizeInput($_POST['latitude'] ?? '');
     $longitude = sanitizeInput($_POST['longitude'] ?? '');
     $store_type = sanitizeInput($_POST['store_type'] ?? 'retail');
-    $region_id = sanitizeInput($_POST['region_id'] ?? '');
     $opening_hours = sanitizeInput($_POST['opening_hours'] ?? '');
     $closing_hours = sanitizeInput($_POST['closing_hours'] ?? '');
     $square_footage = sanitizeInput($_POST['square_footage'] ?? '');
     $max_capacity = sanitizeInput($_POST['max_capacity'] ?? '');
     
-    // POS Integration fields
-    $has_pos = isset($_POST['has_pos']) ? 1 : 0;
-    $pos_terminal_id = sanitizeInput($_POST['pos_terminal_id'] ?? '');
-    $pos_type = sanitizeInput($_POST['pos_type'] ?? 'quick_service');
-    $pos_notes = sanitizeInput($_POST['pos_notes'] ?? '');
+    // Auto-generate store code
+    $code = 'STR-' . strtoupper(substr(md5(uniqid(rand(), true)), 0, 6));
     
     // Validation
     if (empty($name)) {
         $errors[] = 'Store name is required';
     }
     
-    if (!empty($code)) {
-        // Check if store code already exists (PostgreSQL)
-        try {
-            $existing_store = $sqlDb->fetch("SELECT id FROM stores WHERE code = ? AND active = TRUE", [$code]);
-            if ($existing_store) {
-                $errors[] = 'Store code already exists';
-            }
-        } catch (Exception $e) {
-            // Fallback to Firebase
-            $existing_store = $db->readAll('stores', [['code', '==', $code], ['active', '==', 1]]);
-            if (!empty($existing_store)) {
-                $errors[] = 'Store code already exists';
-            }
+    if (empty($address)) {
+        $errors[] = 'Address is required';
+    }
+    
+    if (empty($city)) {
+        $errors[] = 'City is required';
+    }
+    
+    if (empty($state)) {
+        $errors[] = 'State is required';
+    }
+    
+    if (empty($zip_code)) {
+        $errors[] = 'Zip/Postal Code is required';
+    }
+    
+    if (!empty($phone) && !preg_match('/^[0-9+\-\(\)\s]+$/', $phone)) {
+        $errors[] = 'Invalid phone number format';
+    }
+    
+    if (!empty($latitude) && (!is_numeric($latitude) || $latitude < -90 || $latitude > 90)) {
+        $errors[] = 'Invalid latitude (must be between -90 and 90)';
+    }
+    
+    if (!empty($longitude) && (!is_numeric($longitude) || $longitude < -180 || $longitude > 180)) {
+        $errors[] = 'Invalid longitude (must be between -180 and 180)';
+    }
+    
+    if (!empty($opening_hours) && !empty($closing_hours)) {
+        if (strtotime($opening_hours) >= strtotime($closing_hours)) {
+            $errors[] = 'Opening time must be before closing time';
+        }
+    }
+    
+    // Check if store code already exists (PostgreSQL)
+    try {
+        $existing_store = $sqlDb->fetch("SELECT id FROM stores WHERE code = ? AND active = TRUE", [$code]);
+        if ($existing_store) {
+            // Regenerate code if collision (unlikely but possible)
+            $code = 'STR-' . strtoupper(substr(md5(uniqid(rand(), true)), 0, 6));
+        }
+    } catch (Exception $e) {
+        // Fallback to Firebase
+        $existing_store = $db->readAll('stores', [['code', '==', $code], ['active', '==', 1]]);
+        if (!empty($existing_store)) {
+             $code = 'STR-' . strtoupper(substr(md5(uniqid(rand(), true)), 0, 6));
         }
     }
     
@@ -114,18 +128,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $result = $sqlDb->execute("
                 INSERT INTO stores (
                     name, code, address, city, state, zip_code, phone, email, manager_name,
-                    description, latitude, longitude, store_type, region_id, opening_hours,
+                    description, latitude, longitude, store_type, opening_hours,
                     closing_hours, square_footage, max_capacity, created_by, created_at,
-                    updated_at, active, status, has_pos, pos_terminal_id, pos_type, pos_notes,
-                    pos_enabled_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), TRUE, ?, ?, ?, ?, ?, ?)
+                    updated_at, active, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), TRUE, ?)
             ", [
                 $name, $code, $address, $city, $state, $zip_code, $phone, $email, $manager_name,
                 $description, $latitude ? floatval($latitude) : null, $longitude ? floatval($longitude) : null,
-                $store_type, $region_id, $opening_hours, $closing_hours,
+                $store_type, $opening_hours, $closing_hours,
                 $square_footage ? intval($square_footage) : null, $max_capacity ? intval($max_capacity) : null,
-                $_SESSION['user_id'], 'active', $has_pos, $pos_terminal_id, $pos_type, $pos_notes,
-                $has_pos ? date('Y-m-d H:i:s') : null
+                $_SESSION['user_id'], 'active'
             ]);
             
             if ($result) {
@@ -136,7 +148,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $activityResult = logStoreActivity('created', $storeId, $name);
                 error_log("Activity logging result: " . ($activityResult ? 'SUCCESS' : 'FAILED'));
                 
-                addNotification('Store created successfully!' . ($has_pos ? ' POS integration enabled.' : ''), 'success');
+                addNotification('Store created successfully!', 'success');
                 header('Location: list.php');
                 exit;
             } else {
@@ -446,15 +458,6 @@ $page_title = 'Add New Store - Inventory System';
             animation: fadeInUp 0.5s ease-out;
         }
         
-        #geocode-btn {
-            white-space: nowrap;
-        }
-        
-        #geocode-btn:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-        }
-        
         .loading {
             position: relative;
         }
@@ -702,16 +705,6 @@ $page_title = 'Add New Store - Inventory System';
                             </div>
                             
                             <div class="form-group">
-                                <label for="code">Store Code:</label>
-                                <input type="text" id="code" name="code" 
-                                       value="<?php echo htmlspecialchars($_POST['code'] ?? ''); ?>" 
-                                       maxlength="20" placeholder="e.g., ST001">
-                                <small>Unique identifier for the store (optional)</small>
-                            </div>
-                        </div>
-                        
-                        <div class="form-row">
-                            <div class="form-group">
                                 <label for="store_type">Store Type: <span class="required">*</span></label>
                                 <select id="store_type" name="store_type" required>
                                     <option value="retail" <?php echo (($_POST['store_type'] ?? 'retail') === 'retail') ? 'selected' : ''; ?>>Retail Store</option>
@@ -720,27 +713,6 @@ $page_title = 'Add New Store - Inventory System';
                                     <option value="flagship" <?php echo (($_POST['store_type'] ?? '') === 'flagship') ? 'selected' : ''; ?>>Flagship Store</option>
                                     <option value="outlet" <?php echo (($_POST['store_type'] ?? '') === 'outlet') ? 'selected' : ''; ?>>Outlet</option>
                                 </select>
-                            </div>
-                            
-                            <div class="form-group">
-                                <label for="region_id">Region:</label>
-                                <select id="region_id" name="region_id">
-                                    <option value="">Select Region</option>
-                                    <?php
-                                    try {
-                                        $regions = $sqlDb->fetchAll("SELECT * FROM regions WHERE active = TRUE ORDER BY name ASC");
-                                    } catch (Exception $e) {
-                                        $regions = $db->readAll('regions', [['active', '==', 1]]);
-                                    }
-                                    foreach ($regions as $region):
-                                    ?>
-                                        <option value="<?php echo htmlspecialchars($region['id']); ?>" 
-                                                <?php echo (($_POST['region_id'] ?? '') === $region['id']) ? 'selected' : ''; ?>>
-                                            <?php echo htmlspecialchars($region['name']); ?>
-                                        </option>
-                                    <?php endforeach; ?>
-                                </select>
-                                <small>Assign store to a region for reporting</small>
                             </div>
                         </div>
                     </div>
@@ -771,38 +743,38 @@ $page_title = 'Add New Store - Inventory System';
                         </div>
                         
                         <div class="form-group">
-                            <label for="address">Address:</label>
+                            <label for="address">Address: <span class="required">*</span></label>
                             <input type="text" id="address" name="address" 
                                    value="<?php echo htmlspecialchars($_POST['address'] ?? ''); ?>" 
-                                   maxlength="255" placeholder="Street address">
+                                   maxlength="255" placeholder="Street address" required>
                         </div>
                         
                         <div class="form-row">
                             <div class="form-group">
-                                <label for="city">City:</label>
+                                <label for="city">City: <span class="required">*</span></label>
                                 <input type="text" id="city" name="city" 
                                        value="<?php echo htmlspecialchars($_POST['city'] ?? ''); ?>" 
-                                       maxlength="100">
+                                       maxlength="100" required>
                             </div>
                             
                             <div class="form-group">
-                                <label for="state">State/Province:</label>
+                                <label for="state">State/Province: <span class="required">*</span></label>
                                 <input type="text" id="state" name="state" 
                                        value="<?php echo htmlspecialchars($_POST['state'] ?? ''); ?>" 
-                                       maxlength="50">
+                                       maxlength="50" required>
                             </div>
                             
                             <div class="form-group">
-                                <label for="zip_code">ZIP/Postal Code:</label>
+                                <label for="zip_code">ZIP/Postal Code: <span class="required">*</span></label>
                                 <input type="text" id="zip_code" name="zip_code" 
                                        value="<?php echo htmlspecialchars($_POST['zip_code'] ?? ''); ?>" 
-                                       maxlength="20">
+                                       maxlength="20" required>
                             </div>
                         </div>
                         
                         <div class="form-row">
                             <div class="form-group">
-                                <label for="latitude">Latitude:</label>
+                                <label for="latitude">Latitude: <small>(Optional)</small></label>
                                 <input type="number" id="latitude" name="latitude" step="0.000001" 
                                        value="<?php echo htmlspecialchars($_POST['latitude'] ?? ''); ?>" 
                                        placeholder="e.g., 40.7128">
@@ -810,17 +782,11 @@ $page_title = 'Add New Store - Inventory System';
                             </div>
                             
                             <div class="form-group">
-                                <label for="longitude">Longitude:</label>
+                                <label for="longitude">Longitude: <small>(Optional)</small></label>
                                 <input type="number" id="longitude" name="longitude" step="0.000001" 
                                        value="<?php echo htmlspecialchars($_POST['longitude'] ?? ''); ?>" 
                                        placeholder="e.g., -74.0060">
                                 <small>Auto-filled when address is geocoded</small>
-                            </div>
-                            
-                            <div class="form-group" style="display: flex; align-items: flex-end;">
-                                <button type="button" id="geocode-btn" class="btn btn-secondary" onclick="geocodeAddress()">
-                                    <i class="fas fa-map-marker-alt"></i> Find Coordinates
-                                </button>
                             </div>
                         </div>
                         
@@ -832,14 +798,14 @@ $page_title = 'Add New Store - Inventory System';
                         
                         <div class="form-row">
                             <div class="form-group">
-                                <label for="phone">Phone Number:</label>
+                                <label for="phone">Phone Number: <small>(Optional)</small></label>
                                 <input type="tel" id="phone" name="phone" 
                                        value="<?php echo htmlspecialchars($_POST['phone'] ?? ''); ?>" 
                                        maxlength="20">
                             </div>
                             
                             <div class="form-group">
-                                <label for="email">Email Address:</label>
+                                <label for="email">Email Address: <small>(Optional)</small></label>
                                 <input type="email" id="email" name="email" 
                                        value="<?php echo htmlspecialchars($_POST['email'] ?? ''); ?>" 
                                        maxlength="100">
@@ -847,7 +813,7 @@ $page_title = 'Add New Store - Inventory System';
                         </div>
                         
                         <div class="form-group">
-                            <label for="manager_name">Manager Name:</label>
+                            <label for="manager_name">Manager Name: <small>(Optional)</small></label>
                             <input type="text" id="manager_name" name="manager_name" 
                                    value="<?php echo htmlspecialchars($_POST['manager_name'] ?? ''); ?>" 
                                    maxlength="100">
@@ -859,13 +825,13 @@ $page_title = 'Add New Store - Inventory System';
                         
                         <div class="form-row">
                             <div class="form-group">
-                                <label for="opening_hours">Opening Hours:</label>
+                                <label for="opening_hours">Opening Hours: <small>(Optional)</small></label>
                                 <input type="time" id="opening_hours" name="opening_hours" 
                                        value="<?php echo htmlspecialchars($_POST['opening_hours'] ?? '09:00'); ?>">
                             </div>
                             
                             <div class="form-group">
-                                <label for="closing_hours">Closing Hours:</label>
+                                <label for="closing_hours">Closing Hours: <small>(Optional)</small></label>
                                 <input type="time" id="closing_hours" name="closing_hours" 
                                        value="<?php echo htmlspecialchars($_POST['closing_hours'] ?? '18:00'); ?>">
                             </div>
@@ -873,7 +839,7 @@ $page_title = 'Add New Store - Inventory System';
                         
                         <div class="form-row">
                             <div class="form-group">
-                                <label for="square_footage">Square Footage:</label>
+                                <label for="square_footage">Square Footage: <small>(Optional)</small></label>
                                 <input type="number" id="square_footage" name="square_footage" 
                                        value="<?php echo htmlspecialchars($_POST['square_footage'] ?? ''); ?>" 
                                        min="0" placeholder="e.g., 5000">
@@ -881,7 +847,7 @@ $page_title = 'Add New Store - Inventory System';
                             </div>
                             
                             <div class="form-group">
-                                <label for="max_capacity">Maximum Capacity:</label>
+                                <label for="max_capacity">Maximum Capacity: <small>(Optional)</small></label>
                                 <input type="number" id="max_capacity" name="max_capacity" 
                                        value="<?php echo htmlspecialchars($_POST['max_capacity'] ?? ''); ?>" 
                                        min="0" placeholder="e.g., 100">
@@ -891,58 +857,10 @@ $page_title = 'Add New Store - Inventory System';
                     </div>
 
                     <div class="form-section">
-                        <h3><i class="fas fa-cash-register" style="color: #667eea;"></i> POS Integration</h3>
-                        
-                        <div class="form-group">
-                            <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-                                <input type="checkbox" id="has_pos" name="has_pos" value="1" 
-                                       <?php echo (isset($_POST['has_pos']) && $_POST['has_pos']) ? 'checked' : ''; ?>
-                                       style="width: auto;">
-                                <span><i class="fas fa-link"></i> Link POS System to this store</span>
-                            </label>
-                            <small>Enable if this store location has a Point of Sale (POS) system connected to our inventory</small>
-                        </div>
-                        
-                        <div id="pos_details" style="<?php echo (isset($_POST['has_pos']) && $_POST['has_pos']) ? '' : 'display: none;'; ?> background: #f8f9fa; padding: 20px; border-radius: 8px; margin-top: 15px;">
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label for="pos_terminal_id">POS Terminal ID:</label>
-                                    <input type="text" id="pos_terminal_id" name="pos_terminal_id" 
-                                           value="<?php echo htmlspecialchars($_POST['pos_terminal_id'] ?? ''); ?>" 
-                                           placeholder="e.g., TERM-001">
-                                    <small>Unique identifier for the POS terminal</small>
-                                </div>
-                                
-                                <div class="form-group">
-                                    <label for="pos_type">POS System Type:</label>
-                                    <select id="pos_type" name="pos_type">
-                                        <option value="quick_service" <?php echo (($_POST['pos_type'] ?? '') === 'quick_service') ? 'selected' : ''; ?>>Quick Service POS</option>
-                                        <option value="integrated" <?php echo (($_POST['pos_type'] ?? '') === 'integrated') ? 'selected' : ''; ?>>Integrated System</option>
-                                        <option value="third_party" <?php echo (($_POST['pos_type'] ?? '') === 'third_party') ? 'selected' : ''; ?>>Third Party POS</option>
-                                    </select>
-                                </div>
-                            </div>
-                            
-                            <div class="form-group">
-                                <label for="pos_notes">POS Integration Notes:</label>
-                                <textarea id="pos_notes" name="pos_notes" rows="3" 
-                                          placeholder="Any special notes about the POS integration..."><?php echo htmlspecialchars($_POST['pos_notes'] ?? ''); ?></textarea>
-                            </div>
-                            
-                            <div style="background: white; padding: 15px; border-radius: 6px; border-left: 4px solid #667eea;">
-                                <p style="margin: 0; font-size: 14px; color: #555;">
-                                    <i class="fas fa-info-circle" style="color: #667eea;"></i> 
-                                    <strong>Benefits:</strong> Sales from this POS will automatically update inventory, track transactions, and appear in reports.
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="form-section">
                         <h3><i class="fas fa-sticky-note" style="color: #667eea;"></i> Additional Information</h3>
                         
                         <div class="form-group">
-                            <label for="description">Description:</label>
+                            <label for="description">Description: <small>(Optional)</small></label>
                             <textarea id="description" name="description" rows="4" 
                                       maxlength="500" placeholder="Optional description or notes about the store"><?php echo htmlspecialchars($_POST['description'] ?? ''); ?></textarea>
                         </div>
@@ -951,9 +869,6 @@ $page_title = 'Add New Store - Inventory System';
                     <div class="form-actions">
                         <button type="submit" class="btn">
                             <i class="fas fa-plus-circle"></i> Create Store
-                        </button>
-                        <button type="submit" name="demo_add" class="btn btn-secondary">
-                            <i class="fas fa-magic"></i> Quick Demo Add
                         </button>
                         <a href="list.php" class="btn btn-outline">
                             <i class="fas fa-times-circle"></i> Cancel
@@ -981,20 +896,6 @@ $page_title = 'Add New Store - Inventory System';
         // Wait for DOM to be ready
         document.addEventListener('DOMContentLoaded', function() {
             console.log('✅ Address Search initialized');
-            
-            // POS Integration Toggle
-            const hasPosCheckbox = document.getElementById('has_pos');
-            const posDetailsDiv = document.getElementById('pos_details');
-            
-            if (hasPosCheckbox && posDetailsDiv) {
-                hasPosCheckbox.addEventListener('change', function() {
-                    if (this.checked) {
-                        posDetailsDiv.style.display = 'block';
-                    } else {
-                        posDetailsDiv.style.display = 'none';
-                    }
-                });
-            }
             
             // Address Search Functionality - Get elements
             addressSearchInput = document.getElementById('address-search');
@@ -1159,20 +1060,23 @@ $page_title = 'Add New Store - Inventory System';
             // Add header showing result count
             const headerDiv = document.createElement('div');
             headerDiv.style.cssText = `
-                padding: 10px 16px;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                color: white;
+                padding: 8px 16px;
+                background: #f8fafc;
+                color: #64748b;
                 font-weight: 600;
                 display: flex;
                 align-items: center;
                 justify-content: space-between;
-                font-size: 13px;
+                font-size: 11px;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                border-bottom: 1px solid #e2e8f0;
                 border-radius: 12px 12px 0 0;
             `;
             headerDiv.innerHTML = `
-                <span><i class="fas fa-map-marker-alt"></i> ${results.length} location${results.length !== 1 ? 's' : ''} found</span>
-                <span style="font-size: 11px; opacity: 0.9;">
-                    <i class="fas fa-keyboard"></i> ↑↓ Enter
+                <span>${results.length} location${results.length !== 1 ? 's' : ''} found</span>
+                <span style="font-size: 10px; opacity: 0.8;">
+                    Use ↑↓ to navigate
                 </span>
             `;
             addressResultsDiv.appendChild(headerDiv);
@@ -1181,80 +1085,87 @@ $page_title = 'Add New Store - Inventory System';
                 const resultItem = document.createElement('div');
                 resultItem.className = 'result-item';
                 resultItem.style.cssText = `
-                    padding: 10px 14px;
+                    padding: 12px 16px;
                     cursor: pointer;
-                    border-bottom: 1px solid #f0f0f0;
+                    border-bottom: 1px solid #f1f5f9;
                     transition: all 0.15s ease;
                     background: white;
                 `;
                 
                 // Extract key address components
                 const addr = result.address || {};
-                const mainAddress = addr.road || addr.pedestrian || addr.address29 || addr.suburb || '';
+                const houseNumber = addr.house_number || '';
+                const road = addr.road || addr.pedestrian || addr.street || addr.address29 || '';
+                const suburb = addr.suburb || addr.neighbourhood || '';
                 const city = addr.city || addr.town || addr.village || addr.municipality || '';
                 const state = addr.state || addr.province || addr.region || '';
-                const country = addr.country || '';
                 const zip = addr.postcode || '';
+                const country = addr.country || '';
                 
-                // Build compact address string
-                let compactAddr = [];
-                if (mainAddress) compactAddr.push(mainAddress);
-                if (city) compactAddr.push(city);
-                if (state) compactAddr.push(state);
-                if (zip) compactAddr.push(zip);
+                // Build main address line (Street + Number)
+                let mainLine = '';
+                if (result.name) {
+                    mainLine = result.name;
+                } else if (houseNumber || road) {
+                    mainLine = [houseNumber, road].filter(Boolean).join(' ');
+                } else if (suburb) {
+                    mainLine = suburb;
+                } else {
+                    mainLine = city || state || country;
+                }
                 
-                // If no structured address, use display name
-                const displayText = compactAddr.length > 0 ? compactAddr.join(', ') : result.display_name;
+                // Build secondary address line (City, State, Zip, Country)
+                let secondaryParts = [];
+                if (suburb && mainLine !== suburb) secondaryParts.push(suburb);
+                if (city && mainLine !== city) secondaryParts.push(city);
+                if (state) secondaryParts.push(state);
+                if (zip) secondaryParts.push(zip);
+                if (country) secondaryParts.push(country);
+                
+                const secondaryLine = secondaryParts.join(', ');
                 
                 // Determine location type icon
                 let typeIcon = 'fa-map-marker-alt';
                 let typeColor = '#667eea';
+                let typeBg = '#eef2ff';
+                
                 if (result.type === 'building' || addr.building) {
                     typeIcon = 'fa-building';
                     typeColor = '#48bb78';
+                    typeBg = '#f0fff4';
+                } else if (result.type === 'house' || result.type === 'residential') {
+                    typeIcon = 'fa-home';
+                    typeColor = '#4299e1';
+                    typeBg = '#ebf8ff';
                 } else if (result.type === 'city' || result.type === 'town') {
                     typeIcon = 'fa-city';
                     typeColor = '#ed8936';
-                } else if (result.type === 'administrative') {
-                    typeIcon = 'fa-map';
-                    typeColor = '#9f7aea';
+                    typeBg = '#fffaf0';
                 }
                 
                 resultItem.innerHTML = `
-                    <div style="display: flex; gap: 10px; align-items: start;">
-                        <div style="margin-top: 2px;">
-                            <i class="fas ${typeIcon}" style="color: ${typeColor}; font-size: 14px;"></i>
+                    <div style="display: flex; gap: 12px; align-items: center;">
+                        <div style="width: 36px; height: 36px; background: ${typeBg}; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                            <i class="fas ${typeIcon}" style="color: ${typeColor}; font-size: 16px;"></i>
                         </div>
                         <div style="flex: 1; min-width: 0;">
-                            <div style="font-weight: 600; color: #2d3748; font-size: 13px; margin-bottom: 4px; line-height: 1.4;">
-                                ${displayText}
+                            <div style="font-weight: 600; color: #1e293b; font-size: 14px; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                ${mainLine}
                             </div>
-                            ${country ? `
-                                <div style="font-size: 11px; color: #667eea; margin-bottom: 3px;">
-                                    <i class="fas fa-globe"></i> ${country}
-                                </div>
-                            ` : ''}
-                            <div style="font-size: 11px; color: #a0aec0; font-family: 'Courier New', monospace;">
-                                ${parseFloat(result.lat).toFixed(4)}, ${parseFloat(result.lon).toFixed(4)}
+                            <div style="font-size: 12px; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                ${secondaryLine}
                             </div>
-                        </div>
-                        <div style="color: #cbd5e0; font-size: 11px; white-space: nowrap;">
-                            <i class="fas fa-chevron-right"></i>
                         </div>
                     </div>
                 `;
                 
                 // Hover effects
                 resultItem.addEventListener('mouseenter', function() {
-                    this.style.background = '#f7fafc';
-                    this.style.paddingLeft = '18px';
-                    this.querySelector('.fa-chevron-right').style.color = '#667eea';
+                    this.style.background = '#f8fafc';
                 });
                 
                 resultItem.addEventListener('mouseleave', function() {
                     this.style.background = 'white';
-                    this.style.paddingLeft = '14px';
-                    this.querySelector('.fa-chevron-right').style.color = '#cbd5e0';
                 });
                 
                 // Click to select address
@@ -1277,8 +1188,49 @@ $page_title = 'Add New Store - Inventory System';
         function selectAddress(result) {
             const addr = result.address || {};
             
+            // Construct street address
+            let streetAddress = addr.road || addr.pedestrian || addr.address29 || addr.suburb || '';
+            let houseNumber = addr.house_number || '';
+            
+            // If API didn't return a house number, try to extract it from the search query
+            if (!houseNumber) {
+                const query = document.getElementById('address-search').value.trim();
+                
+                // Try to extract house number from query (e.g., "14 Lorong...", "No 14...", "14 no...")
+                // 1. Matches "14 no " or "14 " at start
+                const startNumMatch = query.match(/^(\d+[A-Za-z]?)\s+(?:no\.?\s+)?/i);
+                
+                // 2. Matches "No 14 " or "Lot 123 " at start
+                const prefixNumMatch = query.match(/^(?:no\.?|lot|unit)\s+(\d+[A-Za-z]?)/i);
+                
+                if (startNumMatch) {
+                    houseNumber = startNumMatch[1];
+                } else if (prefixNumMatch) {
+                    houseNumber = prefixNumMatch[0]; // Keep the prefix like "Lot 123"
+                }
+            }
+            
+            // Combine number and street
+            if (houseNumber && streetAddress) {
+                // Check if street address already starts with the number to avoid duplication
+                if (!streetAddress.toLowerCase().startsWith(houseNumber.toLowerCase())) {
+                    streetAddress = houseNumber + ' ' + streetAddress;
+                }
+            } else if (houseNumber && !streetAddress) {
+                // Fallback if no specific street field found
+                const firstPart = result.display_name.split(',')[0];
+                if (!firstPart.toLowerCase().startsWith(houseNumber.toLowerCase())) {
+                    streetAddress = houseNumber + ' ' + firstPart;
+                } else {
+                    streetAddress = firstPart;
+                }
+            } else if (!streetAddress) {
+                // Fallback to display name first part
+                streetAddress = result.display_name.split(',')[0];
+            }
+
             // Fill address fields
-            document.getElementById('address').value = addr.road || addr.pedestrian || addr.address29 || '';
+            document.getElementById('address').value = streetAddress;
             document.getElementById('city').value = addr.city || addr.town || addr.village || addr.county || '';
             document.getElementById('state').value = addr.state || addr.region || '';
             document.getElementById('zip_code').value = addr.postcode || '';
@@ -1333,73 +1285,6 @@ $page_title = 'Add New Store - Inventory System';
                 }
             });
         });
-        
-        // Auto-generate store code based on name
-        document.getElementById('name').addEventListener('input', function() {
-            const name = this.value;
-            const codeField = document.getElementById('code');
-            
-            if (!codeField.value && name) {
-                const code = name.substring(0, 3).toUpperCase().replace(/[^A-Z]/g, '') + 
-                           String(Math.floor(Math.random() * 100)).padStart(2, '0');
-                codeField.value = code;
-            }
-        });
-        
-        // Geocode address using Nominatim API (OpenStreetMap)
-        async function geocodeAddress() {
-            const address = document.getElementById('address').value;
-            const city = document.getElementById('city').value;
-            const state = document.getElementById('state').value;
-            const zipCode = document.getElementById('zip_code').value;
-            
-            if (!address && !city) {
-                showNotification('Please enter at least an address or city to geocode.', 'warning');
-                return;
-            }
-            
-            const fullAddress = [address, city, state, zipCode].filter(Boolean).join(', ');
-            const geocodeBtn = document.getElementById('geocode-btn');
-            geocodeBtn.disabled = true;
-            geocodeBtn.classList.add('loading');
-            geocodeBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Geocoding...';
-            
-            try {
-                const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fullAddress)}&limit=1`);
-                const data = await response.json();
-                
-                if (data && data.length > 0) {
-                    const location = data[0];
-                    const latInput = document.getElementById('latitude');
-                    const lonInput = document.getElementById('longitude');
-                    
-                    latInput.value = location.lat;
-                    lonInput.value = location.lon;
-                    
-                    // Add success animation
-                    latInput.classList.add('success');
-                    lonInput.classList.add('success');
-                    setTimeout(() => {
-                        latInput.classList.remove('success');
-                        lonInput.classList.remove('success');
-                    }, 2000);
-                    
-                    // Show map preview
-                    showMapPreview(location.lat, location.lon);
-                    
-                    showNotification('✓ Location found! Coordinates added successfully.', 'success');
-                } else {
-                    showNotification('Location not found. Please check the address or enter coordinates manually.', 'error');
-                }
-            } catch (error) {
-                console.error('Geocoding error:', error);
-                showNotification('Error geocoding address. Please try again later.', 'error');
-            } finally {
-                geocodeBtn.disabled = false;
-                geocodeBtn.classList.remove('loading');
-                geocodeBtn.innerHTML = '<i class="fas fa-map-marker-alt"></i> Find Coordinates';
-            }
-        }
         
         // Show notification function
         function showNotification(message, type) {
