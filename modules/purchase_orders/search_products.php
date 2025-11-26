@@ -13,6 +13,13 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
+require_once '../../functions.php';
+if (!currentUserHasPermission('can_manage_purchase_orders')) {
+    http_response_code(403);
+    echo json_encode(['error' => 'Forbidden']);
+    exit;
+}
+
 $term = $_GET['term'] ?? '';
 $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 $limit = 20;

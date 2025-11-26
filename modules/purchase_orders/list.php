@@ -11,6 +11,11 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
+if (!currentUserHasPermission('can_manage_purchase_orders')) {
+    header('Location: ../../index.php');
+    exit;
+}
+
 $sqlDb = SQLDatabase::getInstance();
 $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 $per_page = 10;

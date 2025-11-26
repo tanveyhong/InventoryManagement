@@ -784,7 +784,7 @@ $page_title = 'Dashboard - Inventory Management System';
 
             <!-- Quick Actions -->
             <div class="quick-actions-grid">
-                <?php if (currentUserHasPermission('can_view_inventory') || currentUserHasPermission('can_use_pos')): ?>
+                <?php if (currentUserHasPermission('can_add_inventory')): ?>
                 <a href="modules/stock/add.php" class="action-card">
                     <div class="action-icon">
                         <i class="fas fa-plus-circle"></i>
@@ -824,7 +824,7 @@ $page_title = 'Dashboard - Inventory Management System';
                 </a>
                 <?php endif; ?>
 
-                <?php if (currentUserHasPermission('can_view_inventory') || currentUserHasPermission('can_view_reports')): ?>
+                <?php if (currentUserHasPermission('can_manage_alerts')): ?>
                 <a href="modules/alerts/low_stock.php" class="action-card">
                     <div class="action-icon">
                         <i class="fas fa-bell"></i>

@@ -11,7 +11,7 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
-if (!currentUserHasPermission('can_edit_inventory')) {
+if (!currentUserHasPermission('can_manage_stock_transfers')) {
     $_SESSION['error'] = 'You do not have permission to transfer stock';
     header('Location: list.php');
     exit;

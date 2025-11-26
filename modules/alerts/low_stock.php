@@ -10,6 +10,11 @@ require_once __DIR__ . '/../../config.php';
 require_once __DIR__ . '/../../functions.php';
 require_once __DIR__ . '/../../sql_db.php';   // Supabase / SQL wrapper
 
+if (!isset($_SESSION['user_id']) || !currentUserHasPermission('can_manage_alerts')) {
+    echo '<!-- Permission denied -->';
+    exit;
+}
+
 header('Content-Type: text/html; charset=UTF-8');
 
 // Read key

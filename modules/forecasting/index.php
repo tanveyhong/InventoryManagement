@@ -15,6 +15,11 @@ if (!isLoggedIn()) {
     exit;
 }
 
+if (!currentUserHasPermission('can_view_forecasting')) {
+    header('Location: ../../index.php');
+    exit;
+}
+
 $db = SQLDatabase::getInstance();
 $forecaster = new DemandForecast();
 

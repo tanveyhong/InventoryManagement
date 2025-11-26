@@ -7,9 +7,14 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-// --- Admin-only guard -------------------------------------------------------
-if (!isset($_SESSION['user_id']) || ($_SESSION['role'] ?? '') !== 'admin') {
+// --- Permission guard -------------------------------------------------------
+if (!isset($_SESSION['user_id'])) {
     header('Location: ../users/login.php');
+    exit;
+}
+
+if (!currentUserHasPermission('can_manage_alerts')) {
+    header('Location: ../../index.php');
     exit;
 }
 
