@@ -1089,17 +1089,21 @@ body.compact-view .page-header {
                                 <i class="fas fa-plus"></i> Add Stock
                             </a>
                         <?php endif; ?>
+                        <?php if (currentUserHasPermission('can_view_audit_logs')): ?>
                         <a href="<?php echo $baseUrl . 'modules/stock/stockAuditHis.php'; ?>">
                             <i class="fas fa-edit"></i> Stock Audit History
                         </a>
+                        <?php endif; ?>
                         <?php if (currentUserHasPermission('can_manage_pos')): ?>
                         <a href="<?php echo $baseUrl . 'modules/pos/stock_pos_integration.php'; ?>">
                             <i class="fas fa-cash-register"></i> POS Integration
                         </a>
                         <?php endif; ?>
+                        <?php if (currentUserHasPermission('can_scan_barcodes')): ?>
                             <a href="<?php echo $baseUrl . 'modules/stock/mobileBarcodeScan.php'; ?>">
                                 <i class="fas fa-barcode"></i> Product Barcode Scanning
                             </a>
+                        <?php endif; ?>
                     </div>
                 </div>
                 <?php endif; ?>

@@ -2518,6 +2518,8 @@ try {
                 { key: 'can_edit_inventory', name: 'Edit Stock', icon: 'edit', category: 'Stock', desc: 'Update product details and adjust stock', color: '#10b981' },
                 { key: 'can_delete_inventory', name: 'Delete Stock', icon: 'trash-alt', category: 'Stock', desc: 'Remove products from system', color: '#10b981' },
                 { key: 'can_restock_inventory', name: 'Restock Items', icon: 'boxes', category: 'Stock', desc: 'Access restock options and manual adjustments', color: '#10b981' },
+                { key: 'can_view_audit_logs', name: 'View Audit Logs', icon: 'history', category: 'Stock', desc: 'View stock movement history', color: '#10b981' },
+                { key: 'can_scan_barcodes', name: 'Scan Barcodes', icon: 'barcode', category: 'Stock', desc: 'Use barcode scanner for products', color: '#10b981' },
 
                 // Stores Module
                 { key: 'can_view_stores', name: 'View Stores', icon: 'eye', category: 'Stores', desc: 'View store list and details', color: '#f59e0b' },
@@ -2560,7 +2562,7 @@ try {
                     color: '#06b6d4',
                     icon: 'cash-register',
                     desc: 'POS and basic inventory',
-                    permissions: ['can_view_reports', 'can_view_inventory', 'can_use_pos', 'can_manage_pos', 'can_view_stores']
+                    permissions: ['can_view_reports', 'can_view_inventory', 'can_use_pos', 'can_manage_pos', 'can_view_stores', 'can_scan_barcodes']
                 },
                 'warehouse': {
                     name: 'Warehouse',
@@ -2569,7 +2571,8 @@ try {
                     desc: 'Stock & shipment management',
                     permissions: [
                         'can_view_inventory', 'can_edit_inventory', 'can_restock_inventory', 
-                        'can_manage_stock_transfers', 'can_manage_suppliers', 'can_manage_purchase_orders'
+                        'can_manage_stock_transfers', 'can_manage_suppliers', 'can_manage_purchase_orders',
+                        'can_view_audit_logs', 'can_scan_barcodes'
                     ]
                 },
                 'analyst': {
@@ -2579,7 +2582,7 @@ try {
                     desc: 'Reports & forecasting',
                     permissions: [
                         'can_view_reports', 'can_view_forecasting', 'can_manage_alerts', 
-                        'can_view_inventory', 'can_view_stores'
+                        'can_view_inventory', 'can_view_stores', 'can_view_audit_logs', 'can_view_users'
                     ]
                 },
                 'manager': {
@@ -2590,8 +2593,8 @@ try {
                     permissions: [
                         'can_view_reports', 'can_view_inventory', 'can_add_inventory', 'can_edit_inventory', 
                         'can_view_stores', 'can_add_stores', 'can_edit_stores', 'can_use_pos', 'can_view_users',
-                        'can_manage_suppliers', 'can_manage_purchase_orders', 'can_manage_stock_transfers',
-                        'can_view_forecasting', 'can_manage_alerts'
+                        'can_manage_suppliers', 'can_manage_purchase_orders', 'can_send_purchase_orders', 'can_manage_stock_transfers',
+                        'can_view_forecasting', 'can_manage_alerts', 'can_restock_inventory', 'can_view_audit_logs', 'can_scan_barcodes'
                     ]
                 },
                 'admin': {

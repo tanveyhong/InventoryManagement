@@ -1052,8 +1052,11 @@ function hasPermission($userId, $permission) {
             } else {
                 // No record - use role-based default
                 $rolePermissions = [
-                    'manager' => ['can_view_reports', 'can_manage_inventory', 'can_manage_stores'],
-                    'user' => ['can_view_reports']
+                    'user' => ['can_view_reports', 'can_view_inventory', 'can_view_stores'],
+                    'cashier' => ['can_view_reports', 'can_view_inventory', 'can_use_pos', 'can_manage_pos', 'can_view_stores', 'can_scan_barcodes'],
+                    'warehouse' => ['can_view_inventory', 'can_edit_inventory', 'can_restock_inventory', 'can_manage_stock_transfers', 'can_manage_suppliers', 'can_manage_purchase_orders', 'can_view_audit_logs', 'can_scan_barcodes'],
+                    'analyst' => ['can_view_reports', 'can_view_forecasting', 'can_manage_alerts', 'can_view_inventory', 'can_view_stores', 'can_view_audit_logs', 'can_view_users'],
+                    'manager' => ['can_view_reports', 'can_view_inventory', 'can_add_inventory', 'can_edit_inventory', 'can_view_stores', 'can_add_stores', 'can_edit_stores', 'can_use_pos', 'can_view_users', 'can_manage_suppliers', 'can_manage_purchase_orders', 'can_send_purchase_orders', 'can_manage_stock_transfers', 'can_view_forecasting', 'can_manage_alerts', 'can_restock_inventory', 'can_view_audit_logs', 'can_scan_barcodes']
                 ];
                 
                 if ($role === 'admin') {

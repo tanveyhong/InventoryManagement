@@ -67,6 +67,8 @@ function hasPermission($userId, $permission) {
                 'can_add_inventory' => true,
                 'can_edit_inventory' => true,
                 'can_delete_inventory' => true,
+                'can_view_audit_logs' => true,
+                'can_scan_barcodes' => true,
                 'can_view_stores' => true,
                 'can_add_stores' => true,
                 'can_edit_stores' => true,
@@ -81,6 +83,8 @@ function hasPermission($userId, $permission) {
                 'can_view_inventory' => true,
                 'can_add_inventory' => true,
                 'can_edit_inventory' => true,
+                'can_view_audit_logs' => true,
+                'can_scan_barcodes' => true,
                 'can_view_stores' => true,
                 'can_add_stores' => true,
                 'can_edit_stores' => true,
@@ -192,6 +196,7 @@ function getUserPermissions($userId) {
         $allPermKeys = [
             'can_view_reports',
             'can_view_inventory', 'can_add_inventory', 'can_edit_inventory', 'can_delete_inventory',
+            'can_view_audit_logs', 'can_scan_barcodes',
             'can_view_stores', 'can_add_stores', 'can_edit_stores', 'can_delete_stores',
             'can_use_pos', 'can_manage_pos',
             'can_view_users', 'can_manage_users'
@@ -206,6 +211,8 @@ function getUserPermissions($userId) {
                 'can_add_inventory' => true,
                 'can_edit_inventory' => true,
                 'can_delete_inventory' => false,
+                'can_view_audit_logs' => true,
+                'can_scan_barcodes' => true,
                 'can_view_stores' => true,
                 'can_add_stores' => true,
                 'can_edit_stores' => true,
@@ -373,6 +380,8 @@ function getPermissionLabel($permissionKey) {
         'can_add_inventory' => 'Add Inventory',
         'can_edit_inventory' => 'Edit Inventory',
         'can_delete_inventory' => 'Delete Inventory',
+        'can_view_audit_logs' => 'View Audit Logs',
+        'can_scan_barcodes' => 'Scan Barcodes',
         'can_view_stores' => 'View Stores',
         'can_add_stores' => 'Add Stores',
         'can_edit_stores' => 'Edit Stores',
@@ -458,6 +467,18 @@ function getAllAvailablePermissions() {
             'name' => 'Delete Inventory',
             'description' => 'Remove inventory items',
             'icon' => 'trash',
+            'category' => 'Inventory'
+        ],
+        'can_view_audit_logs' => [
+            'name' => 'View Audit Logs',
+            'description' => 'View stock movement history and audit logs',
+            'icon' => 'history',
+            'category' => 'Inventory'
+        ],
+        'can_scan_barcodes' => [
+            'name' => 'Scan Barcodes',
+            'description' => 'Use barcode scanner for products',
+            'icon' => 'barcode',
             'category' => 'Inventory'
         ],
         'can_view_stores' => [

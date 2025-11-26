@@ -562,7 +562,8 @@ try {
                     'can_view_inventory' => true,
                     'can_use_pos' => true,
                     'can_manage_pos' => true,
-                    'can_view_stores' => true
+                    'can_view_stores' => true,
+                    'can_scan_barcodes' => true
                 ],
                 'warehouse' => [
                     'can_view_inventory' => true,
@@ -571,6 +572,8 @@ try {
                     'can_manage_stock_transfers' => true,
                     'can_manage_suppliers' => true,
                     'can_manage_purchase_orders' => true,
+                    'can_view_audit_logs' => true,
+                    'can_scan_barcodes' => true
                 ],
                 'analyst' => [
                     'can_view_reports' => true,
@@ -578,6 +581,7 @@ try {
                     'can_manage_alerts' => true,
                     'can_view_inventory' => true,
                     'can_view_stores' => true,
+                    'can_view_audit_logs' => true
                 ],
                 'manager' => [
                     'can_view_reports' => true,
@@ -593,7 +597,9 @@ try {
                     'can_manage_purchase_orders' => true,
                     'can_manage_stock_transfers' => true,
                     'can_view_forecasting' => true,
-                    'can_manage_alerts' => true
+                    'can_manage_alerts' => true,
+                    'can_view_audit_logs' => true,
+                    'can_scan_barcodes' => true
                 ],
                 'admin' => [] // Admin gets all permissions
             ];
@@ -631,6 +637,9 @@ try {
                 'can_add_inventory' => $hasPerm('can_add_inventory'),
                 'can_edit_inventory' => $hasPerm('can_edit_inventory'),
                 'can_delete_inventory' => $hasPerm('can_delete_inventory'),
+                'can_restock_inventory' => $hasPerm('can_restock_inventory'),
+                'can_view_audit_logs' => $hasPerm('can_view_audit_logs'),
+                'can_scan_barcodes' => $hasPerm('can_scan_barcodes'),
                 // Stores (granular)
                 'can_view_stores' => $hasPerm('can_view_stores'),
                 'can_add_stores' => $hasPerm('can_add_stores'),
@@ -647,7 +656,6 @@ try {
                 'can_manage_purchase_orders' => $hasPerm('can_manage_purchase_orders'),
                 'can_send_purchase_orders' => $hasPerm('can_send_purchase_orders'),
                 'can_manage_stock_transfers' => $hasPerm('can_manage_stock_transfers'),
-                'can_restock_inventory' => $hasPerm('can_restock_inventory'),
                 // Analytics
                 'can_view_forecasting' => $hasPerm('can_view_forecasting'),
                 'can_manage_alerts' => $hasPerm('can_manage_alerts'),
@@ -724,7 +732,7 @@ try {
                 'can_delete_stores', 'can_view_users', 'can_manage_users', 'can_use_pos',
                 'can_view_analytics', 'can_manage_alerts', 'can_manage_inventory',
                 'can_manage_pos', 'can_manage_suppliers', 'can_manage_purchase_orders', 'can_send_purchase_orders', 'can_manage_stock_transfers',
-                'can_view_forecasting', 'can_restock_inventory'
+                'can_view_forecasting', 'can_restock_inventory', 'can_view_audit_logs', 'can_scan_barcodes'
             ];
             
             if (!in_array($permission, $allowedPermissions)) {
@@ -874,6 +882,7 @@ try {
                         'can_view_stores' => true,
                         'can_use_pos' => true,
                         'can_manage_pos' => true,
+                        'can_scan_barcodes' => true,
                     ],
                     'warehouse' => [
                         'can_view_inventory' => true,
@@ -882,6 +891,8 @@ try {
                         'can_manage_stock_transfers' => true,
                         'can_manage_suppliers' => true,
                         'can_manage_purchase_orders' => true,
+                        'can_view_audit_logs' => true,
+                        'can_scan_barcodes' => true,
                     ],
                     'analyst' => [
                         'can_view_reports' => true,
@@ -889,6 +900,8 @@ try {
                         'can_manage_alerts' => true,
                         'can_view_inventory' => true,
                         'can_view_stores' => true,
+                        'can_view_audit_logs' => true,
+                        'can_view_users' => true,
                     ],
                     'manager' => [
                         'can_view_reports' => true,
@@ -907,6 +920,8 @@ try {
                         'can_view_forecasting' => true,
                         'can_manage_alerts' => true,
                         'can_restock_inventory' => true,
+                        'can_view_audit_logs' => true,
+                        'can_scan_barcodes' => true,
                     ],
                     'admin' => [
                         'can_view_reports' => true,
@@ -930,6 +945,8 @@ try {
                         'can_view_forecasting' => true,
                         'can_manage_alerts' => true,
                         'can_restock_inventory' => true,
+                        'can_view_audit_logs' => true,
+                        'can_scan_barcodes' => true,
                     ]
                 ];
                 

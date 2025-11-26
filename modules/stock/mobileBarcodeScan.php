@@ -10,6 +10,12 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
+if (!currentUserHasPermission('can_scan_barcodes')) {
+    $_SESSION['error'] = 'You do not have permission to use barcode scanning.';
+    header('Location: ../../index.php');
+    exit;
+}
+
 /* ---------- Helpers (same robust matching as before) ---------- */
 function build_variants(string $raw): array
 {
