@@ -438,16 +438,6 @@ $page_title = 'Demand Forecasting';
             background-clip: text;
         }
 
-        .forecast-container .chart-container > div {
-            height: 300px !important;
-            max-height: 300px !important;
-            position: relative !important;
-        }
-
-        .forecast-container #forecastChart {
-            height: 100% !important;
-            max-height: 300px !important;
-        }
 
         /* Better grid layout for main content */
         .forecast-container .forecast-content {
@@ -800,6 +790,14 @@ $page_title = 'Demand Forecasting';
             cursor: help;
             font-size: 12px;
         }
+
+        /* Fullscreen Chart Styles Removed */
+        
+        .chart-canvas-wrapper {
+            height: 700px;
+            position: relative;
+            width: 100%;
+        }
     </style>
 </head>
 <body>
@@ -814,16 +812,6 @@ $page_title = 'Demand Forecasting';
         <!-- Filters -->
         <div class="filter-section">
             <h3><i class="fas fa-sliders-h"></i> Forecast Settings</h3>
-            
-            <!-- Quick Filters for Forecast Period -->
-            <div class="quick-filters">
-                <span class="quick-filter-label"><i class="fas fa-clock"></i> Quick Period:</span>
-                <button type="button" class="quick-filter-btn" data-days="7">1 Week</button>
-                <button type="button" class="quick-filter-btn" data-days="14">2 Weeks</button>
-                <button type="button" class="quick-filter-btn active" data-days="30">1 Month</button>
-                <button type="button" class="quick-filter-btn" data-days="60">2 Months</button>
-                <button type="button" class="quick-filter-btn" data-days="90">3 Months</button>
-            </div>
 
             <form method="GET" action="" id="forecastForm">
                 <div class="filter-grid">
@@ -913,23 +901,6 @@ $page_title = 'Demand Forecasting';
                     width: '100%',
                     theme: 'default'
                 });
-
-                // Quick filter buttons
-                $('.quick-filter-btn').on('click', function() {
-                    const days = $(this).data('days');
-                    $('#days').val(days);
-                    
-                    // Update active state
-                    $('.quick-filter-btn').removeClass('active');
-                    $(this).addClass('active');
-                });
-
-                // Sync dropdown with quick filters
-                $('#days').on('change', function() {
-                    const selectedDays = $(this).val();
-                    $('.quick-filter-btn').removeClass('active');
-                    $(`.quick-filter-btn[data-days="${selectedDays}"]`).addClass('active');
-                });
             });
         </script>
         
@@ -1017,13 +988,10 @@ $page_title = 'Demand Forecasting';
             <div class="forecast-content">
                 <div class="forecast-left">
                     <!-- Chart -->
-                    <div class="chart-container">
-                        <h2><i class="fas fa-chart-area"></i> Stock & Demand Forecast</h2>
-                        <p style="color: #64748b; font-size: 13px; margin-bottom: 15px;">
-                            <strong>Purple Line:</strong> Projected Stock Level (Left Axis). 
-                            <strong>Green/Blue Bars:</strong> Daily Sales/Demand (Right Axis).
-                        </p>
-                        <div style="position: relative; height: 450px; width: 100%;">
+                    <div class="chart-container" id="chartContainerWrapper">
+                        <h2 style="margin: 0 0 10px 0;"><i class="fas fa-chart-area"></i> Stock Countdown</h2>
+                        
+                        <div class="chart-canvas-wrapper">
                             <canvas id="forecastChart"></canvas>
                         </div>
                     </div>
@@ -1054,6 +1022,16 @@ $page_title = 'Demand Forecasting';
                             <?php endforeach; ?>
                         </div>
                     </div>
+
+                    <!-- How to Read Guide (Moved here) -->
+                    <div style="background: #f8fafc; padding: 15px; border-radius: 8px; margin-top: 15px; border: 1px solid #e2e8f0;">
+                        <h4 style="margin: 0 0 8px 0; font-size: 14px; color: #334155;"><i class="fas fa-info-circle" style="color: #667eea;"></i> How to read the chart:</h4>
+                        <ul style="margin: 0; padding-left: 20px; color: #475569; font-size: 13px; line-height: 1.5;">
+                            <li style="margin-bottom: 4px;"><strong>The Purple Line 📉</strong> shows your stock dropping over time. <span style="color: #667eea; font-weight: 600;">Follow this line!</span></li>
+                            <li style="margin-bottom: 4px;"><strong>The Red Dotted Line 🔴</strong> is your "Safety Level". If the purple line drops below this, you are in danger of running out.</li>
+                            <li><strong>The Bars 📊</strong> at the bottom show how many items you sold (Green) and how many we think you will sell (Blue).</li>
+                        </ul>
+                    </div>
                 </div>
             </div>
             
@@ -1069,7 +1047,7 @@ $page_title = 'Demand Forecasting';
                 const datasets = [
                     // 1. Projected Stock Level (Primary Focus)
                     {
-                        label: 'Projected Stock Level',
+                        label: 'Stock Remaining',
                         data: chartData.projected_stock,
                         borderColor: '#8b5cf6', // Purple
                         backgroundColor: 'rgba(139, 92, 246, 0.1)',
@@ -1078,24 +1056,26 @@ $page_title = 'Demand Forecasting';
                         fill: true,
                         pointRadius: 0,
                         pointHoverRadius: 6,
+                        pointHitRadius: 20,
                         yAxisID: 'y',
                         order: 0
                     },
                     // 2. Reorder Point Line
                     {
-                        label: 'Reorder Point',
+                        label: 'Safety Level (Reorder Point)',
                         data: reorderLine,
                         borderColor: '#ef4444', // Red
                         borderWidth: 2,
                         borderDash: [5, 5],
                         pointRadius: 0,
+                        pointHitRadius: 20,
                         fill: false,
                         yAxisID: 'y',
                         order: 1
                     },
                     // 3. Historical Sales (Bars)
                     {
-                        label: 'Past Sales',
+                        label: 'History: Sales',
                         data: chartData.historical,
                         backgroundColor: 'rgba(16, 185, 129, 0.6)', // Green
                         borderColor: '#10b981',
@@ -1106,7 +1086,7 @@ $page_title = 'Demand Forecasting';
                     },
                     // 4. Future Demand (Bars)
                     {
-                        label: 'Predicted Sales',
+                        label: 'Forecast: Sales',
                         data: chartData.forecast,
                         backgroundColor: 'rgba(59, 130, 246, 0.4)', // Blue
                         borderColor: '#3b82f6',
@@ -1136,16 +1116,22 @@ $page_title = 'Demand Forecasting';
                                 display: true,
                                 position: 'top',
                                 labels: {
-                                    usePointStyle: true,
-                                    padding: 15,
-                                    font: { size: 12, weight: '600' }
+                                    color: '#334155',
+                                    font: {
+                                        weight: 600,
+                                        size: 14
+                                    }
                                 }
                             },
                             tooltip: {
-                                backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                                backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                                titleColor: '#1e293b',
+                                bodyColor: '#334155',
+                                borderColor: '#e2e8f0',
+                                borderWidth: 1,
                                 padding: 12,
-                                titleFont: { size: 14, weight: 'bold' },
-                                bodyFont: { size: 13 },
+                                boxPadding: 4,
+                                usePointStyle: true,
                                 callbacks: {
                                     label: function(context) {
                                         let label = context.dataset.label || '';
@@ -1153,7 +1139,7 @@ $page_title = 'Demand Forecasting';
                                             label += ': ';
                                         }
                                         if (context.parsed.y !== null) {
-                                            label += context.parsed.y + ' units';
+                                            label += context.parsed.y.toLocaleString();
                                         }
                                         return label;
                                     }
@@ -1161,72 +1147,80 @@ $page_title = 'Demand Forecasting';
                             }
                         },
                         scales: {
-                            y: {
-                                type: 'linear',
-                                display: true,
-                                position: 'left',
-                                title: {
-                                    display: true,
-                                    text: 'Stock Level',
-                                    font: { weight: 'bold' }
-                                },
+                            x: {
                                 grid: {
-                                    color: 'rgba(0, 0, 0, 0.05)'
+                                    color: '#e2e8f0',
+                                    lineWidth: 1
+                                },
+                                ticks: {
+                                    color: '#334155',
+                                    font: {
+                                        weight: 500,
+                                        size: 12
+                                    }
+                                }
+                            },
+                            y: {
+                                beginAtZero: true,
+                                grid: {
+                                    color: '#e2e8f0',
+                                    lineWidth: 1
+                                },
+                                ticks: {
+                                    color: '#334155',
+                                    font: {
+                                        weight: 500,
+                                        size: 12
+                                    },
+                                    callback: function(value) {
+                                        return value.toLocaleString();
+                                    }
                                 }
                             },
                             y1: {
-                                type: 'linear',
-                                display: true,
+                                beginAtZero: true,
                                 position: 'right',
-                                title: {
-                                    display: true,
-                                    text: 'Daily Sales / Demand',
-                                    font: { weight: 'bold' }
-                                },
                                 grid: {
-                                    drawOnChartArea: false // only want the grid lines for one axis to show up
+                                    color: 'rgba(229, 231, 235, 0.5)',
+                                    lineWidth: 1
                                 },
-                                min: 0
-                            },
-                            x: {
-                                grid: {
-                                    display: false
+                                ticks: {
+                                    color: '#334155',
+                                    font: {
+                                        weight: 500,
+                                        size: 12
+                                    },
+                                    callback: function(value) {
+                                        return value.toLocaleString();
+                                    }
                                 }
                             }
                         }
                     }
                 });
             </script>
-        <?php else: ?>
-            <div class="empty-state">
-                <i class="fas fa-chart-line"></i>
-                <h3>Ready to See the Future?</h3>
-                <p>Select a product above to see how much you'll likely sell in the coming weeks. We use your past sales data to make smart predictions.</p>
-                
-                <div class="empty-state-features">
-                    <div class="empty-state-feature">
-                        <i class="fas fa-robot"></i>
-                        <h4>Smart Predictions</h4>
-                        <p>We analyze your sales history to predict future demand automatically.</p>
-                    </div>
-                    <div class="empty-state-feature">
-                        <i class="fas fa-chart-area"></i>
-                        <h4>Pattern Detection</h4>
-                        <p>We spot weekly trends (like busy weekends) to make forecasts more accurate.</p>
-                    </div>
-                    <div class="empty-state-feature">
-                        <i class="fas fa-bullseye"></i>
-                        <h4>Reliability Score</h4>
-                        <p>We tell you how confident we are in the prediction so you can plan safely.</p>
-                    </div>
-                    <div class="empty-state-feature">
-                        <i class="fas fa-bell"></i>
-                        <h4>Actionable Advice</h4>
-                        <p>Get clear "Order Now" or "Overstocked" alerts in plain English.</p>
-                    </div>
-                </div>
-            </div>
         <?php endif; ?>
+        
+        <!-- Page Footer -->
+        <div style="margin-top: 30px; border-top: 1px solid #e2e8f0; padding-top: 20px; color: #64748b; font-size: 12px;">
+            <p style="margin: 0;">&copy; 2023 Inventory System. All rights reserved.</p>
+            <p style="margin: 0;">Built with <i class="fas fa-heart" style="color: #ef4444;"></i> by Your Company</p>
+        </div>
     </div>
+
+    <script>
+        // Close any open dropdowns when clicking outside
+        $(document).mouseup(function(e) {
+            var container = $(".select2-container");
+            if (!container.is(e.target) && container.has(e.target).length === 0) {
+                container.each(function() {
+                    var $this = $(this);
+                    if ($this.hasClass("select2-container--focus")) {
+                        $this.select2("close");
+                    }
+                });
+            }
+        });
+    </script>
 </body>
 </html>

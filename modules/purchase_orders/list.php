@@ -431,17 +431,19 @@ $page_title = 'Purchase Orders';
         .btn-create {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            padding: 12px 24px;
+            padding: 10px 20px;
             border-radius: 10px;
             text-decoration: none;
             font-weight: 600;
             display: inline-flex;
             align-items: center;
-            gap: 10px;
+            gap: 8px;
             transition: all 0.2s;
             border: none;
             cursor: pointer;
             box-shadow: 0 4px 15px rgba(118, 75, 162, 0.3);
+            font-size: 14px;
+            white-space: nowrap;
         }
         
         .btn-create:hover {

@@ -7,29 +7,29 @@
     <?php foreach ($stores as $store): ?>
     <div class="store-card">
         <div class="store-header">
-            <h3 class="store-name"><?php echo htmlspecialchars($store['name']); ?></h3>
+            <h3 class="store-name"><?php echo htmlspecialchars(htmlspecialchars_decode($store['name'])); ?></h3>
             <?php if (!empty($store['code'])): ?>
-            <span class="store-code"><?php echo htmlspecialchars($store['code']); ?></span>
+            <span class="store-code"><?php echo htmlspecialchars(htmlspecialchars_decode($store['code'])); ?></span>
             <?php endif; ?>
         </div>
         
         <div class="store-info">
-            <div class="info-row col-address" title="<?php echo htmlspecialchars($store['address'] ?? 'N/A'); ?>">
-                <i class="fas fa-map-marker-alt"></i> <span><?php echo htmlspecialchars($store['address'] ?? 'N/A'); ?></span>
+            <div class="info-row col-address" title="<?php echo htmlspecialchars(htmlspecialchars_decode($store['address'] ?? 'N/A')); ?>">
+                <i class="fas fa-map-marker-alt"></i> <span><?php echo htmlspecialchars(htmlspecialchars_decode($store['address'] ?? 'N/A')); ?></span>
             </div>
             <div class="info-row col-city">
-                <i class="fas fa-city"></i> <span><?php echo htmlspecialchars($store['city'] ?? 'N/A'); ?>, <?php echo htmlspecialchars($store['state'] ?? 'N/A'); ?></span>
+                <i class="fas fa-city"></i> <span><?php echo htmlspecialchars(htmlspecialchars_decode($store['city'] ?? 'N/A')); ?>, <?php echo htmlspecialchars(htmlspecialchars_decode($store['state'] ?? 'N/A')); ?></span>
             </div>
             <div class="info-row col-phone">
                 <?php if (!empty($store['phone'])): ?>
-                <i class="fas fa-phone"></i> <span><?php echo htmlspecialchars($store['phone']); ?></span>
+                <i class="fas fa-phone"></i> <span><?php echo htmlspecialchars(htmlspecialchars_decode($store['phone'])); ?></span>
                 <?php else: ?>
                 <span class="empty-cell">-</span>
                 <?php endif; ?>
             </div>
             <div class="info-row col-manager">
                 <?php if (!empty($store['manager_name'])): ?>
-                <i class="fas fa-user-tie"></i> <span><?php echo htmlspecialchars($store['manager_name']); ?></span>
+                <i class="fas fa-user-tie"></i> <span><?php echo htmlspecialchars(htmlspecialchars_decode($store['manager_name'])); ?></span>
                 <?php else: ?>
                 <span class="empty-cell">-</span>
                 <?php endif; ?>

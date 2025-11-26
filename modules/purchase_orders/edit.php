@@ -1238,7 +1238,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             }
                         };
                     },
-                    cache: true
+                    cache: false
                 },
                 minimumInputLength: 0, // Allow opening without typing to see initial list
                 templateResult: formatProduct,

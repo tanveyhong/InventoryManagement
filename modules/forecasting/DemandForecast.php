@@ -950,9 +950,12 @@ class DemandForecast {
             $lower_bound[] = $confidence_intervals['lower'][$i - 1];
             $upper_bound[] = $confidence_intervals['upper'][$i - 1];
             
-            // Calculate projected stock
+            // Calculate projected stock (Start of Day)
+            // We show the stock available at the beginning of the day, before sales happen
+            $projected_stock[] = $running_stock;
+            
+            // Subtract demand for the next day's starting stock
             $running_stock -= $daily_demand;
-            $projected_stock[] = $running_stock; // Allow negative to show shortage
         }
         
         return [
@@ -1094,9 +1097,9 @@ class DemandForecast {
         if ($seasonality['detected']) {
             $recommendations[] = [
                 'type' => 'info',
-                'icon' => '📊',
-                'title' => 'Seasonal Pattern Detected',
-                'message' => "Sales show {$seasonality['pattern']} seasonality (strength: {$seasonality['strength']}%).",
+                'icon' => '📅',
+                'title' => 'Weekly Sales Rhythm',
+                'message' => "We noticed that your sales go up and down on the same days every week. The forecast is using this rhythm to be more accurate.",
                 'action' => null
             ];
         }

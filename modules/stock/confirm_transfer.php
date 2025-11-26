@@ -50,6 +50,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // 3. Update Transfer Status
             $sqlDb->execute("UPDATE inventory_transfers SET status = 'completed', received_at = NOW(), received_by = ? WHERE id = ?", [$_SESSION['user_id'], $transfer_id]);
 
+            // Record stock movement for Store (Inflow)
+            $sqlDb->execute("INSERT INTO stock_movements 
+                (product_id, store_id, movement_type, quantity, reference, notes, user_id, created_at) 
+                VALUES (?, ?, 'transfer_in', ?, ?, ?, ?, NOW())", 
+                [
+                    $transfer['dest_product_id'],
+                    $transfer['store_id'],
+                    $transfer['quantity'], // Positive for inflow
+                    'Transfer #' . $transfer_id,
+                    "Received from Warehouse",
+                    $_SESSION['user_id']
+                ]
+            );
+
             // 4. Log activity
             logActivity('stock_transfer_confirmed', "Confirmed receipt of {$transfer['quantity']} units (Transfer #$transfer_id)", [
                 'transfer_id' => $transfer_id,
@@ -65,6 +79,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             // Update Transfer Status
             $sqlDb->execute("UPDATE inventory_transfers SET status = 'cancelled', received_at = NOW(), received_by = ? WHERE id = ?", [$_SESSION['user_id'], $transfer_id]);
+
+            // Record stock movement for Warehouse (Inflow/Return)
+            $sqlDb->execute("INSERT INTO stock_movements 
+                (product_id, store_id, movement_type, quantity, reference, notes, user_id, created_at) 
+                VALUES (?, NULL, 'transfer_return', ?, ?, ?, ?, NOW())", 
+                [
+                    $transfer['source_product_id'],
+                    $transfer['quantity'], // Positive for inflow
+                    'Transfer #' . $transfer_id . ' Cancelled',
+                    "Returned from cancelled transfer",
+                    $_SESSION['user_id']
+                ]
+            );
 
             logActivity('stock_transfer_cancelled', "Cancelled transfer #$transfer_id. Stock returned to warehouse.", [
                 'transfer_id' => $transfer_id,

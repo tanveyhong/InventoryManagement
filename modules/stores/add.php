@@ -35,14 +35,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $phone = sanitizeInput($_POST['phone'] ?? '');
     $email = sanitizeInput($_POST['email'] ?? '');
     $manager_name = sanitizeInput($_POST['manager_name'] ?? '');
-    $description = sanitizeInput($_POST['description'] ?? '');
     $latitude = sanitizeInput($_POST['latitude'] ?? '');
     $longitude = sanitizeInput($_POST['longitude'] ?? '');
     $store_type = sanitizeInput($_POST['store_type'] ?? 'retail');
-    $opening_hours = sanitizeInput($_POST['opening_hours'] ?? '');
-    $closing_hours = sanitizeInput($_POST['closing_hours'] ?? '');
-    $square_footage = sanitizeInput($_POST['square_footage'] ?? '');
-    $max_capacity = sanitizeInput($_POST['max_capacity'] ?? '');
     
     // Auto-generate store code
     $code = 'STR-' . strtoupper(substr(md5(uniqid(rand(), true)), 0, 6));
@@ -78,12 +73,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     if (!empty($longitude) && (!is_numeric($longitude) || $longitude < -180 || $longitude > 180)) {
         $errors[] = 'Invalid longitude (must be between -180 and 180)';
-    }
-    
-    if (!empty($opening_hours) && !empty($closing_hours)) {
-        if (strtotime($opening_hours) >= strtotime($closing_hours)) {
-            $errors[] = 'Opening time must be before closing time';
-        }
     }
     
     // Check if store code already exists (PostgreSQL)
@@ -128,15 +117,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $result = $sqlDb->execute("
                 INSERT INTO stores (
                     name, code, address, city, state, zip_code, phone, email, manager_name,
-                    description, latitude, longitude, store_type, opening_hours,
-                    closing_hours, square_footage, max_capacity, created_by, created_at,
+                    latitude, longitude, store_type, created_by, created_at,
                     updated_at, active, status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), TRUE, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), TRUE, ?)
             ", [
                 $name, $code, $address, $city, $state, $zip_code, $phone, $email, $manager_name,
-                $description, $latitude ? floatval($latitude) : null, $longitude ? floatval($longitude) : null,
-                $store_type, $opening_hours, $closing_hours,
-                $square_footage ? intval($square_footage) : null, $max_capacity ? intval($max_capacity) : null,
+                $latitude ? floatval($latitude) : null, $longitude ? floatval($longitude) : null,
+                $store_type,
                 $_SESSION['user_id'], 'active'
             ]);
             
@@ -820,52 +807,6 @@ $page_title = 'Add New Store - Inventory System';
                         </div>
                     </div>
 
-                    <div class="form-section">
-                        <h3><i class="fas fa-clock" style="color: #667eea;"></i> Operating Information</h3>
-                        
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label for="opening_hours">Opening Hours: <small>(Optional)</small></label>
-                                <input type="time" id="opening_hours" name="opening_hours" 
-                                       value="<?php echo htmlspecialchars($_POST['opening_hours'] ?? '09:00'); ?>">
-                            </div>
-                            
-                            <div class="form-group">
-                                <label for="closing_hours">Closing Hours: <small>(Optional)</small></label>
-                                <input type="time" id="closing_hours" name="closing_hours" 
-                                       value="<?php echo htmlspecialchars($_POST['closing_hours'] ?? '18:00'); ?>">
-                            </div>
-                        </div>
-                        
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label for="square_footage">Square Footage: <small>(Optional)</small></label>
-                                <input type="number" id="square_footage" name="square_footage" 
-                                       value="<?php echo htmlspecialchars($_POST['square_footage'] ?? ''); ?>" 
-                                       min="0" placeholder="e.g., 5000">
-                                <small>Store area in square feet</small>
-                            </div>
-                            
-                            <div class="form-group">
-                                <label for="max_capacity">Maximum Capacity: <small>(Optional)</small></label>
-                                <input type="number" id="max_capacity" name="max_capacity" 
-                                       value="<?php echo htmlspecialchars($_POST['max_capacity'] ?? ''); ?>" 
-                                       min="0" placeholder="e.g., 100">
-                                <small>Maximum customer capacity</small>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="form-section">
-                        <h3><i class="fas fa-sticky-note" style="color: #667eea;"></i> Additional Information</h3>
-                        
-                        <div class="form-group">
-                            <label for="description">Description: <small>(Optional)</small></label>
-                            <textarea id="description" name="description" rows="4" 
-                                      maxlength="500" placeholder="Optional description or notes about the store"><?php echo htmlspecialchars($_POST['description'] ?? ''); ?></textarea>
-                        </div>
-                    </div>
-
                     <div class="form-actions">
                         <button type="submit" class="btn">
                             <i class="fas fa-plus-circle"></i> Create Store
@@ -990,16 +931,79 @@ $page_title = 'Add New Store - Inventory System';
                 addressResultsDiv.innerHTML = '<div style="padding: 15px; text-align: center; color: #667eea;"><i class="fas fa-search fa-spin"></i> Searching...</div>';
                 addressResultsDiv.style.display = 'block';
                 
-                // Enhanced search with address priority
-                const url = `https://nominatim.openstreetmap.org/search?` +
+                // Enhanced search with address priority and Malaysia restriction
+                const buildUrl = (searchQuery) => `https://nominatim.openstreetmap.org/search?` +
                     `format=json` +
-                    `&q=${encodeURIComponent(query)}` +
+                    `&q=${encodeURIComponent(searchQuery)}` +
                     `&addressdetails=1` +
-                    `&limit=10` + // Get more results
-                    `&dedupe=1`; // Remove duplicate results
+                    `&limit=15` + // Increased limit
+                    `&dedupe=1` +
+                    `&countrycodes=my` + // Restrict to Malaysia
+                    `&accept-language=en-US,en;q=0.9,ms;q=0.8`; // Prefer English/Malay
                 
-                const response = await fetch(url);
-                const results = await response.json();
+                let response = await fetch(buildUrl(query));
+                let results = await response.json();
+                
+                // Helper to check validity
+                const isValid = (res) => res && res.length > 0;
+
+                // Fallback Strategy: Smart Recovery
+                if (!isValid(results)) {
+                    console.log('⚠️ Exact match failed, initiating smart recovery...');
+                    
+                    // Strategy 1: Smart Segment Filtering
+                    // Split by comma and remove parts that look like units/floors
+                    if (query.includes(',')) {
+                        const parts = query.split(',').map(p => p.trim());
+                        const cleanParts = parts.filter(part => {
+                            const p = part.toLowerCase();
+                            // Filter out unit/floor indicators
+                            if (p.match(/^(?:no\.|lot|unit|level|floor|suite|blk|block)\s+/)) return false;
+                            if (p.includes('floor') || p.includes('level')) return false;
+                            // Filter out short alphanumeric codes (likely unit numbers like 1F-55, B-12-2)
+                            // Matches strings that are mostly numbers/letters/dashes/slashes, without spaces (or very few)
+                            if (part.match(/^[A-Z0-9\-\/#\.]+$/i) && part.length < 10) return false;
+                            return true;
+                        });
+
+                        if (cleanParts.length > 0 && cleanParts.length < parts.length) {
+                            const cleanQuery = cleanParts.join(', ');
+                            console.log('Trying smart cleaned query:', cleanQuery);
+                            response = await fetch(buildUrl(cleanQuery));
+                            results = await response.json();
+                        }
+                    }
+
+                    // Strategy 2: Landmark/Building Search (Iterate through parts)
+                    if (!isValid(results) && query.includes(',')) {
+                        const parts = query.split(',').map(p => p.trim());
+                        // Sort parts by length (descending) - assume longer parts are building/street names
+                        // But keep original order priority slightly? No, length is usually a good proxy for "Building Name" vs "1F"
+                        const sortedParts = [...parts].sort((a, b) => b.length - a.length);
+                        
+                        for (const part of sortedParts) {
+                            // Skip if it looks like a unit/floor
+                            if (part.toLowerCase().match(/floor|level|unit|lot|^no\./)) continue;
+                            if (part.length < 4) continue; // Skip short parts
+
+                            console.log('Trying major segment:', part);
+                            response = await fetch(buildUrl(part + ', Malaysia'));
+                            const segmentResults = await response.json();
+                            
+                            // Only accept if we found something
+                            if (isValid(segmentResults)) {
+                                results = segmentResults;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // Strategy 3: Fallback to "Malaysia" append (Last Resort)
+                    if (!isValid(results) && !query.toLowerCase().includes('malaysia')) {
+                         response = await fetch(buildUrl(query + ', Malaysia'));
+                         results = await response.json();
+                    }
+                }
                 
                 console.log(`✅ Found ${results.length} results for "${query}"`);
                 
@@ -1025,7 +1029,7 @@ $page_title = 'Add New Store - Inventory System';
                         return (b.importance || 0) - (a.importance || 0);
                     });
                     
-                    displaySearchResults(filteredResults.slice(0, 8)); // Show top 8 results
+                    displaySearchResults(filteredResults.slice(0, 10)); // Show top 10 results
                 } else {
                     console.log('⚠️ No results found');
                     addressResultsDiv.innerHTML = `
@@ -1188,46 +1192,38 @@ $page_title = 'Add New Store - Inventory System';
         function selectAddress(result) {
             const addr = result.address || {};
             
-            // Construct street address
+            // Construct street address from API result
             let streetAddress = addr.road || addr.pedestrian || addr.address29 || addr.suburb || '';
-            let houseNumber = addr.house_number || '';
             
-            // If API didn't return a house number, try to extract it from the search query
-            if (!houseNumber) {
-                const query = document.getElementById('address-search').value.trim();
-                
-                // Try to extract house number from query (e.g., "14 Lorong...", "No 14...", "14 no...")
-                // 1. Matches "14 no " or "14 " at start
-                const startNumMatch = query.match(/^(\d+[A-Za-z]?)\s+(?:no\.?\s+)?/i);
-                
-                // 2. Matches "No 14 " or "Lot 123 " at start
-                const prefixNumMatch = query.match(/^(?:no\.?|lot|unit)\s+(\d+[A-Za-z]?)/i);
-                
-                if (startNumMatch) {
-                    houseNumber = startNumMatch[1];
-                } else if (prefixNumMatch) {
-                    houseNumber = prefixNumMatch[0]; // Keep the prefix like "Lot 123"
-                }
-            }
-            
-            // Combine number and street
-            if (houseNumber && streetAddress) {
-                // Check if street address already starts with the number to avoid duplication
-                if (!streetAddress.toLowerCase().startsWith(houseNumber.toLowerCase())) {
-                    streetAddress = houseNumber + ' ' + streetAddress;
-                }
-            } else if (houseNumber && !streetAddress) {
-                // Fallback if no specific street field found
-                const firstPart = result.display_name.split(',')[0];
-                if (!firstPart.toLowerCase().startsWith(houseNumber.toLowerCase())) {
-                    streetAddress = houseNumber + ' ' + firstPart;
-                } else {
-                    streetAddress = firstPart;
-                }
-            } else if (!streetAddress) {
-                // Fallback to display name first part
+            // Fallback if no specific street field found
+            if (!streetAddress) {
                 streetAddress = result.display_name.split(',')[0];
             }
+
+            // --- INTELLIGENT PREFIX PRESERVATION ---
+            // Get the user's original query to find unit/floor/lot info that API missed
+            const originalQuery = document.getElementById('address-search').value.trim();
+            
+            if (originalQuery) {
+                // 1. Extract potential prefix parts (Unit, Floor, Lot, etc.)
+                // Matches things like "1F-55", "Lot 123", "Unit 5", "Level 2", "No. 8" at the start
+                // It stops when it hits a comma or the street name we found
+                const prefixMatch = originalQuery.match(/^(.+?)(?:,|\s+(?:Jalan|Lorong|Road|Rd|Ave|Street|St|Persiaran))/i);
+                
+                if (prefixMatch) {
+                    const potentialPrefix = prefixMatch[1].trim();
+                    
+                    // Only prepend if the API result doesn't already contain this info
+                    // and if it looks like a unit number (digits, dashes, slashes, or specific keywords)
+                    const isUnitInfo = potentialPrefix.match(/\d/) || 
+                                      potentialPrefix.match(/^(?:lot|unit|level|floor|no\.|suite)/i);
+                                      
+                    if (isUnitInfo && !streetAddress.toLowerCase().includes(potentialPrefix.toLowerCase())) {
+                        streetAddress = potentialPrefix + ', ' + streetAddress;
+                    }
+                }
+            }
+            // ---------------------------------------
 
             // Fill address fields
             document.getElementById('address').value = streetAddress;

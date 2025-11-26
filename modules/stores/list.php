@@ -112,6 +112,11 @@ $pagination = [
 
 // Handle AJAX request
 if (isset($_GET['ajax'])) {
+    // Prevent caching for AJAX
+    header('Cache-Control: no-cache, no-store, must-revalidate');
+    header('Pragma: no-cache');
+    header('Expires: 0');
+
     ob_start();
     include 'list_content.php';
     $html = ob_get_clean();
@@ -882,7 +887,8 @@ $page_title = 'Store Management - Inventory System';
                     const params = new URLSearchParams({
                         ajax: '1',
                         page: page,
-                        search: search
+                        search: search,
+                        _t: new Date().getTime()
                     });
                     
                     const response = await fetch(`list.php?${params.toString()}`);

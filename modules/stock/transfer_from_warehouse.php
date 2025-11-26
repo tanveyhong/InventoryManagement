@@ -96,6 +96,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             [$warehouseProduct['id'], $product_id, $store_id, $quantity, $_SESSION['user_id']]
         );
 
+        // Record stock movement for Warehouse (Outflow)
+        $sqlDb->execute("INSERT INTO stock_movements 
+            (product_id, store_id, movement_type, quantity, reference, notes, user_id, created_at) 
+            VALUES (?, NULL, 'transfer_out', ?, ?, ?, ?, NOW())", 
+            [
+                $warehouseProduct['id'],
+                -$quantity, // Negative for outflow
+                'Transfer to Store #' . $store_id,
+                "Transfer initiated to Store #$store_id",
+                $_SESSION['user_id']
+            ]
+        );
+
         // 6. Log activity
         logActivity('stock_transfer_initiated', "Initiated transfer of $quantity units of $sku from Warehouse to Store #$store_id (Pending Arrival)", [
             'sku' => $sku,

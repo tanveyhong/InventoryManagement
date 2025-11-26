@@ -224,6 +224,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'changed_by'     => $changedBy,
         'changed_name'   => $changedName,
       ]);
+
+      // Insert into stock_movements for Demand Forecasting
+      try {
+          $sqlDb = SQLDatabase::getInstance();
+          $delta = $newQty - $oldQty;
+          if ($delta != 0) {
+              // For demand forecasting, we need negative quantities for outflows.
+              // movement_type 'adjustment' is not 'sale', so it will be picked up if quantity < 0.
+              $sqlDb->execute("INSERT INTO stock_movements 
+                  (product_id, store_id, movement_type, quantity, reference, notes, user_id, created_at) 
+                  VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)", 
+                  [
+                      $docId,
+                      $product['store_id'] ?? null,
+                      'adjustment', 
+                      $delta,
+                      'Manual Adjustment',
+                      'Adjusted via Restock/Manual option',
+                      $changedBy
+                  ]
+              );
+          }
+      } catch (Exception $e) {
+          error_log("Failed to log stock movement in adjust.php: " . $e->getMessage());
+      }
     } catch (Throwable $t) {
       error_log('adjust.php audit failed: ' . $t->getMessage());
     }
