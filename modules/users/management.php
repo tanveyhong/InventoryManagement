@@ -913,6 +913,9 @@ try {
                             <option value="warehouse">Warehouse</option>
                             <option value="analyst">Analyst</option>
                         </select>
+                        <button class="btn" onclick="loadUsers(true)" style="white-space: nowrap; height: 42px; display: flex; align-items: center; gap: 8px; background-color: #fff; border: 1px solid #e5e7eb; color: #4b5563;" title="Refresh List">
+                            <i class="fas fa-sync-alt"></i>
+                        </button>
                         <?php if ($canManageUsers): ?>
                         <button class="btn btn-primary" onclick="showCreateUserModal()" style="white-space: nowrap; height: 42px; display: flex; align-items: center; gap: 8px;">
                             <i class="fas fa-user-plus"></i> Create
@@ -1275,133 +1278,12 @@ try {
         }
 
         function showCreateUserModal() {
-            const modal = document.createElement('div');
-            modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 10000; backdrop-filter: blur(4px);';
-            modal.innerHTML = `
-                <div style="background: white; border-radius: 16px; max-width: 500px; width: 90%; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
-                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 24px; border-radius: 16px 16px 0 0; color: white;">
-                        <h3 style="margin: 0; font-size: 22px; display: flex; align-items: center; gap: 10px;">
-                            <i class="fas fa-user-plus"></i> Create New User
-                        </h3>
-                        <p style="margin: 8px 0 0 0; opacity: 0.9; font-size: 14px;">Add a new user to the system</p>
-                    </div>
-                    
-                    <form id="create-user-form" style="padding: 24px;">
-                        <div style="margin-bottom: 16px;">
-                            <label style="display: block; margin-bottom: 6px; font-weight: 600; color: #374151;">
-                                <i class="fas fa-user"></i> Username <span style="color: #ef4444;">*</span>
-                            </label>
-                            <input type="text" name="username" required style="width: 100%; padding: 10px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px;" placeholder="Enter username">
-                        </div>
-                        
-                        <div style="margin-bottom: 16px;">
-                            <label style="display: block; margin-bottom: 6px; font-weight: 600; color: #374151;">
-                                <i class="fas fa-envelope"></i> Email <span style="color: #ef4444;">*</span>
-                            </label>
-                            <input type="email" name="email" required style="width: 100%; padding: 10px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px;" placeholder="user@example.com">
-                        </div>
-                        
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
-                            <div>
-                                <label style="display: block; margin-bottom: 6px; font-weight: 600; color: #374151;">
-                                    <i class="fas fa-id-badge"></i> First Name
-                                </label>
-                                <input type="text" name="first_name" style="width: 100%; padding: 10px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px;" placeholder="First name">
-                            </div>
-                            <div>
-                                <label style="display: block; margin-bottom: 6px; font-weight: 600; color: #374151;">
-                                    Last Name
-                                </label>
-                                <input type="text" name="last_name" style="width: 100%; padding: 10px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px;" placeholder="Last name">
-                            </div>
-                        </div>
-                        
-                        <div style="margin-bottom: 16px;">
-                            <label style="display: block; margin-bottom: 6px; font-weight: 600; color: #374151;">
-                                <i class="fas fa-lock"></i> Password <span style="color: #ef4444;">*</span>
-                            </label>
-                            <div style="position: relative;">
-                                <input type="password" name="password" id="create-password" required style="width: 100%; padding: 10px 40px 10px 10px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px;" placeholder="Enter password">
-                                <button type="button" onclick="togglePasswordField('create-password', this)" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); border: none; background: none; cursor: pointer; color: #667eea; padding: 5px;" title="Show/Hide Password">
-                                    <i class="fas fa-eye"></i>
-                                </button>
-                            </div>
-                            <small style="display: block; margin-top: 4px; color: #6b7280;">Minimum 6 characters</small>
-                        </div>
-                        
-                        <div style="margin-bottom: 16px;">
-                            <label style="display: block; margin-bottom: 6px; font-weight: 600; color: #374151;">
-                                <i class="fas fa-lock"></i> Confirm Password <span style="color: #ef4444;">*</span>
-                            </label>
-                            <div style="position: relative;">
-                                <input type="password" name="password_confirm" id="create-password-confirm" required style="width: 100%; padding: 10px 40px 10px 10px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px;" placeholder="Confirm password">
-                                <button type="button" onclick="togglePasswordField('create-password-confirm', this)" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); border: none; background: none; cursor: pointer; color: #667eea; padding: 5px;" title="Show/Hide Password">
-                                    <i class="fas fa-eye"></i>
-                                </button>
-                            </div>
-                        </div>
-                        
-                        <div style="display: flex; gap: 12px; margin-top: 24px;">
-                            <button type="button" onclick="this.closest('div').parentElement.parentElement.parentElement.remove()" class="btn btn-secondary" style="flex: 1;">
-                                <i class="fas fa-times"></i> Cancel
-                            </button>
-                            <button type="submit" class="btn btn-primary" style="flex: 1;">
-                                <i class="fas fa-check"></i> Create User
-                            </button>
-                        </div>
-                    </form>
-                </div>
-            `;
-            document.body.appendChild(modal);
-            
-            // Handle form submission
-            document.getElementById('create-user-form').addEventListener('submit', async function(e) {
-                e.preventDefault();
-                
-                const formData = new FormData(this);
-                const data = Object.fromEntries(formData);
-                
-                // Validate passwords match
-                if (data.password !== data.password_confirm) {
-                    alert('Passwords do not match!');
-                    return;
-                }
-                
-                // Validate password length
-                if (data.password.length < 6) {
-                    alert('Password must be at least 6 characters long!');
-                    return;
-                }
-                
-                const submitBtn = this.querySelector('button[type="submit"]');
-                submitBtn.disabled = true;
-                submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating...';
-                
-                try {
-                    const response = await fetch('../users/register.php', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(data)
-                    });
-                    
-                    const result = await response.json();
-                    
-                    if (result.success) {
-                        alert('User created successfully!');
-                        modal.remove();
-                        loadUsers();
-                    } else {
-                        alert('Failed to create user: ' + (result.error || 'Unknown error'));
-                        submitBtn.disabled = false;
-                        submitBtn.innerHTML = '<i class="fas fa-check"></i> Create User';
-                    }
-                } catch (error) {
-                    console.error('Error:', error);
-                    alert('Failed to create user: ' + error.message);
-                    submitBtn.disabled = false;
-                    submitBtn.innerHTML = '<i class="fas fa-check"></i> Create User';
-                }
-            });
+            document.getElementById('static-create-user-form').reset();
+            document.getElementById('static-create-user-modal').style.display = 'flex';
+        }
+
+        function closeStaticCreateUserModal() {
+            document.getElementById('static-create-user-modal').style.display = 'none';
         }
 
         function togglePasswordField(inputId, button) {
@@ -1463,6 +1345,58 @@ try {
 
         // Initialize Edit User Form Listener
         document.addEventListener('DOMContentLoaded', function() {
+            // Create User Form Listener
+            const createForm = document.getElementById('static-create-user-form');
+            if (createForm) {
+                createForm.addEventListener('submit', async function(e) {
+                    e.preventDefault();
+                    
+                    const formData = new FormData(this);
+                    const data = Object.fromEntries(formData);
+                    
+                    // Validate passwords match
+                    if (data.password !== data.password_confirm) {
+                        alert('Passwords do not match!');
+                        return;
+                    }
+                    
+                    // Validate password length
+                    if (data.password.length < 6) {
+                        alert('Password must be at least 6 characters long!');
+                        return;
+                    }
+                    
+                    const submitBtn = document.getElementById('create-user-submit-btn');
+                    submitBtn.disabled = true;
+                    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating...';
+                    
+                    try {
+                        const response = await fetch('../users/register.php', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(data)
+                        });
+                        
+                        const result = await response.json();
+                        
+                        if (result.success) {
+                            alert('User created successfully!');
+                            closeStaticCreateUserModal();
+                            loadUsers();
+                        } else {
+                            alert('Failed to create user: ' + (result.error || 'Unknown error'));
+                            submitBtn.disabled = false;
+                            submitBtn.innerHTML = '<i class="fas fa-check"></i> Create User';
+                        }
+                    } catch (error) {
+                        console.error('Error:', error);
+                        alert('Failed to create user: ' + error.message);
+                        submitBtn.disabled = false;
+                        submitBtn.innerHTML = '<i class="fas fa-check"></i> Create User';
+                    }
+                });
+            }
+
             const editForm = document.getElementById('static-edit-user-form');
             if (editForm) {
                 editForm.addEventListener('submit', async function(e) {
@@ -4051,6 +3985,83 @@ try {
             }
         });
     </script>
+    <!-- Static Create User Modal -->
+    <div id="static-create-user-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); align-items: center; justify-content: center; z-index: 10000;">
+        <div style="background: white; border-radius: 16px; max-width: 500px; width: 90%; max-height: 90vh; overflow-y: auto; box-shadow: 0 10px 25px rgba(0,0,0,0.2);">
+            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 24px; border-radius: 16px 16px 0 0; color: white;">
+                <h3 style="margin: 0; font-size: 22px; display: flex; align-items: center; gap: 10px;">
+                    <i class="fas fa-user-plus"></i> Create New User
+                </h3>
+                <p style="margin: 8px 0 0 0; opacity: 0.9; font-size: 14px;">Add a new user to the system</p>
+            </div>
+            
+            <form id="static-create-user-form" style="padding: 24px;">
+                <div style="margin-bottom: 16px;">
+                    <label style="display: block; margin-bottom: 6px; font-weight: 600; color: #374151;">
+                        <i class="fas fa-user"></i> Username <span style="color: #ef4444;">*</span>
+                    </label>
+                    <input type="text" name="username" required style="width: 100%; padding: 10px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px;" placeholder="Enter username">
+                </div>
+                
+                <div style="margin-bottom: 16px;">
+                    <label style="display: block; margin-bottom: 6px; font-weight: 600; color: #374151;">
+                        <i class="fas fa-envelope"></i> Email <span style="color: #ef4444;">*</span>
+                    </label>
+                    <input type="email" name="email" required style="width: 100%; padding: 10px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px;" placeholder="user@example.com">
+                </div>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
+                    <div>
+                        <label style="display: block; margin-bottom: 6px; font-weight: 600; color: #374151;">
+                            <i class="fas fa-id-badge"></i> First Name
+                        </label>
+                        <input type="text" name="first_name" style="width: 100%; padding: 10px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px;" placeholder="First name">
+                    </div>
+                    <div>
+                        <label style="display: block; margin-bottom: 6px; font-weight: 600; color: #374151;">
+                            Last Name
+                        </label>
+                        <input type="text" name="last_name" style="width: 100%; padding: 10px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px;" placeholder="Last name">
+                    </div>
+                </div>
+                
+                <div style="margin-bottom: 16px;">
+                    <label style="display: block; margin-bottom: 6px; font-weight: 600; color: #374151;">
+                        <i class="fas fa-lock"></i> Password <span style="color: #ef4444;">*</span>
+                    </label>
+                    <div style="position: relative;">
+                        <input type="password" name="password" id="create-password" required style="width: 100%; padding: 10px 40px 10px 10px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px;" placeholder="Enter password">
+                        <button type="button" onclick="togglePasswordField('create-password', this)" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); border: none; background: none; cursor: pointer; color: #667eea; padding: 5px;" title="Show/Hide Password">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                    </div>
+                    <small style="display: block; margin-top: 4px; color: #6b7280;">Minimum 6 characters</small>
+                </div>
+                
+                <div style="margin-bottom: 16px;">
+                    <label style="display: block; margin-bottom: 6px; font-weight: 600; color: #374151;">
+                        <i class="fas fa-lock"></i> Confirm Password <span style="color: #ef4444;">*</span>
+                    </label>
+                    <div style="position: relative;">
+                        <input type="password" name="password_confirm" id="create-password-confirm" required style="width: 100%; padding: 10px 40px 10px 10px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px;" placeholder="Confirm password">
+                        <button type="button" onclick="togglePasswordField('create-password-confirm', this)" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); border: none; background: none; cursor: pointer; color: #667eea; padding: 5px;" title="Show/Hide Password">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                <div style="display: flex; gap: 12px; margin-top: 24px;">
+                    <button type="button" onclick="closeStaticCreateUserModal()" class="btn btn-secondary" style="flex: 1;">
+                        <i class="fas fa-times"></i> Cancel
+                    </button>
+                    <button type="submit" id="create-user-submit-btn" class="btn btn-primary" style="flex: 1;">
+                        <i class="fas fa-check"></i> Create User
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- Static Edit User Modal -->
     <div id="static-edit-user-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); align-items: center; justify-content: center; z-index: 10000;">
         <div style="background: white; border-radius: 16px; max-width: 500px; width: 90%; max-height: 90vh; overflow-y: auto; box-shadow: 0 10px 25px rgba(0,0,0,0.2);">
