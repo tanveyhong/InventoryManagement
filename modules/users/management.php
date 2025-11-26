@@ -45,6 +45,104 @@ $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
 $selectedUserId = $_GET['user_id'] ?? 'all';
 
 $pageTitle = 'User Management';
+
+// --- Server-Side Data Pre-fetching ---
+
+// 1. Pre-fetch Users (including permissions)
+$usersData = [];
+$canManageUsers = ($currentUser['can_manage_users'] ?? false) || ($currentUser['can_view_users'] ?? false);
+
+if ($isAdmin || $canManageUsers) {
+    try {
+        // Fetch all columns to get permissions
+        $users = $sqlDb->fetchAll("SELECT * FROM users ORDER BY username ASC");
+        foreach ($users as $user) {
+            // Remove sensitive data
+            unset($user['password_hash']);
+            unset($user['remember_token']);
+            unset($user['reset_token']);
+            
+            $nameParts = explode(' ', trim($user['full_name'] ?? ''), 2);
+            
+            // Base user data
+            $userData = [
+                'id' => $user['id'] ?? $user['firebase_id'] ?? '',
+                'username' => $user['username'] ?? 'Unknown',
+                'email' => $user['email'] ?? '',
+                'first_name' => $nameParts[0] ?? '',
+                'last_name' => $nameParts[1] ?? '',
+                'role' => $user['role'] ?? 'staff',
+                'status' => $user['status'] ?? 'active',
+                'created_at' => $user['created_at'] ?? '',
+                'last_login' => $user['last_login'] ?? '',
+                'deleted_at' => $user['deleted_at'] ?? null,
+                'profile_picture' => $user['profile_picture'] ?? null
+            ];
+            
+            // Merge with all other columns (permissions)
+            $usersData[] = array_merge($user, $userData);
+        }
+    } catch (Exception $e) {
+        // Fallback or empty
+    }
+}
+
+// 2. Pre-fetch Activities
+$activitiesData = [];
+try {
+    $limit = 20;
+    $sql = "SELECT ua.*, u.username, u.full_name, u.role 
+            FROM user_activities ua 
+            LEFT JOIN users u ON ua.user_id = u.id 
+            WHERE ua.deleted_at IS NULL";
+    $params = [];
+
+    if (!$isAdmin && !$canManageUsers) {
+        $sql .= " AND (ua.user_id = ? OR ua.user_id IN (SELECT id FROM users WHERE firebase_id = ?))";
+        $params[] = $currentUserId;
+        $params[] = $currentUserId;
+    }
+
+    $sql .= " ORDER BY ua.created_at DESC LIMIT ?";
+    $params[] = $limit;
+
+    $activities = $sqlDb->fetchAll($sql, $params);
+    
+    foreach ($activities as $activity) {
+        $userName = $activity['username'] ?? 'Unknown';
+        if (!empty($activity['full_name'])) {
+            $userName = $activity['full_name'];
+        }
+        
+        // Format for JS
+        $activitiesData[] = array_merge($activity, [
+            'user_name' => $userName,
+            'user_role' => ucfirst($activity['role'] ?? '')
+        ]);
+    }
+} catch (Exception $e) {
+    // Fallback
+}
+
+// 3. Pre-fetch Stores (for current user)
+$storesData = [];
+try {
+    if ($isAdmin) {
+        // Admin sees all stores
+        $storesData = $sqlDb->fetchAll("SELECT * FROM stores WHERE deleted_at IS NULL ORDER BY name ASC");
+    } else {
+        // User sees assigned stores
+        $storesData = $sqlDb->fetchAll("
+            SELECT s.* 
+            FROM stores s
+            JOIN user_store_access usa ON s.id = usa.store_id
+            WHERE usa.user_id = ? AND s.deleted_at IS NULL
+            ORDER BY s.name ASC
+        ", [$currentUserId]);
+    }
+} catch (Exception $e) {
+    // Fallback
+}
 ?>
 
 <!DOCTYPE html>
@@ -722,7 +820,7 @@ $pageTitle = 'User Management';
         .user-selector-search input:focus {
             outline: none;
             border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
         }
     </style>
 </head>
@@ -774,21 +872,21 @@ $pageTitle = 'User Management';
                     </button>
                 </div>
                 
-                <div id="users-loading" class="loading">
+                <div id="users-loading" class="loading" style="display: <?php echo !empty($usersData) ? 'none' : 'block'; ?>;">
                     <i class="fas fa-spinner fa-spin"></i>
                     <p>Loading users...</p>
                 </div>
                 
-                <div id="users-content" style="display: none;"></div>
+                <div id="users-content" style="display: <?php echo !empty($usersData) ? 'block' : 'none'; ?>;"></div>
             </div>
 
             <!-- Activities Tab -->
             <div id="tab-activities" class="tab-content">
-                <div id="activity-loading" class="loading">
+                <div id="activity-loading" class="loading" style="display: <?php echo !empty($activitiesData) ? 'none' : 'flex'; ?>;">
                     <i class="fas fa-spinner fa-spin"></i>
                     <p>Loading activities...</p>
                 </div>
-                <div id="activity-content" style="display: none;"></div>
+                <div id="activity-content" style="display: <?php echo !empty($activitiesData) ? 'block' : 'none'; ?>;"></div>
             </div>
 
             <!-- Permissions Tab -->
@@ -810,8 +908,12 @@ $pageTitle = 'User Management';
     <script>
         const isAdmin = <?php echo $isAdmin ? 'true' : 'false'; ?>;
         const currentUserId = '<?php echo $currentUserId; ?>';
-        let allUsers = [];
-
+        let allUsers = <?php echo json_encode($usersData ?? []); ?>;
+        let allActivities = <?php echo json_encode($activitiesData ?? []); ?>;
+        let myStores = <?php echo json_encode($storesData ?? []); ?>;
+        let currentPage = 1;
+        let itemsPerPage = 20; // Default to 20 for better readability
+        
         // Tab Switching
         function switchTab(tabName) {
             // Update tab buttons
@@ -848,7 +950,14 @@ $pageTitle = 'User Management';
         let currentFilter = 'all';
         
         // Load Users
-        async function loadUsers() {
+        async function loadUsers(forceRefresh = false) {
+            if (!forceRefresh && allUsers && allUsers.length > 0) {
+                document.getElementById('users-loading').style.display = 'none';
+                document.getElementById('users-content').style.display = 'block';
+                filterUsers(currentFilter);
+                return;
+            }
+
             try {
                 const response = await fetch('profile/api.php?action=get_all_users&include_deleted=true');
                 const data = await response.json();
@@ -1379,20 +1488,27 @@ $pageTitle = 'User Management';
         }
 
         // Activity Manager Variables
-        let allActivities = [];
-        let currentPage = 1;
-        let itemsPerPage = 20; // Default to 20 for better readability
+        // currentPage and itemsPerPage are already defined globally
         
         // Activity Manager: Load Activities
-        async function loadActivities() {
+        async function loadActivities(forceRefresh = false, keepPage = false) {
             const loading = document.getElementById('activity-loading');
             const content = document.getElementById('activity-content');
             
+            if (!forceRefresh && allActivities && allActivities.length > 0) {
+                loading.style.display = 'none';
+                content.style.display = 'block';
+                addActivityManagerToolbar();
+                renderActivities();
+                updateActivityStats();
+                return;
+            }
+
             loading.style.display = 'flex';
             content.style.display = 'none';
             
             // Reset pagination
-            currentPage = 1;
+            if (!keepPage) currentPage = 1;
             
             try {
                 // Fetch from API
@@ -2137,12 +2253,13 @@ $pageTitle = 'User Management';
             const container = document.getElementById('permissions-container');
             
             try {
-                const response = await fetch('profile/api.php?action=get_all_users');
-                const data = await response.json();
-                
-                if (!data.success) throw new Error(data.error || 'Failed to load users');
-                
-                const users = data.data;
+                let users = allUsers;
+                if (!users || users.length === 0) {
+                    const response = await fetch('profile/api.php?action=get_all_users');
+                    const data = await response.json();
+                    if (!data.success) throw new Error(data.error || 'Failed to load users');
+                    users = data.data;
+                }
                 
                 // Sort users by role then username
                 const roleOrder = { 'admin': 1, 'manager': 2, 'staff': 3, 'user': 4 };
@@ -2224,6 +2341,13 @@ $pageTitle = 'User Management';
             
             const display = document.getElementById('user-permissions-display');
             
+            // Try to use pre-loaded data
+            const user = allUsers.find(u => u.id == userId);
+            if (user) {
+                renderUserPermissions(user, display, userId);
+                return;
+            }
+
             display.innerHTML = '<div class="loading"><i class="fas fa-spinner fa-spin"></i> Loading permissions...</div>';
             
             try {
@@ -2232,8 +2356,7 @@ $pageTitle = 'User Management';
                 try {
                     response = await fetch(`profile/api.php?action=get_permissions&user_id=${userId}`);
                 } catch (e) {
-                    // Fallback for offline mode - if we can't get specific user permissions, 
-                    // try to get the generic cached permissions if it's the current user
+                    // Fallback for offline mode
                     if (!navigator.onLine) {
                         if (userId == currentUserId) {
                              response = await fetch(`profile/api.php?action=get_permissions`);
@@ -2245,190 +2368,11 @@ $pageTitle = 'User Management';
                     }
                 }
                 
-                console.log('📥 Response status:', response.status);
-                
                 const data = await response.json();
-                console.log('📋 Permissions data received:', data);
                 
                 if (!data.success) throw new Error(data.error || 'Failed to load permissions');
                 
-                const perms = data.data;
-                console.log('🔑 User permissions:', perms);
-                console.log('   Role:', perms.role);
-                console.log('   can_view_reports:', perms.can_view_reports);
-                console.log('   can_manage_inventory:', perms.can_manage_inventory);
-                console.log('   can_manage_users:', perms.can_manage_users);
-                console.log('   can_manage_stores:', perms.can_manage_stores);
-                console.log('   can_configure_system:', perms.can_configure_system);
-                
-                const permissionsList = [
-                    // Reports Module
-                    { key: 'can_view_reports', name: 'View Reports', icon: 'chart-line', category: 'Reports', desc: 'View all system reports and analytics', color: '#8b5cf6' },
-                    
-                    // Inventory Module
-                    { key: 'can_view_inventory', name: 'View Inventory', icon: 'eye', category: 'Inventory', desc: 'View product list and stock levels', color: '#10b981' },
-                    { key: 'can_add_inventory', name: 'Add Inventory', icon: 'plus-circle', category: 'Inventory', desc: 'Add new products and stock', color: '#10b981' },
-                    { key: 'can_edit_inventory', name: 'Edit Inventory', icon: 'edit', category: 'Inventory', desc: 'Update product details and adjust stock', color: '#10b981' },
-                    { key: 'can_delete_inventory', name: 'Delete Inventory', icon: 'trash-alt', category: 'Inventory', desc: 'Remove products from system', color: '#10b981' },
-                    
-                    // Stores Module
-                    { key: 'can_view_stores', name: 'View Stores', icon: 'eye', category: 'Stores', desc: 'View store list and details', color: '#f59e0b' },
-                    { key: 'can_add_stores', name: 'Add Stores', icon: 'plus-circle', category: 'Stores', desc: 'Create new store locations', color: '#f59e0b' },
-                    { key: 'can_edit_stores', name: 'Edit Stores', icon: 'edit', category: 'Stores', desc: 'Modify store information', color: '#f59e0b' },
-                    { key: 'can_delete_stores', name: 'Delete Stores', icon: 'trash-alt', category: 'Stores', desc: 'Remove stores from system', color: '#f59e0b' },
-                    
-                    // POS Module
-                    { key: 'can_use_pos', name: 'Use POS', icon: 'cash-register', category: 'POS', desc: 'Access point of sale terminal', color: '#06b6d4' },
-                    { key: 'can_manage_pos', name: 'Manage POS', icon: 'cogs', category: 'POS', desc: 'Configure POS settings and integrations', color: '#06b6d4' },
-                    
-                    // User Management
-                    { key: 'can_view_users', name: 'View Users', icon: 'eye', category: 'Users', desc: 'View user list and profiles', color: '#ec4899' },
-                    { key: 'can_manage_users', name: 'Manage Users', icon: 'users-cog', category: 'Users', desc: 'Add, edit, delete users and permissions', color: '#ec4899' },
-                    
-                    // System
-                    { key: 'can_configure_system', name: 'System Configuration', icon: 'cog', category: 'System', desc: 'Access system settings and configuration', color: '#6366f1' }
-                ];
-                
-                const grantedCount = permissionsList.filter(p => perms[p.key]).length;
-                
-                // Define role templates with granular permissions
-                const roleTemplates = {
-                    'user': {
-                        name: 'User',
-                        color: '#3b82f6',
-                        icon: 'user',
-                        desc: 'Basic access - view only',
-                        permissions: ['can_view_reports', 'can_view_inventory', 'can_view_stores']
-                    },
-                    'cashier': {
-                        name: 'Cashier',
-                        color: '#06b6d4',
-                        icon: 'cash-register',
-                        desc: 'POS and basic inventory',
-                        permissions: ['can_view_reports', 'can_view_inventory', 'can_use_pos']
-                    },
-                    'manager': {
-                        name: 'Manager',
-                        color: '#f59e0b',
-                        icon: 'user-tie',
-                        desc: 'Store and inventory management',
-                        permissions: ['can_view_reports', 'can_view_inventory', 'can_add_inventory', 'can_edit_inventory', 'can_view_stores', 'can_add_stores', 'can_edit_stores', 'can_use_pos', 'can_view_users']
-                    },
-                    'admin': {
-                        name: 'Administrator',
-                        color: '#ef4444',
-                        icon: 'user-shield',
-                        desc: 'Full system access',
-                        permissions: permissionsList.map(p => p.key) // All permissions
-                    }
-                };
-                
-                let html = `
-                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; border-radius: 12px; color: white; margin-bottom: 20px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-                            <div>
-                                <div style="font-size: 14px; opacity: 0.9; margin-bottom: 5px;">Current Role</div>
-                                <div style="font-size: 28px; font-weight: 700;">${perms.role}</div>
-                            </div>
-                            <div style="text-align: right;">
-                                <div style="font-size: 14px; opacity: 0.9; margin-bottom: 5px;">Permissions</div>
-                                <div style="font-size: 28px; font-weight: 700;">${grantedCount}/${permissionsList.length}</div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    ${isAdmin ? `
-                    <div style="background: white; border: 2px solid #e5e7eb; border-radius: 12px; padding: 25px; margin-bottom: 20px;">
-                        <h4 style="margin: 0 0 15px 0; color: #1f2937; display: flex; align-items: center; gap: 10px;">
-                            <i class="fas fa-users-cog"></i> Quick Role Assignment
-                        </h4>
-                        <p style="margin: 0 0 20px 0; color: #6b7280; font-size: 14px;">
-                            Select a predefined role to automatically assign its permission package
-                        </p>
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px;">
-                            ${Object.entries(roleTemplates).map(([key, role]) => `
-                                <div style="border: 2px solid ${perms.role.toLowerCase() === key ? role.color : '#e5e7eb'}; border-radius: 12px; padding: 20px; transition: all 0.3s; cursor: pointer; ${perms.role.toLowerCase() === key ? 'background: ' + role.color + '10;' : ''}" onclick="assignRole('${userId}', '${key}')">
-                                    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
-                                        <div style="width: 45px; height: 45px; background: ${role.color}; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: white; font-size: 20px;">
-                                            <i class="fas fa-${role.icon}"></i>
-                                        </div>
-                                        <div>
-                                            <h5 style="margin: 0; color: #1f2937; font-size: 16px;">${role.name}</h5>
-                                            ${perms.role.toLowerCase() === key ? '<small style="color: ' + role.color + '; font-weight: 600;"><i class="fas fa-check-circle"></i> Current</small>' : ''}
-                                        </div>
-                                    </div>
-                                    <p style="margin: 0 0 12px 0; font-size: 13px; color: #6b7280; line-height: 1.5;">${role.desc}</p>
-                                    <div style="font-size: 12px; color: #9ca3af;">
-                                        <strong>${role.permissions.length}</strong> permission${role.permissions.length !== 1 ? 's' : ''}
-                                    </div>
-                                </div>
-                            `).join('')}
-                        </div>
-                        <div style="margin-top: 15px; padding: 12px; background: #f3f4f6; border-radius: 8px; font-size: 13px; color: #6b7280;">
-                            <i class="fas fa-info-circle"></i> <strong>Note:</strong> Assigning a role will override current permissions with the role's permission package
-                        </div>
-                    </div>
-                    ` : ''}
-                    
-                    <div style="margin-bottom: 15px;">
-                        <h4 style="margin: 0; color: #1f2937; display: flex; align-items: center; gap: 10px;">
-                            <i class="fas fa-key"></i> Individual Permissions
-                        </h4>
-                        <p style="margin: 5px 0 0 0; color: #6b7280; font-size: 14px;">Grant or revoke specific permissions by module</p>
-                    </div>
-                    
-                    ${// Group permissions by category
-                    Object.entries(permissionsList.reduce((groups, perm) => {
-                        if (!groups[perm.category]) groups[perm.category] = [];
-                        groups[perm.category].push(perm);
-                        return groups;
-                    }, {})).map(([category, categoryPerms]) => `
-                        <div style="background: white; border-radius: 12px; padding: 20px; margin-bottom: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-                            <h5 style="margin: 0 0 15px 0; color: #1f2937; font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
-                                <div style="width: 8px; height: 8px; border-radius: 50%; background: ${categoryPerms[0].color};"></div>
-                                ${category} Module
-                            </h5>
-                            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px;">
-                                ${categoryPerms.map(perm => {
-                                    const granted = perms[perm.key] || false;
-                                    return `
-                                        <div data-permission="${perm.key}" style="background: ${granted ? perm.color + '10' : '#f9fafb'}; border: 2px solid ${granted ? perm.color : '#e5e7eb'}; border-radius: 8px; padding: 14px; transition: all 0.2s;">
-                                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
-                                                <div style="display: flex; align-items: center; gap: 10px;">
-                                                    <div style="width: 36px; height: 36px; background: ${granted ? perm.color : '#e5e7eb'}; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; font-size: 16px;">
-                                                        <i class="fas fa-${perm.icon}"></i>
-                                                    </div>
-                                                    <div>
-                                                        <div style="font-weight: 600; font-size: 13px; color: #1f2937;">${perm.name}</div>
-                                                        <div style="font-size: 11px; color: ${granted ? perm.color : '#9ca3af'}; font-weight: 500;">
-                                                            ${granted ? '✓ Enabled' : '○ Disabled'}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                                ${isAdmin ? `
-                                                <label class="toggle-switch" title="${granted ? 'Click to revoke' : 'Click to grant'}">
-                                                    <input type="checkbox" ${granted ? 'checked' : ''} 
-                                                           onchange="togglePermissionFast('${userId}', '${perm.key}', this.checked)"
-                                                           data-permission-toggle="${perm.key}">
-                                                    <span class="toggle-slider"></span>
-                                                </label>
-                                                ` : `
-                                                <label class="toggle-switch">
-                                                    <input type="checkbox" ${granted ? 'checked' : ''} disabled>
-                                                    <span class="toggle-slider"></span>
-                                                </label>
-                                                `}
-                                            </div>
-                                            <p style="margin: 0; font-size: 12px; color: #6b7280; line-height: 1.4;">${perm.desc}</p>
-                                        </div>
-                                    `;
-                                }).join('')}
-                            </div>
-                        </div>
-                    `).join('')}
-                `;
-                
-                display.innerHTML = html;
+                renderUserPermissions(data.data, display, userId);
                 
             } catch (error) {
                 console.error('Error:', error);
@@ -2440,6 +2384,177 @@ $pageTitle = 'User Management';
                     </div>
                 `;
             }
+        }
+        
+        function renderUserPermissions(perms, display, userId) {
+            const permissionsList = [
+                // Reports Module
+                { key: 'can_view_reports', name: 'View Reports', icon: 'chart-line', category: 'Reports', desc: 'View all system reports and analytics', color: '#8b5cf6' },
+                
+                // Inventory Module
+                { key: 'can_view_inventory', name: 'View Inventory', icon: 'eye', category: 'Inventory', desc: 'View product list and stock levels', color: '#10b981' },
+                { key: 'can_add_inventory', name: 'Add Inventory', icon: 'plus-circle', category: 'Inventory', desc: 'Add new products and stock', color: '#10b981' },
+                { key: 'can_edit_inventory', name: 'Edit Inventory', icon: 'edit', category: 'Inventory', desc: 'Update product details and adjust stock', color: '#10b981' },
+                { key: 'can_delete_inventory', name: 'Delete Inventory', icon: 'trash-alt', category: 'Inventory', desc: 'Remove products from system', color: '#10b981' },
+                
+                // Stores Module
+                { key: 'can_view_stores', name: 'View Stores', icon: 'eye', category: 'Stores', desc: 'View store list and details', color: '#f59e0b' },
+                { key: 'can_add_stores', name: 'Add Stores', icon: 'plus-circle', category: 'Stores', desc: 'Create new store locations', color: '#f59e0b' },
+                { key: 'can_edit_stores', name: 'Edit Stores', icon: 'edit', category: 'Stores', desc: 'Modify store information', color: '#f59e0b' },
+                { key: 'can_delete_stores', name: 'Delete Stores', icon: 'trash-alt', category: 'Stores', desc: 'Remove stores from system', color: '#f59e0b' },
+                
+                // POS Module
+                { key: 'can_use_pos', name: 'Use POS', icon: 'cash-register', category: 'POS', desc: 'Access point of sale terminal', color: '#06b6d4' },
+                { key: 'can_manage_pos', name: 'Manage POS', icon: 'cogs', category: 'POS', desc: 'Configure POS settings and integrations', color: '#06b6d4' },
+                
+                // User Management
+                { key: 'can_view_users', name: 'View Users', icon: 'eye', category: 'Users', desc: 'View user list and profiles', color: '#ec4899' },
+                { key: 'can_manage_users', name: 'Manage Users', icon: 'users-cog', category: 'Users', desc: 'Add, edit, delete users and permissions', color: '#ec4899' },
+                
+                // System
+                { key: 'can_configure_system', name: 'System Configuration', icon: 'cog', category: 'System', desc: 'Access system settings and configuration', color: '#6366f1' }
+            ];
+            
+            const grantedCount = permissionsList.filter(p => perms[p.key]).length;
+            
+            // Define role templates with granular permissions
+            const roleTemplates = {
+                'user': {
+                    name: 'User',
+                    color: '#3b82f6',
+                    icon: 'user',
+                    desc: 'Basic access - view only',
+                    permissions: ['can_view_reports', 'can_view_inventory', 'can_view_stores']
+                },
+                'cashier': {
+                    name: 'Cashier',
+                    color: '#06b6d4',
+                    icon: 'cash-register',
+                    desc: 'POS and basic inventory',
+                    permissions: ['can_view_reports', 'can_view_inventory', 'can_use_pos']
+                },
+                'manager': {
+                    name: 'Manager',
+                    color: '#f59e0b',
+                    icon: 'user-tie',
+                    desc: 'Store and inventory management',
+                    permissions: ['can_view_reports', 'can_view_inventory', 'can_add_inventory', 'can_edit_inventory', 'can_view_stores', 'can_add_stores', 'can_edit_stores', 'can_use_pos', 'can_view_users']
+                },
+                'admin': {
+                    name: 'Administrator',
+                    color: '#ef4444',
+                    icon: 'user-shield',
+                    desc: 'Full system access',
+                    permissions: permissionsList.map(p => p.key) // All permissions
+                }
+            };
+            
+            let html = `
+                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; border-radius: 12px; color: white; margin-bottom: 20px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                        <div>
+                            <div style="font-size: 14px; opacity: 0.9; margin-bottom: 5px;">Current Role</div>
+                            <div style="font-size: 28px; font-weight: 700;">${perms.role}</div>
+                        </div>
+                        <div style="text-align: right;">
+                            <div style="font-size: 14px; opacity: 0.9; margin-bottom: 5px;">Permissions</div>
+                            <div style="font-size: 28px; font-weight: 700;">${grantedCount}/${permissionsList.length}</div>
+                        </div>
+                    </div>
+                </div>
+                
+                ${isAdmin ? `
+                <div style="background: white; border: 2px solid #e5e7eb; border-radius: 12px; padding: 25px; margin-bottom: 20px;">
+                    <h4 style="margin: 0 0 15px 0; color: #1f2937; display: flex; align-items: center; gap: 10px;">
+                        <i class="fas fa-users-cog"></i> Quick Role Assignment
+                    </h4>
+                    <p style="margin: 0 0 20px 0; color: #6b7280; font-size: 14px;">
+                        Select a predefined role to automatically assign its permission package
+                    </p>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px;">
+                        ${Object.entries(roleTemplates).map(([key, role]) => `
+                            <div style="border: 2px solid ${perms.role.toLowerCase() === key ? role.color : '#e5e7eb'}; border-radius: 12px; padding: 20px; transition: all 0.3s; cursor: pointer; ${perms.role.toLowerCase() === key ? 'background: ' + role.color + '10;' : ''}" onclick="assignRole('${userId}', '${key}')">
+                                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+                                    <div style="width: 45px; height: 45px; background: ${role.color}; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: white; font-size: 20px;">
+                                        <i class="fas fa-${role.icon}"></i>
+                                    </div>
+                                    <div>
+                                        <h5 style="margin: 0; color: #1f2937; font-size: 16px;">${role.name}</h5>
+                                        ${perms.role.toLowerCase() === key ? '<small style="color: ' + role.color + '; font-weight: 600;"><i class="fas fa-check-circle"></i> Current</small>' : ''}
+                                    </div>
+                                </div>
+                                <p style="margin: 0 0 12px 0; font-size: 13px; color: #6b7280; line-height: 1.5;">${role.desc}</p>
+                                <div style="font-size: 12px; color: #9ca3af;">
+                                    <strong>${role.permissions.length}</strong> permission${role.permissions.length !== 1 ? 's' : ''}
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                    <div style="margin-top: 15px; padding: 12px; background: #f3f4f6; border-radius: 8px; font-size: 13px; color: #6b7280;">
+                        <i class="fas fa-info-circle"></i> <strong>Note:</strong> Assigning a role will override current permissions with the role's permission package
+                    </div>
+                </div>
+                ` : ''}
+                
+                <div style="margin-bottom: 15px;">
+                    <h4 style="margin: 0; color: #1f2937; display: flex; align-items: center; gap: 10px;">
+                        <i class="fas fa-key"></i> Individual Permissions
+                    </h4>
+                    <p style="margin: 5px 0 0 0; color: #6b7280; font-size: 14px;">Grant or revoke specific permissions by module</p>
+                </div>
+                
+                ${// Group permissions by category
+                Object.entries(permissionsList.reduce((groups, perm) => {
+                    if (!groups[perm.category]) groups[perm.category] = [];
+                    groups[perm.category].push(perm);
+                    return groups;
+                }, {})).map(([category, categoryPerms]) => `
+                    <div style="background: white; border-radius: 12px; padding: 20px; margin-bottom: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                        <h5 style="margin: 0 0 15px 0; color: #1f2937; font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                            <div style="width: 8px; height: 8px; border-radius: 50%; background: ${categoryPerms[0].color};"></div>
+                            ${category} Module
+                        </h5>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px;">
+                            ${categoryPerms.map(perm => {
+                                const granted = perms[perm.key] || false;
+                                return `
+                                    <div data-permission="${perm.key}" style="background: ${granted ? perm.color + '10' : '#f9fafb'}; border: 2px solid ${granted ? perm.color : '#e5e7eb'}; border-radius: 8px; padding: 14px; transition: all 0.2s;">
+                                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                                            <div style="display: flex; align-items: center; gap: 10px;">
+                                                <div style="width: 36px; height: 36px; background: ${granted ? perm.color : '#e5e7eb'}; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; font-size: 16px;">
+                                                    <i class="fas fa-${perm.icon}"></i>
+                                                </div>
+                                                <div>
+                                                    <div style="font-weight: 600; font-size: 13px; color: #1f2937;">${perm.name}</div>
+                                                    <div style="font-size: 11px; color: ${granted ? perm.color : '#9ca3af'}; font-weight: 500;">
+                                                        ${granted ? '✓ Enabled' : '○ Disabled'}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            ${isAdmin ? `
+                                            <label class="toggle-switch" title="${granted ? 'Click to revoke' : 'Click to grant'}">
+                                                <input type="checkbox" ${granted ? 'checked' : ''} 
+                                                       onchange="togglePermissionFast('${userId}', '${perm.key}', this.checked)"
+                                                       data-permission-toggle="${perm.key}">
+                                                <span class="toggle-slider"></span>
+                                            </label>
+                                            ` : `
+                                            <label class="toggle-switch">
+                                                <input type="checkbox" ${granted ? 'checked' : ''} disabled>
+                                                <span class="toggle-slider"></span>
+                                            </label>
+                                            `}
+                                        </div>
+                                        <p style="margin: 0; font-size: 12px; color: #6b7280; line-height: 1.4;">${perm.desc}</p>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+                `).join('')}
+            `;
+            
+            display.innerHTML = html;
         }
         
         async function loadOwnPermissions() {
@@ -2479,7 +2594,7 @@ $pageTitle = 'User Management';
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 25px;">
                         <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; border-radius: 12px; color: white;">
                             <div style="font-size: 14px; opacity: 0.9; margin-bottom: 5px;">Assigned Stores</div>
-                            <div style="font-size: 32px; font-weight: 700;">${grantedCount}/${permissionsList.length}</div>
+                            <div style="font-size: 32px; font-weight: 700;">${grantedCount}</div>
                         </div>
                     </div>
                     
@@ -2488,20 +2603,19 @@ $pageTitle = 'User Management';
                             const granted = perms[perm.key] || false;
                             return `
                                 <div style="background: white; border: 2px solid ${granted ? '#10b981' : '#e5e7eb'}; border-radius: 12px; padding: 20px;">
-                                    <div style="display: flex; align-items: start; gap: 15px;">
-                                        <div style="width: 50px; height: 50px; background: ${granted ? 'linear-gradient(135deg, #10b981, #059669)' : '#f3f4f6'}; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: white; font-size: 24px;">
-                                            <i class="fas fa-${perm.icon}"></i>
-                                        </div>
-                                        <div>
-                                            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
-                                                <h4 style="margin: 0; color: #1f2937;">${perm.name}</h4>
-                                                <span style="padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; ${granted ? 'background: #d4edda; color: #155724;' : 'background: #f8d7da; color: #721c24;'}">
-                                                    ${granted ? '<i class="fas fa-check"></i> Granted' : '<i class="fas fa-times"></i> Denied'}
-                                                </span>
-                                            </div>
-                                            <p style="margin: 0 0 8px 0; font-size: 14px; color: #6b7280; line-height: 1.5;">${perm.desc}</p>
-                                            <small style="font-size: 12px; color: #9ca3af;">${perm.details}</small>
-                                        </div>
+                                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px;">
+                                        <h4 style="margin: 0; color: #1f2937; font-size: 16px;">
+                                            <i class="fas fa-${perm.icon}" style="color: ${granted ? '#10b981' : '#9ca3af'}; margin-right: 8px;"></i>
+                                            ${escapeHtml(perm.name)}
+                                        </h4>
+                                        ${granted ? 
+                                            '<span style="padding: 4px 10px; background: #d4edda; color: #155724; border-radius: 12px; font-size: 12px; font-weight: 600;"><i class="fas fa-check-circle"></i> Granted</span>' : 
+                                            '<span style="padding: 4px 10px; background: #f8d7da; color: #721c24; border-radius: 12px; font-size: 12px; font-weight: 600;"><i class="fas fa-times-circle"></i> Denied</span>'
+                                        }
+                                    </div>
+                                    <div style="font-size: 14px; color: #6b7280; margin-bottom: 12px;">
+                                        <p style="margin: 0 0 8px 0;">${escapeHtml(perm.desc)}</p>
+                                        <p style="margin: 0; font-size: 12px; opacity: 0.8;">${escapeHtml(perm.details)}</p>
                                     </div>
                                 </div>
                             `;
@@ -2725,18 +2839,81 @@ $pageTitle = 'User Management';
                 });
             }
         }        let selectedUserId = null;
+
+        async function loadOwnStoreAccess() {
+            const container = document.getElementById('store-access-container');
+            
+            const stores = myStores;
+            
+            let html = `
+                <div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); padding: 20px; border-radius: 12px; margin-bottom: 25px; color: white;">
+                    <div style="display: flex; align-items: center; gap: 15px;">
+                        <div style="width: 60px; height: 60px; background: rgba(255,255,255,0.2); border-radius: 50%; display: flex; align-items: center; justify-content: center;">
+                            <i class="fas fa-store" style="font-size: 28px;"></i>
+                        </div>
+                        <div style="flex: 1;">
+                            <h3 style="margin: 0 0 8px 0; font-size: 24px;">My Store Access</h3>
+                            <p style="margin: 0; opacity: 0.95; font-size: 14px;">Stores you are authorized to access</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            if (stores.length > 0) {
+                html += `
+                    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px;">
+                        ${stores.map(store => `
+                            <div style="background: white; border: 2px solid #e5e7eb; border-radius: 12px; padding: 20px;">
+                                <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px;">
+                                    <h4 style="margin: 0; color: #1f2937; font-size: 16px;">
+                                        <i class="fas fa-store" style="color: #10b981; margin-right: 8px;"></i>
+                                        ${escapeHtml(store.store_name || store.name)}
+                                    </h4>
+                                    ${store.active ? 
+                                        '<span style="padding: 4px 10px; background: #d4edda; color: #155724; border-radius: 12px; font-size: 12px; font-weight: 600;"><i class="fas fa-check-circle"></i> Active</span>' : 
+                                        '<span style="padding: 4px 10px; background: #f8d7da; color: #721c24; border-radius: 12px; font-size: 12px; font-weight: 600;"><i class="fas fa-times-circle"></i> Inactive</span>'
+                                    }
+                                </div>
+                                <div style="font-size: 14px; color: #6b7280; margin-bottom: 12px;">
+                                    <div style="margin-bottom: 5px;">
+                                        <i class="fas fa-map-marker-alt"></i> ${escapeHtml(store.city || 'N/A')}, ${escapeHtml(store.state || 'N/A')}
+                                    </div>
+                                    ${store.phone ? `<div><i class="fas fa-phone"></i> ${escapeHtml(store.phone)}</div>` : ''}
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            } else {
+                html += `
+                    <div class="empty-state">
+                        <i class="fas fa-store-slash"></i>
+                        <h3>No Store Access</h3>
+                        <p>You have no store access assigned.</p>
+                    </div>
+                `;
+            }
+            
+            container.innerHTML = html;
+        }
         
         async function loadAllUsersStoreAccess() {
             const container = document.getElementById('store-access-container');
             
             try {
                 // Exclude admins from the list since they have access to all stores by default
-                const response = await fetch('profile/api.php?action=get_all_users&exclude_admins=true');
-                const data = await response.json();
+                // Use pre-fetched users
+                let users = allUsers;
                 
-                if (!data.success) throw new Error(data.error || 'Failed to load users');
-                
-                const users = data.data;
+                if (!users || users.length === 0) {
+                    const response = await fetch('profile/api.php?action=get_all_users&exclude_admins=true');
+                    const data = await response.json();
+                    if (!data.success) throw new Error(data.error || 'Failed to load users');
+                    users = data.data;
+                } else {
+                    // Filter out admins locally
+                    users = users.filter(u => (u.role || '').toLowerCase() !== 'admin');
+                }
                 
                 // Sort users by role then username
                 const roleOrder = { 'admin': 1, 'manager': 2, 'staff': 3, 'user': 4 };
@@ -2874,7 +3051,6 @@ $pageTitle = 'User Management';
                 `;
                 
                 if (stores.length > 0) {
-                    console.log('Rendering store cards...');
                     html += `
                         <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px;">
                             ${stores.map(store => `
@@ -2907,93 +3083,6 @@ $pageTitle = 'User Management';
                         <div class="empty-state">
                             <i class="fas fa-store-slash"></i>
                             <h3>No Store Access</h3>
-                            <p>This user has no store access assigned</p>
-                            <button onclick="showAddStoreModal('${userId}')" class="btn btn-success">
-                                <i class="fas fa-plus"></i> Assign First Store
-                            </button>
-                        </div>
-                    `;
-                }
-                
-                console.log('Updating display HTML...');
-                display.innerHTML = html;
-                console.log('✓ Display updated successfully');
-                
-            } catch (error) {
-                console.error('✗ Exception in loadUserStores:', error);
-                console.error('Error stack:', error.stack);
-                display.innerHTML = `
-                    <div class="empty-state">
-                        <i class="fas fa-exclamation-triangle"></i>
-                        <h3>Error Loading Stores</h3>
-                        <p>${error.message}</p>
-                    </div>
-                `;
-            }
-        }
-        
-        async function loadOwnStoreAccess() {
-            const container = document.getElementById('store-access-container');
-            
-            try {
-                const response = await fetch('profile/api.php?action=get_stores');
-                const data = await response.json();
-                
-                if (!data.success) throw new Error(data.error || 'Failed to load stores');
-                
-                const stores = data.data || [];
-                
-                let html = `
-                    <div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); padding: 20px; border-radius: 12px; margin-bottom: 25px; color: white;">
-                        <div style="display: flex; align-items: center; gap: 15px;">
-                            <div style="width: 60px; height: 60px; background: rgba(255,255,255,0.2); border-radius: 50%; display: flex; align-items: center; justify-content: center;">
-                                <i class="fas fa-store" style="font-size: 28px;"></i>
-                            </div>
-                            <div style="flex: 1;">
-                                <h3 style="margin: 0 0 8px 0; font-size: 24px;">Your Store Access</h3>
-                                <p style="margin: 0; opacity: 0.95; font-size: 14px;">Stores you have permission to access</p>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 25px;">
-                        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; border-radius: 12px; color: white;">
-                            <div style="font-size: 14px; opacity: 0.9; margin-bottom: 5px;">Assigned Stores</div>
-                            <div style="font-size: 32px; font-weight: 700;">${stores.length}</div>
-                        </div>
-                    </div>
-                `;
-                
-                if (stores.length > 0) {
-                    html += `
-                        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px;">
-                            ${stores.map(store => `
-                                <div style="background: white; border: 2px solid #e5e7eb; border-radius: 12px; padding: 20px;">
-                                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px;">
-                                        <h4 style="margin: 0; color: #1f2937; font-size: 16px;">
-                                            <i class="fas fa-store" style="color: #10b981; margin-right: 8px;"></i>
-                                            ${escapeHtml(store.store_name || store.name)}
-                                        </h4>
-                                        ${store.active ? 
-                                            '<span style="padding: 4px 10px; background: #d4edda; color: #155724; border-radius: 12px; font-size: 12px; font-weight: 600;"><i class="fas fa-check-circle"></i> Active</span>' : 
-                                            '<span style="padding: 4px 10px; background: #f8d7da; color: #721c24; border-radius: 12px; font-size: 12px; font-weight: 600;"><i class="fas fa-times-circle"></i> Inactive</span>'
-                                        }
-                                    </div>
-                                    <div style="font-size: 14px; color: #6b7280; margin-bottom: 12px;">
-                                        <div style="margin-bottom: 5px;">
-                                            <i class="fas fa-map-marker-alt"></i> ${escapeHtml(store.city || 'N/A')}, ${escapeHtml(store.state || 'N/A')}
-                                        </div>
-                                        ${store.phone ? `<div><i class="fas fa-phone"></i> ${escapeHtml(store.phone)}</div>` : ''}
-                                    </div>
-                                </div>
-                            `).join('')}
-                        </div>
-                    `;
-                } else {
-                    html += `
-                        <div class="empty-state">
-                            <i class="fas fa-store-slash"></i>
-                            <h3>No Store Access</h3>
                             <p>You have no store access assigned. Contact your administrator.</p>
                         </div>
                     `;
@@ -3002,8 +3091,9 @@ $pageTitle = 'User Management';
                 container.innerHTML = html;
                 
             } catch (error) {
-                console.error('Error:', error);
-                container.innerHTML = `
+                console.error('✗ Exception in loadUserStores:', error);
+                console.error('Error stack:', error.stack);
+                display.innerHTML = `
                     <div class="empty-state">
                         <i class="fas fa-exclamation-triangle"></i>
                         <h3>Error Loading Stores</h3>
@@ -3239,6 +3329,7 @@ $pageTitle = 'User Management';
             // Create search input
             const searchInput = document.createElement('input');
             searchInput.type = 'text';
+
             searchInput.className = 'searchable-select-input';
             searchInput.placeholder = 'Search user...';
             searchInput.autocomplete = 'off';
@@ -3475,7 +3566,7 @@ $pageTitle = 'User Management';
                                 u.username.toLowerCase().includes(term) || 
                                 (u.email && u.email.toLowerCase().includes(term)) ||
                                 (u.first_name && u.first_name.toLowerCase().includes(term)) ||
-                                (u.last_name && u.last_name.toLowerCase().includes(term)) ||
+                                (u.last_name && u.lastName.toLowerCase().includes(term)) ||
                                 u.role.toLowerCase().includes(term)
                             );
                             renderUserGrid(filtered, onSelectCallback, triggerButton);
