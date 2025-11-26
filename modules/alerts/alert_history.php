@@ -37,8 +37,10 @@ try {
             a.resolved_at,
             COALESCE(p.name, a.product_name) AS product_name
         FROM alerts a
-        LEFT JOIN products p ON a.product_id = p.id
+        JOIN products p ON a.product_id = p.id
         WHERE a.alert_type = 'LOW_STOCK'
+          AND p.active = TRUE
+          AND p.deleted_at IS NULL
         ORDER BY a.created_at DESC
     ");
 

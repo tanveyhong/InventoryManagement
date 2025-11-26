@@ -1,141 +1,211 @@
 <?php
 // modules/stock/mobileBarcodeScan.php
 require_once '../../config.php';
+require_once '../../sql_db.php';   // ✅ use the same Supabase/SQL wrapper as list.php
 require_once '../../functions.php';
 session_start();
+
 if (!isset($_SESSION['user_id'])) {
-  header('Location: ../users/login.php');
-  exit;
+    header('Location: ../users/login.php');
+    exit;
 }
 
 /* ---------- Helpers (same robust matching as before) ---------- */
 function build_variants(string $raw): array
 {
-  $raw = trim($raw);
-  $variants = [];
-  if ($raw !== '') $variants[] = $raw;
+    $raw = trim($raw);
+    $variants = [];
+    if ($raw !== '') $variants[] = $raw;
 
-  $digitsOnly = preg_replace('/\D+/', '', $raw);
-  $noHyphenSpace = preg_replace('/[-\s]+/', '', $raw);
-  $upper = strtoupper($raw);
-  $upperNoHS = strtoupper($noHyphenSpace);
+    $digitsOnly    = preg_replace('/\D+/', '', $raw);
+    $noHyphenSpace = preg_replace('/[-\s]+/', '', $raw);
+    $upper         = strtoupper($raw);
+    $upperNoHS     = strtoupper($noHyphenSpace);
 
-  foreach ([$digitsOnly, $noHyphenSpace, $upper, $upperNoHS] as $v) {
-    if ($v !== '' && !in_array($v, $variants, true)) $variants[] = $v;
-  }
-
-  // UPC-A (12) <-> EAN-13 (leading zero)
-  if ($digitsOnly !== '') {
-    if (strlen($digitsOnly) === 12) {
-      $v = '0' . $digitsOnly;
-      if (!in_array($v, $variants, true)) $variants[] = $v;
-    } elseif (strlen($digitsOnly) === 13 && $digitsOnly[0] === '0') {
-      $v = substr($digitsOnly, 1);
-      if (!in_array($v, $variants, true)) $variants[] = $v;
-    }
-  }
-  return array_values(array_unique($variants));
-}
-
-function normalize_for_compare($v)
-{
-  $digits = preg_replace('/\D+/', '', (string)$v);
-  $upperNoHS = strtoupper(preg_replace('/[-\s]+/', '', (string)$v));
-  return [$digits, $upperNoHS];
-}
-
-function find_product_safely($db, array $variants, array &$debug, ?string &$matchedField = null): ?array
-{
-  foreach (['barcode', 'sku'] as $field) {
-    foreach ($variants as $v) {
-      $rows = $db->readAll('products', [[$field, '==', (string)$v]], null, 1);
-      if (is_array($rows) && !empty($rows)) {
-        $debug['hit_mode'] = 'query';
-        $debug['hit_field'] = $field;
-        $debug['hit_variant'] = $v;
-        $matchedField = $field;
-        return $rows[0];
-      }
-    }
-  }
-  $list = $db->readAll('products', [], null, 500) ?? [];
-  $debug['scanned_count'] = is_countable($list) ? count($list) : 0;
-
-  foreach ($list as $row) {
-    foreach (['barcode', 'sku'] as $field) {
-      if (!isset($row[$field])) continue;
-      [$rowDigits, $rowUpperNoHS] = normalize_for_compare($row[$field]);
-      foreach ($variants as $v) {
-        [$vDigits, $vUpperNoHS] = normalize_for_compare($v);
-        if (($rowDigits && $rowDigits === $vDigits) || ($rowUpperNoHS && $rowUpperNoHS === $vUpperNoHS)) {
-          $debug['hit_mode'] = 'scan';
-          $debug['hit_field'] = $field;
-          $debug['hit_variant'] = $v;
-          $debug['matched_against'] = $row[$field];
-          $matchedField = $field;
-          return $row;
+    foreach ([$digitsOnly, $noHyphenSpace, $upper, $upperNoHS] as $v) {
+        if ($v !== '' && !in_array($v, $variants, true)) {
+            $variants[] = $v;
         }
-      }
     }
-  }
-  return null;
+
+    // UPC-A (12) <-> EAN-13 (leading zero)
+    if ($digitsOnly !== '') {
+        if (strlen($digitsOnly) === 12) {
+            $v = '0' . $digitsOnly;
+            if (!in_array($v, $variants, true)) $variants[] = $v;
+        } elseif (strlen($digitsOnly) === 13 && $digitsOnly[0] === '0') {
+            $v = substr($digitsOnly, 1);
+            if (!in_array($v, $variants, true)) $variants[] = $v;
+        }
+    }
+    return array_values(array_unique($variants));
+}
+
+function normalize_for_compare($v): array
+{
+    $digits     = preg_replace('/\D+/', '', (string)$v);
+    $upperNoHS  = strtoupper(preg_replace('/[-\s]+/', '', (string)$v));
+    return [$digits, $upperNoHS];
+}
+
+/**
+ * Look up product safely using Supabase / PostgreSQL via SQLDatabase
+ *
+ * @param SQLDatabase $db
+ */
+function find_product_safely(SQLDatabase $db, array $variants, array &$debug, ?string &$matchedField = null): ?array
+{
+    // ---------- 1) Query-first matching (barcode, then sku) ----------
+    foreach (['barcode', 'sku'] as $field) {
+        foreach ($variants as $v) {
+            try {
+                // Only look at active / non-deleted products
+                $row = $db->fetch(
+                    "SELECT id, name, sku, barcode, category, quantity, price, reorder_level
+                       FROM products
+                      WHERE active = TRUE
+                        AND deleted_at IS NULL
+                        AND {$field} = ?
+                      LIMIT 1",
+                    [$v]
+                );
+
+                if ($row) {
+                    $debug['hit_mode']    = 'query_sql';
+                    $debug['hit_field']   = $field;
+                    $debug['hit_variant'] = $v;
+                    $matchedField         = $field;
+                    return $row;
+                }
+            } catch (Throwable $t) {
+                $debug['query_error_' . $field] = $t->getMessage();
+            }
+        }
+    }
+
+    // ---------- 2) Fallback: scan up to N products and normalise ----------
+    try {
+        $list = $db->fetchAll(
+            "SELECT id, name, sku, barcode, category, quantity, price, reorder_level
+               FROM products
+              WHERE active = TRUE
+                AND deleted_at IS NULL
+              LIMIT 1000"
+        );
+    } catch (Throwable $t) {
+        $debug['scan_error'] = $t->getMessage();
+        return null;
+    }
+
+    if (!is_array($list) || empty($list)) {
+        $debug['scanned_count'] = 0;
+        return null;
+    }
+
+    $debug['scanned_count'] = count($list);
+
+    foreach ($list as $row) {
+        foreach (['barcode', 'sku'] as $field) {
+            if (!isset($row[$field])) continue;
+
+            [$rowDigits, $rowUpperNoHS] = normalize_for_compare($row[$field]);
+
+            foreach ($variants as $v) {
+                [$vDigits, $vUpperNoHS] = normalize_for_compare($v);
+
+                if (
+                    ($rowDigits && $rowDigits === $vDigits) ||
+                    ($rowUpperNoHS && $rowUpperNoHS === $vUpperNoHS)
+                ) {
+                    $debug['hit_mode']        = 'scan_sql';
+                    $debug['hit_field']       = $field;
+                    $debug['hit_variant']     = $v;
+                    $debug['matched_against'] = $row[$field];
+                    $matchedField             = $field;
+                    return $row;
+                }
+            }
+        }
+    }
+
+    return null;
 }
 
 /* ---------- AJAX: decode result arrives here ---------- */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['barcode'])) {
-  header('Content-Type: application/json');
-  try {
-    $db = getDB();
-    if (!is_object($db) || !method_exists($db, 'readAll')) {
-      echo json_encode(['ok' => false, 'error' => 'Database not available.']);
-      exit;
+    header('Content-Type: application/json');
+
+    try {
+        // ✅ Use the SAME wrapper as stock/list.php
+        $sqlDb = SQLDatabase::getInstance();
+
+        if (!is_object($sqlDb) || !method_exists($sqlDb, 'fetchAll')) {
+            echo json_encode(['ok' => false, 'error' => 'Database not available.']);
+            exit;
+        }
+
+        $raw = trim((string)($_POST['barcode'] ?? ''));
+        if ($raw === '') {
+            echo json_encode(['ok' => false, 'error' => 'Empty barcode.']);
+            exit;
+        }
+
+        $variants     = build_variants($raw);
+        $debug        = ['decoded_raw' => $raw, 'variants' => $variants];
+        $matchedField = null;
+
+        $product = find_product_safely($sqlDb, $variants, $debug, $matchedField);
+
+        if ($product) {
+            // Be flexible with possible column names (in case schema evolves)
+            $nameVal     = $product['name']          ?? $product['product_name']   ?? '';
+            $skuVal      = $product['sku']           ?? $product['product_sku']    ?? '';
+            $barcodeVal  = $product['barcode']       ?? $product['ean']            ?? '';
+            $categoryVal = $product['category']      ?? ($product['category_name'] ?? 'General');
+
+            $out = [
+                'doc_id'        => $product['id'] ?? ($product['doc_id'] ?? null),
+                'name'          => $nameVal,
+                'sku'           => $skuVal,
+                'barcode'       => $barcodeVal,
+                'category'      => $categoryVal,
+                'quantity'      => isset($product['quantity']) ? (int)$product['quantity'] : 0,
+                'reorder_level' => isset($product['reorder_level']) ? (int)$product['reorder_level'] : 0,
+                'price'         => $product['price'] ?? null,
+            ];
+
+            $locatorField = !empty($out['doc_id'])
+                ? 'doc_id'
+                : (!empty($skuVal) ? 'sku' : 'barcode');
+
+            $locatorValue = $locatorField === 'doc_id'
+                ? $out['doc_id']
+                : ($locatorField === 'sku'
+                    ? $skuVal
+                    : $barcodeVal);
+
+            echo json_encode([
+                'ok'            => true,
+                'product'       => $out,
+                'locator_field' => $locatorField,
+                'locator_value' => $locatorValue,
+                'matched_field' => $matchedField,
+                'debug'         => $debug,
+            ]);
+        } else {
+            echo json_encode([
+                'ok'    => false,
+                'error' => 'No product found.',
+                'debug' => $debug,
+            ]);
+        }
+    } catch (Throwable $e) {
+        error_log('Barcode lookup error: ' . $e->getMessage());
+        echo json_encode(['ok' => false, 'error' => 'Lookup failed.']);
     }
-
-    $raw = trim((string)($_POST['barcode'] ?? ''));
-    if ($raw === '') {
-      echo json_encode(['ok' => false, 'error' => 'Empty barcode.']);
-      exit;
-    }
-
-    $variants = build_variants($raw);
-    $debug = ['decoded_raw' => $raw, 'variants' => $variants];
-    $matchedField = null;
-    $product = find_product_safely($db, $variants, $debug, $matchedField);
-
-    if ($product) {
-      $out = [
-        // prefer your numeric/string id if present
-        'doc_id'        => $product['id'] ?? ($product['doc_id'] ?? null),
-        'name'          => $product['name'] ?? '',
-        'sku'           => $product['sku'] ?? '',
-        'barcode'       => $product['barcode'] ?? '',
-        'category'      => $product['category'] ?? 'General',
-        'quantity'      => isset($product['quantity']) ? (int)$product['quantity'] : 0,
-        'reorder_level' => isset($product['reorder_level']) ? (int)$product['reorder_level'] : 0,
-        'price'         => $product['price'] ?? null,
-      ];
-
-      // tell the frontend what field is safest to use for deep-linking
-      $locatorField = !empty($out['doc_id']) ? 'doc_id' : (!empty($out['sku']) ? 'sku' : 'barcode');
-      $locatorValue = $locatorField === 'doc_id' ? $out['doc_id'] : ($locatorField === 'sku' ? $out['sku'] : $out['barcode']);
-
-      echo json_encode([
-        'ok'            => true,
-        'product'       => $out,
-        'locator_field' => $locatorField,
-        'locator_value' => $locatorValue,
-        'matched_field' => $matchedField,
-        'debug'         => $debug
-      ]);
-    } else {
-      echo json_encode(['ok' => false, 'error' => 'No product found.', 'debug' => $debug]);
-    }
-  } catch (Throwable $e) {
-    error_log('Barcode lookup error: ' . $e->getMessage());
-    echo json_encode(['ok' => false, 'error' => 'Lookup failed.']);
-  }
-  exit;
+    exit;
 }
+
 
 $page_title = 'Product Barcode Scanning - Inventory System';
 ?>
