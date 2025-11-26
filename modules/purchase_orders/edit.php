@@ -1096,8 +1096,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                                class="form-control rejected-input" 
                                                data-item-id="<?php echo $item['id']; ?>"
                                                style="width: 80px; border-color: #e74c3c; color: #c0392b; background-color: #f8d7da;"
-                                               placeholder="Qty"
-                                               readonly>
+                                               placeholder="Qty">
                                     </td>
                                     <td style="padding: 12px 10px;">
                                         <div id="rejection-details-<?php echo $item['id']; ?>" style="display: none;">
@@ -1361,6 +1360,174 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     return;
                 }
             });
+        }
+    </script>
+
+    <script>
+        // Auto-fill 0 if receive input is left blank
+        document.addEventListener('focusout', function(e) {
+            if (e.target && e.target.classList.contains('receive-input')) {
+                if (e.target.value.trim() === '') {
+                    e.target.value = '0';
+                }
+            }
+        });
+    </script>
+
+    <script>
+        // Auto-calculate Rejected quantity and toggle details
+        document.addEventListener('input', function(e) {
+            if (e.target && e.target.classList.contains('receive-input')) {
+                const receiveInput = e.target;
+                const row = receiveInput.closest('tr');
+                const rejectedInput = row.querySelector('.rejected-input');
+                const max = parseInt(receiveInput.getAttribute('max')) || 0;
+                const receiveVal = parseInt(receiveInput.value) || 0;
+                
+                // Auto-calculate rejected amount (Remaining - Received)
+                // Only if the user hasn't manually interacted with the rejected input yet?
+                // For now, we'll just do simple auto-calc which the user can override
+                const rejectedVal = Math.max(0, max - receiveVal);
+                rejectedInput.value = rejectedVal;
+                
+                toggleRejectionDetails(row, rejectedVal);
+            }
+            
+            if (e.target && e.target.classList.contains('rejected-input')) {
+                const rejectedInput = e.target;
+                const row = rejectedInput.closest('tr');
+                const rejectedVal = parseInt(rejectedInput.value) || 0;
+                
+                toggleRejectionDetails(row, rejectedVal);
+            }
+        });
+
+        function toggleRejectionDetails(row, rejectedVal) {
+            const detailsDiv = row.querySelector('div[id^="rejection-details-"]');
+            if (detailsDiv) {
+                if (rejectedVal > 0) {
+                    detailsDiv.style.display = 'block';
+                    // Make reason required if rejected > 0
+                    const reasonInput = detailsDiv.querySelector('input[name^="rejection_reason"]');
+                    if (reasonInput) reasonInput.required = true;
+                } else {
+                    detailsDiv.style.display = 'none';
+                    const reasonInput = detailsDiv.querySelector('input[name^="rejection_reason"]');
+                    if (reasonInput) reasonInput.required = false;
+                }
+            }
+        }
+    </script>
+
+    <script>
+        // Global storage for files to support accumulation and deletion
+        const rejectionFiles = {}; // itemId -> DataTransfer
+
+        // Handle File Input Change for Previews
+        document.addEventListener('change', function(e) {
+            if (e.target && e.target.classList.contains('rejection-file-input')) {
+                const input = e.target;
+                const itemId = input.getAttribute('data-item-id');
+                
+                if (!rejectionFiles[itemId]) {
+                    rejectionFiles[itemId] = new DataTransfer();
+                }
+                
+                const dt = rejectionFiles[itemId];
+                
+                // Add new files to the DataTransfer object
+                if (input.files && input.files.length > 0) {
+                    Array.from(input.files).forEach(file => {
+                        if (!file.type.startsWith('image/')) return;
+                        
+                        // Check for duplicates based on name and size
+                        let exists = false;
+                        for (let i = 0; i < dt.files.length; i++) {
+                            if (dt.files[i].name === file.name && dt.files[i].size === file.size) {
+                                exists = true;
+                                break;
+                            }
+                        }
+                        
+                        if (!exists) {
+                            dt.items.add(file);
+                        }
+                    });
+                }
+                
+                // Update the input's files property to reflect the accumulated list
+                input.files = dt.files;
+                
+                // Render previews
+                renderPreviews(itemId);
+            }
+        });
+
+        function renderPreviews(itemId) {
+            const container = document.getElementById('preview-container-' + itemId);
+            container.innerHTML = '';
+            
+            const dt = rejectionFiles[itemId];
+            if (!dt) return;
+            
+            Array.from(dt.files).forEach((file, index) => {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const wrapper = document.createElement('div');
+                    wrapper.style.position = 'relative';
+                    wrapper.style.display = 'inline-block';
+                    wrapper.style.marginRight = '8px';
+                    wrapper.style.marginBottom = '8px';
+                    
+                    const img = document.createElement('img');
+                    img.src = e.target.result;
+                    img.style.width = '50px';
+                    img.style.height = '50px';
+                    img.style.objectFit = 'cover';
+                    img.style.borderRadius = '4px';
+                    img.style.border = '1px solid #ddd';
+                    img.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)';
+                    
+                    const delBtn = document.createElement('button');
+                    delBtn.innerHTML = '&times;';
+                    delBtn.type = 'button';
+                    delBtn.title = 'Remove photo';
+                    delBtn.style.cssText = 'position: absolute; top: -6px; right: -6px; background: #ff4d4f; color: white; border: none; border-radius: 50%; width: 18px; height: 18px; line-height: 16px; font-size: 14px; cursor: pointer; padding: 0; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(0,0,0,0.2); transition: transform 0.1s;';
+                    
+                    delBtn.onmouseover = function() { this.style.transform = 'scale(1.1)'; };
+                    delBtn.onmouseout = function() { this.style.transform = 'scale(1)'; };
+                    
+                    delBtn.onclick = function() {
+                        removeFile(itemId, index);
+                    };
+                    
+                    wrapper.appendChild(img);
+                    wrapper.appendChild(delBtn);
+                    container.appendChild(wrapper);
+                }
+                reader.readAsDataURL(file);
+            });
+        }
+
+        function removeFile(itemId, index) {
+            const dt = rejectionFiles[itemId];
+            const newDt = new DataTransfer();
+            
+            for (let i = 0; i < dt.files.length; i++) {
+                if (i !== index) {
+                    newDt.items.add(dt.files[i]);
+                }
+            }
+            
+            rejectionFiles[itemId] = newDt;
+            
+            // Update input
+            const input = document.getElementById('file-input-' + itemId);
+            if (input) {
+                input.files = newDt.files;
+            }
+            
+            renderPreviews(itemId);
         }
     </script>
 </body>
