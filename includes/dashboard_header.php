@@ -1157,9 +1157,7 @@ body.compact-view .page-header {
                         <i class="fas fa-chevron-down dropdown-arrow"></i>
                     </a>
                     <div class="dropdown-content">
-                        <a href="<?php echo $baseUrl . 'modules/reports/sales.php'; ?>">
-                            <i class="fas fa-dollar-sign"></i> Sales Reports
-                        </a>
+
                         <a href="<?php echo $baseUrl . 'modules/reports/inventory_report.php'; ?>">
                             <i class="fas fa-boxes"></i> Inventory Reports
                         </a>

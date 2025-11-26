@@ -47,80 +47,130 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     exit;
 }
 
-function fs_put_low_stock_alert($db, array $prod): void
+
+
+function pg_put_low_stock_alert(SQLDatabase $db, array $prod): void
 {
-    // Normalize product id & name
-    $pid = isset($prod['id']) ? trim((string)$prod['id']) : '';
-    if ($pid === '') return;
-    $pname = trim((string)($prod['name'] ?? ''));
+    $pid = isset($prod['id']) ? (int)$prod['id'] : 0;
+    if ($pid <= 0) return;
 
-    // Coalesce threshold
-    $threshold = isset($prod['min_stock_level']) ? (int)$prod['min_stock_level']
-        : (isset($prod['reorder_level']) ? (int)$prod['reorder_level'] : 0);
-    if ($threshold <= 0) return;
+    $name = trim((string)($prod['name'] ?? ''));
+    $qty  = (int)($prod['quantity'] ?? 0);
+    $min  = (int)($prod['min_stock_level'] ?? 0);
 
-    // Current quantity
-    $qty = (int)($prod['quantity'] ?? 0);
-    if ($qty > $threshold) return; // not low now
-
-    // Deterministic doc id
-    $docId = 'LOW_' . $pid;
-    $nowIso = date('c');
-
-    // Read existing alert
-    $existing = null;
-    if (method_exists($db, 'readDoc')) {
-        $existing = $db->readDoc('alerts', $docId);
-    } elseif (method_exists($db, 'read')) {
-        $existing = $db->read('alerts', $docId);
-    }
-
-    $prevStatus = strtoupper($existing['status'] ?? '');
-    $reopen = (!$existing || $prevStatus === 'RESOLVED');  // reopen if new or previously resolved
-
-    // If an OPEN (non-resolved) alert already exists, just refresh metadata and return
-    if ($existing && !$reopen) {
-        $payload = [
-            'product_id'   => $pid,
-            'product_name' => $pname,
-            'alert_type'   => 'LOW_STOCK',
-            'status'       => 'PENDING',                 // stays pending
-            'created_at'   => $existing['created_at'] ?? $nowIso, // keep original
-            'updated_at'   => $nowIso,                   // refresh updated_at
-        ];
-        if (method_exists($db, 'writeDoc'))       $db->writeDoc('alerts', $docId, $payload);
-        elseif (method_exists($db, 'upsert'))     $db->upsert('alerts', $docId, $payload);
-        elseif (method_exists($db, 'setDoc'))     $db->setDoc('alerts', $docId, $payload);
-        elseif (method_exists($db, 'update'))     $db->update('alerts', $docId, $payload);
-        elseif (method_exists($db, 'write'))      $db->write('alerts', $docId, $payload);
+    // Not low stock → nothing to do here (resolver will handle)
+    if ($min <= 0 || $qty > $min) {
         return;
     }
 
-    // Reopen case (new alert or previously RESOLVED): reset created_at to "now" and clear resolution fields
-    $payload = [
-        'product_id'       => $pid,
-        'product_name'     => $pname,
-        'alert_type'       => 'LOW_STOCK',
-        'status'           => 'PENDING',
-        'created_at'       => $nowIso,   // <-- reset to today
-        'updated_at'       => $nowIso,
-        'resolved_at'      => null,      // clear old resolution info
-        'resolved_by'      => null,
-        'resolution_note'  => null,
-    ];
+    // Get existing LOW_STOCK alert (we only care about one row per product)
+    $alert = $db->fetch("
+        SELECT id, status
+        FROM alerts
+        WHERE product_id = ?
+          AND alert_type = 'LOW_STOCK'
+        LIMIT 1
+    ", [$pid]);
 
-    // Upsert
-    if (method_exists($db, 'writeDoc'))           $db->writeDoc('alerts', $docId, $payload);
-    elseif (method_exists($db, 'upsert'))         $db->upsert('alerts', $docId, $payload);
-    elseif (method_exists($db, 'setDoc'))         $db->setDoc('alerts', $docId, $payload);
-    elseif (method_exists($db, 'create')) {
-        try {
-            $db->create('alerts', $docId, $payload);
-        } catch (Throwable $e) {
-            if (method_exists($db, 'update'))     $db->update('alerts', $docId, $payload);
-        }
-    } elseif (method_exists($db, 'write'))        $db->write('alerts', $docId, $payload);
+    if (!$alert) {
+        // No alert yet → create new PENDING alert
+        $db->execute("
+            INSERT INTO alerts (product_id, product_name, alert_type, status, quantity_affected)
+            VALUES (:pid, :name, 'LOW_STOCK', 'PENDING', :qty)
+        ", [
+            ':pid'  => $pid,
+            ':name' => $name,
+            ':qty'  => $qty,
+        ]);
+        return;
+    }
+
+    // There is an alert → decide how to update it
+    $status = strtoupper((string)$alert['status']);
+
+    if ($status === 'PENDING') {
+        // Still low stock & still pending → just refresh quantity + updated_at
+        $db->execute("
+            UPDATE alerts
+            SET quantity_affected = :qty,
+                updated_at        = NOW()
+            WHERE id = :id
+        ", [
+            ':qty' => $qty,
+            ':id'  => $alert['id'],
+        ]);
+    } elseif ($status === 'RESOLVED') {
+        // Reopen the same row as a NEW low stock event
+        $db->execute("
+            UPDATE alerts
+            SET status            = 'PENDING',
+                quantity_affected = :qty,
+                created_at        = NOW(),     -- new cycle start
+                updated_at        = NOW(),
+                resolved_at       = NULL,
+                resolved_by       = NULL,
+                resolution_note   = NULL
+            WHERE id = :id
+        ", [
+            ':qty' => $qty,
+            ':id'  => $alert['id'],
+        ]);
+    } else {
+        // Unknown status → treat like new
+        $db->execute("
+            UPDATE alerts
+            SET status            = 'PENDING',
+                quantity_affected = :qty,
+                created_at        = NOW(),
+                updated_at        = NOW(),
+                resolved_at       = NULL,
+                resolved_by       = NULL,
+                resolution_note   = NULL
+            WHERE id = :id
+        ", [
+            ':qty' => $qty,
+            ':id'  => $alert['id'],
+        ]);
+    }
 }
+
+
+
+
+function pg_resolve_low_stock_alert(SQLDatabase $db, int $pid): void
+{
+    if ($pid <= 0) return;
+
+    // Find the LOW_STOCK alert for this product
+    $alert = $db->fetch("
+        SELECT id, status
+        FROM alerts
+        WHERE product_id = ?
+          AND alert_type = 'LOW_STOCK'
+        LIMIT 1
+    ", [$pid]);
+
+    if (!$alert) return;
+
+    if (strtoupper((string)$alert['status']) === 'RESOLVED') {
+        // Already resolved
+        return;
+    }
+
+    $db->execute("
+        UPDATE alerts
+        SET status      = 'RESOLVED',
+            resolved_at = NOW(),
+            updated_at  = NOW()
+        WHERE id = :id
+    ", [
+        ':id' => $alert['id'],
+    ]);
+}
+
+
+
+
 
 // -------------------------------------------------------------
 // EXPIRY ALERT HANDLER
@@ -297,22 +347,34 @@ foreach ($all_products as $p) {
     }
 }
 
-// --- Pre-pass: ensure alerts for ALL products ---
-$db = getDB(); // Still needed for alerts
+// --- Pre-pass: ensure alerts for ALL products in PostgreSQL ---
 try {
+    $sqlDb = SQLDatabase::getInstance();
+
     foreach ($all_products as $pp) {
         if (!empty($pp['deleted_at'])) continue;
         if (isset($pp['status_db']) && strtolower((string)$pp['status_db']) === 'disabled') continue;
 
-        // low stock alert
-        fs_put_low_stock_alert($db, $pp);
+        $pid = isset($pp['id']) ? (int)$pp['id'] : 0;
+        if ($pid <= 0) continue;
 
-        // expiry alert (removed)
-        // fs_put_expiry_alert($db, $pp);
+    $qty = (int)($pp['quantity'] ?? 0);
+    $min = (int)($pp['min_stock_level'] ?? 0);
+
+    if ($min > 0 && $qty <= $min) {
+        // low stock → ensure alert is pending (or reopen)
+        pg_put_low_stock_alert($sqlDb, $pp);
+    } else {
+        // not low stock → resolve alert if exists
+        pg_resolve_low_stock_alert($sqlDb, $pid);
+    }
     }
 } catch (Throwable $e) {
     error_log('prepass failed: ' . $e->getMessage());
 }
+
+
+
 
 
 $store_filter = $_GET['store'] ?? '';
@@ -537,26 +599,25 @@ if (empty($categories)) {
     ];
 }
 
-// Summary statistics
 $summary_stats = [
     'total_products' => $total_count,
-    'out_of_stock' => 0,
-    'low_stock' => 0,
-    'total_value' => 0
+    'out_of_stock'   => 0,
+    'low_stock'      => 0,
+    'total_value'    => 0
 ];
+
 foreach ($filtered_products as $p) {
-    if ($p['quantity'] == 0) $summary_stats['out_of_stock']++;
-    // If this product is low stock, ensure an alert exists (PENDING).
-    // If this product is low stock, ensure an alert doc exists (PENDING).
-    if ((int)$p['quantity'] <= (int)$p['min_stock_level']) {
-        fs_put_low_stock_alert($db, $p);  // uses Firebase handle $db
+    if ($p['quantity'] == 0) {
+        $summary_stats['out_of_stock']++;
     }
 
+    if ((int)$p['quantity'] <= (int)$p['min_stock_level']) {
+        $summary_stats['low_stock']++;
+    }
 
-    if ($p['quantity'] <= $p['min_stock_level']) $summary_stats['low_stock']++;
-    // Expiry stats removed
     $summary_stats['total_value'] += $p['quantity'] * $p['unit_price'];
 }
+
 
 $returnUrl     = $_SERVER['REQUEST_URI']; // current filter state (even if none)
 $encodedReturn = rawurlencode($returnUrl);

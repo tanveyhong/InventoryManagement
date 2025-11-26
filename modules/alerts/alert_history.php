@@ -1,8 +1,8 @@
 <?php
 require_once '../../config.php';
-require_once '../../functions.php';   // <-- adjust if your DB helper is in another folder
+require_once '../../functions.php';
+require_once '../../sql_db.php';
 
-// Start session after config (to allow ini_set to work)
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
@@ -18,71 +18,57 @@ if (!currentUserHasPermission('can_manage_alerts')) {
     exit;
 }
 
-// --- Connect to Firestore ---------------------------------------------------
-$db = getDB(); // your Firebase wrapper
+// --- Load low stock alerts from PostgreSQL (Supabase) -----------------------
+$low_stock_alerts = [];
+$pending_low_stock = [];
 
-// --- Fetch alerts from Firestore -------------------------------------------
-// Read all docs in 'alerts' (you can later limit to 500 or so)
-$alerts = [];
 try {
-    $docs = $db->readAll('alerts', [], null, 1000);
-    foreach ($docs as $doc) {
-        $alerts[] = [
-            'product_id'        => $doc['product_id']        ?? '',
-            'product_name'      => $doc['product_name']      ?? '',
-            'alert_type'        => strtoupper($doc['alert_type'] ?? ''),
-            'expiry_kind'       => $doc['expiry_kind']       ?? null,
-            'quantity_affected' => $doc['quantity_affected'] ?? null,  // <-- add this
-            'status'            => ucfirst(strtolower($doc['status'] ?? 'Pending')),
-            'created_at'        => $doc['created_at']        ?? '',
-            'updated_at'        => $doc['updated_at']        ?? '',
-            'resolved_at'       => $doc['resolved_at']       ?? null,
-        ];
-    }
-} catch (Exception $e) {
-    $alerts = [];
+    $sqlDb = SQLDatabase::getInstance();
+
+    // Adjust table / column names if your alerts table is different
+    $rows = $sqlDb->fetchAll("
+        SELECT 
+            a.id,
+            a.product_id,
+            a.alert_type,
+            a.status,
+            a.created_at,
+            a.updated_at,
+            a.resolved_at,
+            COALESCE(p.name, a.product_name) AS product_name
+        FROM alerts a
+        LEFT JOIN products p ON a.product_id = p.id
+        WHERE a.alert_type = 'LOW_STOCK'
+        ORDER BY a.created_at DESC
+    ");
+
+    $low_stock_alerts = $rows ?? [];
+
+    // Filter for currently pending low-stock alerts
+    $pending_low_stock = array_filter(
+        $low_stock_alerts,
+        fn($a) => strtoupper($a['status'] ?? '') === 'PENDING'
+    );
+
+} catch (Throwable $e) {
+    error_log('Alert history SQL error: ' . $e->getMessage());
+    $low_stock_alerts = [];
+    $pending_low_stock = [];
 }
 
-foreach ($alerts as &$a) {
-    // Backfill quantity_affected for EXPIRY alerts (you already do this)
-    // ...
-
-    // NEW: if an EXPIRY alert is still pending but the product is deleted/disabled, flip to RESOLVED
-    if (strtoupper($a['alert_type'] ?? '') === 'EXPIRY' && strtoupper($a['status'] ?? '') !== 'RESOLVED') {
-        $pid = (string)($a['product_id'] ?? '');
-        if ($pid !== '' && fs_is_product_deleted($db, $pid)) {
-            // Update the in-memory row so UI shows Resolved
-            $a['status']      = 'Resolved';
-            $a['resolved_at'] = date('c');
-
-            // Also patch the alert doc so it stays fixed
-            $expDocId = 'EXP_' . $pid;                   // common convention
-            fs_mark_alert_resolved($db, $expDocId, [
-                'resolved_by'     => 'system',
-                'resolution_note' => 'Auto-resolved: product deleted/disabled',
-            ]);
-        }
-    }
-}
-unset($a);
-
-// --- Split into Low Stock and Expiry groups --------------------------------
-$low_stock_alerts = array_filter($alerts, fn($a) => $a['alert_type'] === 'LOW_STOCK');
-$expiry_alerts    = array_filter($alerts, fn($a) => $a['alert_type'] === 'EXPIRY');
-
-// Sort newest first
-usort($low_stock_alerts, fn($a, $b) => strcmp($b['created_at'], $a['created_at']));
-usort($expiry_alerts,    fn($a, $b) => strcmp($b['created_at'], $a['created_at']));
-
-// --- Small helper for colored badges ---------------------------------------
+// --- Helpers ----------------------------------------------------------------
 function status_badge($status)
 {
-    $color = match (strtoupper($status)) {
-        'RESOLVED'   => 'green',
-        'UNRESOLVED' => 'red',
-        default      => 'orange'
+    $upper = strtoupper($status ?? '');
+    $color = match ($upper) {
+        'RESOLVED'   => '#16a34a',   // green
+        'PENDING'    => '#f97316',   // orange
+        default      => '#6b7280',   // gray
     };
-    return "<span style='color:$color;font-weight:600'>" . htmlspecialchars($status) . "</span>";
+
+    return "<span style='padding:3px 8px;border-radius:999px;font-size:12px;font-weight:600;color:#fff;background:{$color};'>"
+         . htmlspecialchars(ucfirst(strtolower($status ?? 'Pending')))
+         . "</span>";
 }
 
 function fmt_ts($v)
@@ -92,57 +78,6 @@ function fmt_ts($v)
     if ($t === false) return '-';
     return date('Y-m-d H:i:s', $t);
 }
-
-function fs_get_product_qty($db, string $pid): ?int
-{
-    if ($pid === '') return null;
-    try {
-        if (method_exists($db, 'readDoc')) {
-            $p = $db->readDoc('products', $pid);
-        } elseif (method_exists($db, 'read')) {
-            $p = $db->read('products', $pid);
-        } else {
-            return null;
-        }
-        if (!$p) return null;
-        // support different field names just in case
-        if (isset($p['quantity']))       return (int)$p['quantity'];
-        if (isset($p['stock_qty']))      return (int)$p['stock_qty'];
-        if (isset($p['current_qty']))    return (int)$p['current_qty'];
-        return null;
-    } catch (Throwable $e) {
-        return null;
-    }
-}
-
-function fs_is_product_deleted($db, string $pid): bool
-{
-    if ($pid === '') return false;
-    try {
-        $p = method_exists($db, 'readDoc') ? $db->readDoc('products', $pid)
-            : (method_exists($db, 'read') ? $db->read('products', $pid) : null);
-        if (!$p) return false; // product gone; treat as deleted for expiry purpose?
-        if (!empty($p['deleted_at'])) return true;
-        if (isset($p['status']) && strtolower((string)$p['status']) === 'disabled') return true;
-    } catch (Throwable $e) {
-    }
-    return false;
-}
-
-function fs_mark_alert_resolved($db, string $docId, array $merge = []): void
-{
-    $payload = array_merge([
-        'status'      => 'RESOLVED',
-        'updated_at'  => date('c'),
-        'resolved_at' => date('c'),
-    ], $merge);
-    if (method_exists($db, 'update'))        $db->update('alerts', $docId, $payload);
-    elseif (method_exists($db, 'writeDoc'))  $db->writeDoc('alerts', $docId, $payload);
-    elseif (method_exists($db, 'setDoc'))    $db->setDoc('alerts', $docId, $payload);
-    elseif (method_exists($db, 'write'))     $db->write('alerts', $docId, $payload);
-}
-
-
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -235,106 +170,49 @@ function fs_mark_alert_resolved($db, string $docId, array $merge = []): void
 </head>
 
 <body>
-    <?php include '../../includes/dashboard_header.php'; ?>
+<?php include '../../includes/dashboard_header.php'; ?>
 
-    <div class="container" style="max-width: 1600px; margin: 0 auto; padding: 20px;">
-        <h2 style="margin-top: 2rem;">Alert History Log</h2>
+<div class="container" style="max-width: 1200px; margin: 0 auto; padding: 20px;">
+    <h2>Alert History Log</h2>
 
-        <!-- Low Stock Alerts ------------------------------------------------------>
-        <div class="card low-stock-card">
-            <div class="card-header low-stock-header">Low Stock Alerts</div>
-            <div class="card-body">
-                <table class="low-stock-table">
-                    <thead>
-                        <tr>
-                            <th>Product ID</th>
-                            <th>Product Name</th>
-                            <th>Alert Type</th>
-                            <th>Timestamp</th>
-                            <th>Resolution Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php if (empty($low_stock_alerts)): ?>
-                            <tr>
-                                <td colspan="5" style="text-align:center;">No low stock alerts</td>
-                            </tr>
-                            <?php else: foreach ($low_stock_alerts as $r): ?>
-                                <tr>
-                                    <td><?= htmlspecialchars($r['product_id']) ?></td>
-                                    <td><?= htmlspecialchars($r['product_name']) ?></td>
-                                    <td>Low Stock</td>
-                                    <td><?= fmt_ts($r['created_at'] ?? ($r['updated_at'] ?? null)) ?></td>
-                                    <td><?= status_badge($r['status']) ?></td>
-                                </tr>
-                        <?php endforeach;
-                        endif; ?>
-                    </tbody>
-                </table>
-            </div>
+
+    <!-- LOW STOCK ALERT HISTORY (ALL) ---------------------------------------->
+    <div class="card low-stock-card">
+        <div class="card-header low-stock-header">
+            Low Stock Alerts
         </div>
+        <div class="card-body">
 
-        <!-- Expiry Products ------------------------------------------------------->
-        <div class="card expiry-card">
-            <div class="card-header expiry-header">Expiry Products</div>
-            <div class="card-body">
-                <table class="expiry-table">
-                    <thead>
-                        <tr>
-                            <th>Product ID</th>
-                            <th>Product Name</th>
-                            <th>Quantity Affected</th>
-                            <th>Alert Type</th>
-                            <th>Timestamp</th>
-                            <th>Resolution Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php if (empty($expiry_alerts)): ?>
-                            <tr>
-                                <td colspan="6" style="text-align:center;">No expiry alerts</td>
-                            </tr>
-                            <?php else: foreach ($expiry_alerts as $r): ?>
-                                <tr>
-                                    <td><?= htmlspecialchars($r['product_id'] ?? '-') ?></td>
-                                    <td><?= htmlspecialchars($r['product_name'] ?? '-') ?></td>
-                                    <td>
-                                        <?php
-                                        $qa = $r['quantity_affected'] ?? null;
-                                        echo ($qa === null || $qa === '') ? '-' : htmlspecialchars((string)$qa);
-                                        ?>
-                                    </td>
-
-
-                                    <td>
-                                        <?= htmlspecialchars(
-                                            ucwords(
-                                                strtolower(
-                                                    str_replace('_', ' ', $r['expiry_kind'] ?? 'Expired')
-                                                )
-                                            )
-                                        ) ?>
-                                    </td>
-                                    <td>
-                                        <?php
-                                        if (!empty($r['created_at'])) {
-                                            $t = strtotime($r['created_at']);
-                                            echo date('Y-m-d H:i:s', $t);
-                                        } else {
-                                            echo '-';
-                                        }
-                                        ?>
-                                    </td>
-                                    <td><?= status_badge($r['status'] ?? 'Pending') ?></td>
-                                </tr>
-                        <?php endforeach;
-                        endif; ?>
-                    </tbody>
-                </table>
-
-            </div>
+            <table class="low-stock-table">
+                <thead>
+                <tr>
+                    <th>Product ID</th>
+                    <th>Product Name</th>
+                    <th>Alert Type</th>
+                    <th>Timestamp</th>
+                    <th>Resolved At</th>
+                    <th>Resolution Status</th>
+                </tr>
+                </thead>
+                <tbody>
+                <?php if (empty($low_stock_alerts)): ?>
+                    <tr>
+                        <td colspan="6" style="text-align:center;">No low stock alerts</td>
+                    </tr>
+                <?php else: foreach ($low_stock_alerts as $r): ?>
+                    <tr>
+                        <td><?= htmlspecialchars($r['product_id'] ?? '-') ?></td>
+                        <td><?= htmlspecialchars($r['product_name'] ?? '-') ?></td>
+                        <td>Low Stock</td>
+                        <td><?= fmt_ts($r['created_at'] ?? null) ?></td>
+                        <td><?= fmt_ts($r['resolved_at'] ?? null) ?></td>
+                        <td><?= status_badge($r['status'] ?? 'Pending') ?></td>
+                    </tr>
+                <?php endforeach; endif; ?>
+                </tbody>
+            </table>
         </div>
     </div>
+</div>
 </body>
-
 </html>
