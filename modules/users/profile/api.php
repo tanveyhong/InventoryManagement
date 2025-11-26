@@ -1040,7 +1040,8 @@ try {
             $sql = "
                 SELECT s.*
                 FROM stores s
-                WHERE s.id NOT IN (
+                WHERE s.deleted_at IS NULL
+                AND s.id NOT IN (
                     SELECT store_id 
                     FROM user_store_access 
                     WHERE user_id = ?

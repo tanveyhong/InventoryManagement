@@ -2330,23 +2330,23 @@ try {
                 });
                 
                 let html = `
-                    <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); padding: 20px; border-radius: 12px; margin-bottom: 25px; color: white;">
-                        <div style="display: flex; align-items: center; gap: 15px;">
-                            <div style="width: 60px; height: 60px; background: rgba(255,255,255,0.2); border-radius: 50%; display: flex; align-items: center; justify-content: center;">
-                                <i class="fas fa-shield-alt" style="font-size: 28px;"></i>
+                    <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); padding: 15px; border-radius: 10px; margin-bottom: 15px; color: white;">
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <div style="width: 40px; height: 40px; background: rgba(255,255,255,0.2); border-radius: 50%; display: flex; align-items: center; justify-content: center;">
+                                <i class="fas fa-shield-alt" style="font-size: 20px;"></i>
                             </div>
                             <div style="flex: 1;">
-                                <h3 style="margin: 0 0 8px 0; font-size: 24px;">Permission Management</h3>
-                                <p style="margin: 0; opacity: 0.95; font-size: 14px;">Manage user roles and permissions across the system</p>
+                                <h3 style="margin: 0 0 4px 0; font-size: 18px;">Permission Management</h3>
+                                <p style="margin: 0; opacity: 0.95; font-size: 12px;">Manage user roles and permissions across the system</p>
                             </div>
-                            <button onclick="refreshPermissions()" class="btn" style="background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3); padding: 10px 16px;" title="Refresh permissions">
+                            <button onclick="refreshPermissions()" class="btn" style="background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3); padding: 6px 12px; font-size: 12px;" title="Refresh permissions">
                                 <i class="fas fa-sync-alt"></i> Refresh
                             </button>
                         </div>
                     </div>
                     
-                    <div style="margin-bottom: 20px;">
-                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #374151;">
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 6px; font-weight: 600; color: #374151; font-size: 13px;">
                             <i class="fas fa-user-circle"></i> Select User:
                         </label>
                         <div id="perm-user-select-container"></div>
@@ -2534,57 +2534,57 @@ try {
             };
             
             let html = `
-                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; border-radius: 12px; color: white; margin-bottom: 20px;">
+                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 12px; border-radius: 10px; color: white; margin-bottom: 15px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
                         <div>
-                            <div style="font-size: 14px; opacity: 0.9; margin-bottom: 5px;">Current Role</div>
-                            <div style="font-size: 28px; font-weight: 700;">${perms.role}</div>
+                            <div style="font-size: 11px; opacity: 0.9; margin-bottom: 2px;">Current Role</div>
+                            <div style="font-size: 20px; font-weight: 700;">${perms.role}</div>
                         </div>
                         <div style="text-align: right;">
-                            <div style="font-size: 14px; opacity: 0.9; margin-bottom: 5px;">Permissions</div>
-                            <div style="font-size: 28px; font-weight: 700;">${grantedCount}/${permissionsList.length}</div>
+                            <div style="font-size: 11px; opacity: 0.9; margin-bottom: 2px;">Permissions</div>
+                            <div style="font-size: 20px; font-weight: 700;">${grantedCount}/${permissionsList.length}</div>
                         </div>
                     </div>
                 </div>
                 
                 ${isAdmin ? `
-                <div style="background: white; border: 2px solid #e5e7eb; border-radius: 12px; padding: 25px; margin-bottom: 20px;">
-                    <h4 style="margin: 0 0 15px 0; color: #1f2937; display: flex; align-items: center; gap: 10px;">
+                <div style="background: white; border: 1px solid #e5e7eb; border-radius: 10px; padding: 15px; margin-bottom: 15px;">
+                    <h4 style="margin: 0 0 8px 0; color: #1f2937; display: flex; align-items: center; gap: 8px; font-size: 14px;">
                         <i class="fas fa-users-cog"></i> Quick Role Assignment
                     </h4>
-                    <p style="margin: 0 0 20px 0; color: #6b7280; font-size: 14px;">
+                    <p style="margin: 0 0 12px 0; color: #6b7280; font-size: 11px;">
                         Select a predefined role to automatically assign its permission package
                     </p>
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px;">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px;">
                         ${Object.entries(roleTemplates).map(([key, role]) => `
-                            <div style="border: 2px solid ${perms.role.toLowerCase() === key ? role.color : '#e5e7eb'}; border-radius: 12px; padding: 20px; transition: all 0.3s; cursor: pointer; ${perms.role.toLowerCase() === key ? 'background: ' + role.color + '10;' : ''}" onclick="assignRole('${userId}', '${key}')">
-                                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
-                                    <div style="width: 45px; height: 45px; background: ${role.color}; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: white; font-size: 20px;">
+                            <div style="border: 1px solid ${perms.role.toLowerCase() === key ? role.color : '#e5e7eb'}; border-radius: 8px; padding: 10px; transition: all 0.3s; cursor: pointer; ${perms.role.toLowerCase() === key ? 'background: ' + role.color + '10;' : ''}" onclick="assignRole('${userId}', '${key}')">
+                                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                                    <div style="width: 28px; height: 28px; background: ${role.color}; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: white; font-size: 12px;">
                                         <i class="fas fa-${role.icon}"></i>
                                     </div>
                                     <div>
-                                        <h5 style="margin: 0; color: #1f2937; font-size: 16px;">${role.name}</h5>
-                                        ${perms.role.toLowerCase() === key ? '<small style="color: ' + role.color + '; font-weight: 600;"><i class="fas fa-check-circle"></i> Current</small>' : ''}
+                                        <h5 style="margin: 0; color: #1f2937; font-size: 12px;">${role.name}</h5>
+                                        ${perms.role.toLowerCase() === key ? '<small style="color: ' + role.color + '; font-weight: 600; font-size: 10px;"><i class="fas fa-check-circle"></i> Current</small>' : ''}
                                     </div>
                                 </div>
-                                <p style="margin: 0 0 12px 0; font-size: 13px; color: #6b7280; line-height: 1.5;">${role.desc}</p>
-                                <div style="font-size: 12px; color: #9ca3af;">
+                                <p style="margin: 0 0 6px 0; font-size: 10px; color: #6b7280; line-height: 1.2;">${role.desc}</p>
+                                <div style="font-size: 10px; color: #9ca3af;">
                                     <strong>${role.permissions.length}</strong> permission${role.permissions.length !== 1 ? 's' : ''}
                                 </div>
                             </div>
                         `).join('')}
                     </div>
-                    <div style="margin-top: 15px; padding: 12px; background: #f3f4f6; border-radius: 8px; font-size: 13px; color: #6b7280;">
+                    <div style="margin-top: 8px; padding: 8px; background: #f3f4f6; border-radius: 6px; font-size: 11px; color: #6b7280;">
                         <i class="fas fa-info-circle"></i> <strong>Note:</strong> Assigning a role will override current permissions with the role's permission package
                     </div>
                 </div>
                 ` : ''}
                 
-                <div style="margin-bottom: 15px;">
-                    <h4 style="margin: 0; color: #1f2937; display: flex; align-items: center; gap: 10px;">
+                <div style="margin-bottom: 8px;">
+                    <h4 style="margin: 0; color: #1f2937; display: flex; align-items: center; gap: 8px; font-size: 14px;">
                         <i class="fas fa-key"></i> Individual Permissions
                     </h4>
-                    <p style="margin: 5px 0 0 0; color: #6b7280; font-size: 14px;">Grant or revoke specific permissions by module</p>
+                    <p style="margin: 2px 0 0 0; color: #6b7280; font-size: 11px;">Grant or revoke specific permissions by module</p>
                 </div>
                 
                 ${// Group permissions by category
@@ -2593,43 +2593,43 @@ try {
                     groups[perm.category].push(perm);
                     return groups;
                 }, {})).map(([category, categoryPerms]) => `
-                    <div style="background: white; border-radius: 12px; padding: 20px; margin-bottom: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-                        <h5 style="margin: 0 0 15px 0; color: #1f2937; font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
-                            <div style="width: 8px; height: 8px; border-radius: 50%; background: ${categoryPerms[0].color};"></div>
+                    <div style="background: white; border-radius: 8px; padding: 12px; margin-bottom: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+                        <h5 style="margin: 0 0 8px 0; color: #1f2937; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 6px;">
+                            <div style="width: 5px; height: 5px; border-radius: 50%; background: ${categoryPerms[0].color};"></div>
                             ${category} Module
                         </h5>
-                        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px;">
+                        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px;">
                             ${categoryPerms.map(perm => {
                                 const granted = perms[perm.key] || false;
                                 return `
-                                    <div data-permission="${perm.key}" data-color="${perm.color}" class="permission-card" style="background: ${granted ? perm.color + '10' : '#f9fafb'}; border: 2px solid ${granted ? perm.color : '#e5e7eb'}; border-radius: 8px; padding: 14px; transition: all 0.2s;">
-                                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
-                                            <div style="display: flex; align-items: center; gap: 10px;">
-                                                <div class="permission-icon-container" style="width: 36px; height: 36px; background: ${granted ? perm.color : '#e5e7eb'}; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; font-size: 16px;">
+                                    <div data-permission="${perm.key}" data-color="${perm.color}" class="permission-card" style="background: ${granted ? perm.color + '10' : '#f9fafb'}; border: 1px solid ${granted ? perm.color : '#e5e7eb'}; border-radius: 6px; padding: 8px; transition: all 0.2s;">
+                                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+                                            <div style="display: flex; align-items: center; gap: 6px;">
+                                                <div class="permission-icon-container" style="width: 24px; height: 24px; background: ${granted ? perm.color : '#e5e7eb'}; border-radius: 5px; display: flex; align-items: center; justify-content: center; color: white; font-size: 10px;">
                                                     <i class="fas fa-${perm.icon}"></i>
                                                 </div>
                                                 <div>
-                                                    <div style="font-weight: 600; font-size: 13px; color: #1f2937;">${perm.name}</div>
-                                                    <div class="permission-status-text" style="font-size: 11px; color: ${granted ? perm.color : '#9ca3af'}; font-weight: 500;">
+                                                    <div style="font-weight: 600; font-size: 11px; color: #1f2937;">${perm.name}</div>
+                                                    <div class="permission-status-text" style="font-size: 9px; color: ${granted ? perm.color : '#9ca3af'}; font-weight: 500;">
                                                         ${granted ? '✓ Enabled' : '○ Disabled'}
                                                     </div>
                                                 </div>
                                             </div>
                                             ${isAdmin ? `
-                                            <label class="toggle-switch" title="${granted ? 'Click to revoke' : 'Click to grant'}">
+                                            <label class="toggle-switch" title="${granted ? 'Click to revoke' : 'Click to grant'}" style="transform: scale(0.6); margin-right: -8px;">
                                                 <input type="checkbox" ${granted ? 'checked' : ''} 
                                                        onchange="togglePermissionFast('${userId}', '${perm.key}', this.checked)"
                                                        data-permission-toggle="${perm.key}">
                                                 <span class="toggle-slider"></span>
                                             </label>
                                             ` : `
-                                            <label class="toggle-switch">
+                                            <label class="toggle-switch" style="transform: scale(0.6); margin-right: -8px;">
                                                 <input type="checkbox" ${granted ? 'checked' : ''} disabled>
                                                 <span class="toggle-slider"></span>
                                             </label>
                                             `}
                                         </div>
-                                        <p style="margin: 0; font-size: 12px; color: #6b7280; line-height: 1.4;">${perm.desc}</p>
+                                        <p style="margin: 0; font-size: 10px; color: #6b7280; line-height: 1.2;">${perm.desc}</p>
                                     </div>
                                 `;
                             }).join('')}
@@ -3157,22 +3157,30 @@ try {
                 let html = `
                     <div style="background: #f8f9fa; padding: 15px; border-radius: 10px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
                         <div>
-                            <h4 style="margin: 0 0 5px 0; color: #2d3748;">Assigned Stores (${stores.length})</h4>
+                            <h4 style="margin: 0 0 5px 0; color: #2d3748;">Assigned Stores (<span id="assigned-count">${stores.length}</span>)</h4>
                             <p style="margin: 0; font-size: 14px; color: #6b7280;">Stores this user can access</p>
                         </div>
-                        <button onclick="showAddStoreModal('${userId}')" class="btn btn-success">
-                            <i class="fas fa-plus"></i> Assign Store
-                        </button>
+                        <div style="display: flex; gap: 10px; align-items: center;">
+                            <div style="position: relative;">
+                                <i class="fas fa-search" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #9ca3af;"></i>
+                                <input type="text" placeholder="Search assigned stores..." 
+                                       style="padding: 8px 8px 8px 32px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; width: 200px;"
+                                       onkeyup="filterAssignedStores(this.value)">
+                            </div>
+                            <button onclick="showAddStoreModal('${userId}')" class="btn btn-success">
+                                <i class="fas fa-plus"></i> Assign Store
+                            </button>
+                        </div>
                     </div>
                 `;
                 
                 if (stores.length > 0) {
                     html += `
-                        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px;">
+                        <div id="assigned-stores-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px;">
                             ${stores.map(store => `
-                                <div style="background: white; border: 2px solid #e5e7eb; border-radius: 12px; padding: 20px;">
+                                <div class="assigned-store-card" style="background: white; border: 2px solid #e5e7eb; border-radius: 12px; padding: 20px; transition: all 0.2s;">
                                     <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px;">
-                                        <h4 style="margin: 0; color: #1f2937; font-size: 16px;">
+                                        <h4 class="store-name" style="margin: 0; color: #1f2937; font-size: 16px;">
                                             <i class="fas fa-store" style="color: #10b981; margin-right: 8px;"></i>
                                             ${escapeHtml(store.store_name || store.name)}
                                         </h4>
@@ -3181,8 +3189,8 @@ try {
                                             '<span style="padding: 4px 10px; background: #f8d7da; color: #721c24; border-radius: 12px; font-size: 12px; font-weight: 600;"><i class="fas fa-times-circle"></i> Inactive</span>'
                                         }
                                     </div>
-                                    <div style="font-size: 14px; color: #6b7280; margin-bottom: 12px;">
-                                        <div style="margin-bottom: 5px;">
+                                    <div class="store-details" style="font-size: 14px; color: #6b7280; margin-bottom: 12px;">
+                                        <div style="margin-bottom: 5px;" class="store-location">
                                             <i class="fas fa-map-marker-alt"></i> ${escapeHtml(store.city || 'N/A')}, ${escapeHtml(store.state || 'N/A')}
                                         </div>
                                         ${store.phone ? `<div><i class="fas fa-phone"></i> ${escapeHtml(store.phone)}</div>` : ''}
@@ -3192,6 +3200,11 @@ try {
                                     </button>
                                 </div>
                             `).join('')}
+                        </div>
+                        <div id="no-assigned-stores-found" style="display: none; text-align: center; padding: 40px; background: white; border-radius: 12px; border: 2px dashed #e5e7eb;">
+                            <i class="fas fa-search" style="font-size: 32px; color: #d1d5db; margin-bottom: 15px;"></i>
+                            <h3 style="margin: 0 0 5px 0; color: #4b5563;">No stores found</h3>
+                            <p style="margin: 0; color: #9ca3af;">No assigned stores match your search.</p>
                         </div>
                     `;
                 } else {
@@ -3205,6 +3218,30 @@ try {
                 }
                 
                 display.innerHTML = html;
+
+                // Add filter function for assigned stores
+                window.filterAssignedStores = function(query) {
+                    const term = query.toLowerCase();
+                    const cards = document.querySelectorAll('.assigned-store-card');
+                    let visible = 0;
+                    
+                    cards.forEach(card => {
+                        const name = card.querySelector('.store-name').textContent.toLowerCase();
+                        const location = card.querySelector('.store-location').textContent.toLowerCase();
+                        
+                        if (name.includes(term) || location.includes(term)) {
+                            card.style.display = 'block';
+                            visible++;
+                        } else {
+                            card.style.display = 'none';
+                        }
+                    });
+                    
+                    const noResults = document.getElementById('no-assigned-stores-found');
+                    if (noResults) {
+                        noResults.style.display = visible === 0 && cards.length > 0 ? 'block' : 'none';
+                    }
+                };
                 
             } catch (error) {
                 console.error('✗ Exception in loadUserStores:', error);
@@ -3222,20 +3259,37 @@ try {
         async function showAddStoreModal(userId) {
             // Show loading modal
             const loadingModal = document.createElement('div');
-            loadingModal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 10000; backdrop-filter: blur(4px);';
+            loadingModal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 10000; transition: opacity 0.2s;';
             loadingModal.innerHTML = `
-                <div style="background: white; padding: 40px; border-radius: 16px; text-align: center;">
-                    <i class="fas fa-spinner fa-spin" style="font-size: 32px; color: #10b981; margin-bottom: 16px;"></i>
-                    <div style="font-size: 16px; color: #6b7280;">Loading stores...</div>
+                <div style="background: white; padding: 30px; border-radius: 12px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.2);">
+                    <i class="fas fa-spinner fa-spin" style="font-size: 28px; color: #10b981; margin-bottom: 12px;"></i>
+                    <div style="font-size: 14px; color: #6b7280; font-weight: 500;">Loading available stores...</div>
                 </div>
             `;
             document.body.appendChild(loadingModal);
             
             try {
-                const response = await fetch(`profile/api.php?action=get_available_stores&user_id=${userId}`);
-                const data = await response.json();
+                // Determine correct API path based on current location
+                const apiPath = window.location.pathname.includes('modules/users') ? 'profile/api.php' : 'modules/users/profile/api.php';
+                console.log('Fetching available stores from:', apiPath);
                 
-                loadingModal.remove();
+                const response = await fetch(`${apiPath}?action=get_available_stores&user_id=${userId}`);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const text = await response.text();
+                let data;
+                try {
+                    data = JSON.parse(text);
+                } catch (e) {
+                    console.error('Invalid JSON response:', text);
+                    throw new Error('Server returned invalid JSON response');
+                }
+                
+                loadingModal.style.opacity = '0';
+                setTimeout(() => loadingModal.remove(), 200);
                 
                 if (!data.success) {
                     alert(data.error || 'Failed to load stores');
@@ -3252,70 +3306,198 @@ try {
                 // Create modal
                 const modal = document.createElement('div');
                 modal.className = 'store-modal-wrapper';
-                modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 10000; backdrop-filter: blur(4px);';
+                modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 10000; opacity: 0; transition: opacity 0.2s ease-out;';
                 modal.innerHTML = `
-                    <div style="background: white; border-radius: 16px; max-width: 600px; width: 90%; max-height: 85vh; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
-                        <div style="padding: 24px; border-bottom: 1px solid #e5e7eb;">
-                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div class="store-modal-content" style="background: white; border-radius: 16px; max-width: 600px; width: 90%; max-height: 85vh; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.3); transform: scale(0.95); transition: transform 0.2s ease-out;">
+                        <div style="padding: 20px; border-bottom: 1px solid #e5e7eb;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                                 <div>
-                                    <h3 style="margin: 0; font-size: 20px; color: #1f2937;">
-                                        <i class="fas fa-store" style="color: #10b981; margin-right: 10px;"></i>
+                                    <h3 style="margin: 0; font-size: 18px; color: #1f2937;">
+                                        <i class="fas fa-store" style="color: #10b981; margin-right: 8px;"></i>
                                         Assign Store Access
                                     </h3>
-                                    <p style="color: #6b7280; margin: 8px 0 0 0; font-size: 14px;">Select stores to grant access</p>
+                                    <p style="color: #6b7280; margin: 4px 0 0 0; font-size: 13px;">Select stores to grant access</p>
                                 </div>
-                                <button onclick="closeStoreModal()" style="background: #ef4444; color: white; border: none; width: 36px; height: 36px; border-radius: 50%; cursor: pointer;">
+                                <button onclick="closeStoreModal()" style="background: #f3f4f6; color: #6b7280; border: none; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background-color 0.2s;">
                                     <i class="fas fa-times"></i>
                                 </button>
                             </div>
+                            
+                            <div style="position: relative;">
+                                <i class="fas fa-search" style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: #9ca3af;"></i>
+                                <input type="text" id="store-search-input" placeholder="Search stores by name, city or state..." 
+                                       style="width: 100%; padding: 10px 10px 10px 36px; border: 1px solid #e5e7eb; border-radius: 8px; font-size: 14px; outline: none; transition: border-color 0.2s;"
+                                       onkeyup="filterStoreList(this.value)">
+                            </div>
                         </div>
                         
-                        <div style="padding: 20px; max-height: 50vh; overflow-y: auto;">
-                            <div id="store-count" style="margin-bottom: 12px; font-size: 13px; color: #6b7280;">
-                                <span id="selected-count">0</span> of ${availableStores.length} stores selected
+                        <div style="padding: 0 20px; max-height: 50vh; overflow-y: auto;" id="store-list-container">
+                            <div style="padding: 15px 0; position: sticky; top: 0; background: white; z-index: 10; border-bottom: 1px solid #f3f4f6; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
+                                <div id="store-count" style="font-size: 13px; color: #6b7280;">
+                                    <span id="selected-count" style="font-weight: 600; color: #10b981;">0</span> selected
+                                </div>
+                                <div style="font-size: 12px; color: #9ca3af;">
+                                    Showing <span id="visible-count">0</span> of ${availableStores.length}
+                                </div>
                             </div>
+                            
                             <div id="store-list">
-                                ${availableStores.map(store => `
-                                    <label style="display: flex; align-items: center; padding: 12px; background: #f9fafb; border: 2px solid #e5e7eb; border-radius: 8px; margin-bottom: 8px; cursor: pointer; transition: all 0.2s;" onchange="updateSelectedCount()">
-                                        <input type="checkbox" value="${store.id}" style="width: 18px; height: 18px; margin-right: 12px;" class="store-checkbox">
-                                        <div style="flex: 1;">
-                                            <div style="font-weight: 600; color: #1f2937;">${escapeHtml(store.name)}</div>
-                                            <div style="font-size: 13px; color: #6b7280;">${escapeHtml(store.city || 'N/A')}, ${escapeHtml(store.state || 'N/A')}</div>
-                                        </div>
-                                    </label>
-                                `).join('')}
+                                <!-- Stores will be rendered here -->
+                            </div>
+                            <div id="load-more-container" style="text-align: center; padding: 10px; display: none;">
+                                <button onclick="renderMoreStores()" style="background: #f3f4f6; border: none; padding: 8px 16px; border-radius: 20px; color: #4b5563; cursor: pointer; font-size: 13px;">Load More</button>
+                            </div>
+                            <div id="no-stores-found" style="display: none; text-align: center; padding: 30px 0; color: #9ca3af;">
+                                <i class="fas fa-search" style="font-size: 24px; margin-bottom: 10px; opacity: 0.5;"></i>
+                                <p style="margin: 0; font-size: 14px;">No stores found matching your search</p>
                             </div>
                         </div>
                         
                         <div style="padding: 20px; border-top: 1px solid #e5e7eb; background: #f9fafb; display: flex; gap: 12px; justify-content: flex-end;">
-                            <button onclick="closeStoreModal()" class="btn btn-secondary">
-                                <i class="fas fa-times"></i> Cancel
+                            <button onclick="closeStoreModal()" class="btn" style="background: white; border: 1px solid #d1d5db; color: #374151; padding: 8px 16px; border-radius: 6px;">
+                                Cancel
                             </button>
-                            <button onclick="assignSelectedStores('${userId}', this)" class="btn btn-success">
-                                <i class="fas fa-plus"></i> Assign Selected
+                            <button onclick="assignSelectedStores('${userId}', this)" class="btn" style="background: #10b981; color: white; border: none; padding: 8px 20px; border-radius: 6px; font-weight: 500; box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);">
+                                <i class="fas fa-plus" style="margin-right: 6px;"></i> Assign Selected
                             </button>
                         </div>
                     </div>
                 `;
                 document.body.appendChild(modal);
                 
+                // Store data globally for filtering/rendering
+                window._currentAvailableStores = availableStores;
+                window._renderedStoreCount = 0;
+                window._storeSearchQuery = '';
+                
+                // Add render batch function
+                window.renderStoreBatch = function() {
+                    const BATCH_SIZE = 50;
+                    const container = document.getElementById('store-list');
+                    const query = window._storeSearchQuery;
+                    
+                    let matches = window._currentAvailableStores;
+                    if (query) {
+                        matches = matches.filter(store => 
+                            store.name.toLowerCase().includes(query) || 
+                            (store.city && store.city.toLowerCase().includes(query)) || 
+                            (store.state && store.state.toLowerCase().includes(query))
+                        );
+                    }
+                    
+                    const totalMatches = matches.length;
+                    const start = window._renderedStoreCount;
+                    const end = Math.min(start + BATCH_SIZE, totalMatches);
+                    const batch = matches.slice(start, end);
+                    
+                    if (batch.length > 0) {
+                        const fragment = document.createDocumentFragment();
+                        batch.forEach(store => {
+                            const label = document.createElement('label');
+                            label.className = 'store-item';
+                            label.style.cssText = 'display: flex; align-items: center; padding: 10px; border: 1px solid #e5e7eb; border-radius: 8px; margin-bottom: 8px; cursor: pointer;';
+                            // Only add hover effect via CSS class to avoid inline style thrashing
+                            
+                            label.innerHTML = `
+                                <input type="checkbox" value="${store.id}" style="width: 16px; height: 16px; margin-right: 12px; accent-color: #10b981;" class="store-checkbox" onchange="updateSelectedCount(this)">
+                                <div style="flex: 1;">
+                                    <div class="store-name" style="font-weight: 600; color: #1f2937; font-size: 14px;">${escapeHtml(store.name)}</div>
+                                    <div class="store-location" style="font-size: 12px; color: #6b7280;">${escapeHtml(store.city || 'N/A')}, ${escapeHtml(store.state || 'N/A')}</div>
+                                </div>
+                            `;
+                            fragment.appendChild(label);
+                        });
+                        container.appendChild(fragment);
+                        window._renderedStoreCount = end;
+                    }
+                    
+                    // Update UI state
+                    document.getElementById('visible-count').textContent = window._renderedStoreCount;
+                    document.getElementById('no-stores-found').style.display = (totalMatches === 0) ? 'block' : 'none';
+                    
+                    // Show/hide load more button (infinite scroll trigger)
+                    const loadMoreContainer = document.getElementById('load-more-container');
+                    if (end < totalMatches) {
+                        loadMoreContainer.style.display = 'block';
+                        // Setup intersection observer for infinite scroll
+                        if (!window._storeObserver) {
+                            window._storeObserver = new IntersectionObserver((entries) => {
+                                if (entries[0].isIntersecting) {
+                                    renderStoreBatch();
+                                }
+                            }, { root: document.getElementById('store-list-container'), threshold: 0.1 });
+                            window._storeObserver.observe(loadMoreContainer);
+                        }
+                    } else {
+                        loadMoreContainer.style.display = 'none';
+                        if (window._storeObserver) {
+                            window._storeObserver.disconnect();
+                            window._storeObserver = null;
+                        }
+                    }
+                };
+
+                // Add filter function
+                window.filterStoreList = function(query) {
+                    window._storeSearchQuery = query.toLowerCase();
+                    window._renderedStoreCount = 0;
+                    document.getElementById('store-list').innerHTML = '';
+                    renderStoreBatch();
+                };
+
                 // Add count update function
-                window.updateSelectedCount = function() {
+                window.updateSelectedCount = function(checkbox) {
                     const selected = document.querySelectorAll('.store-checkbox:checked').length;
                     document.getElementById('selected-count').textContent = selected;
+                    
+                    if (checkbox) {
+                        const item = checkbox.closest('.store-item');
+                        if (checkbox.checked) {
+                            item.style.borderColor = '#10b981';
+                            item.style.backgroundColor = '#ecfdf5';
+                        } else {
+                            item.style.borderColor = '#e5e7eb';
+                            item.style.backgroundColor = 'transparent';
+                        }
+                    }
                 };
+
+                window.renderMoreStores = function() {
+                    renderStoreBatch();
+                };
+                
+                // Initial render (limit to 50)
+                renderStoreBatch();
+                
+                // Trigger animation
+                requestAnimationFrame(() => {
+                    modal.style.opacity = '1';
+                    modal.querySelector('.store-modal-content').style.transform = 'scale(1)';
+                });
+                
+                // Focus search input
+                setTimeout(() => document.getElementById('store-search-input').focus(), 100);
                 
             } catch (error) {
                 loadingModal.remove();
                 console.error('Error:', error);
-                alert('Failed to load stores');
+                alert('Failed to load stores: ' + error.message);
             }
         }
         
         function closeStoreModal() {
             const modal = document.querySelector('.store-modal-wrapper');
             if (modal) {
-                modal.remove();
+                modal.style.opacity = '0';
+                const content = modal.querySelector('.store-modal-content');
+                if (content) content.style.transform = 'scale(0.95)';
+                
+                if (window._storeObserver) {
+                    window._storeObserver.disconnect();
+                    window._storeObserver = null;
+                }
+                
+                setTimeout(() => modal.remove(), 200);
             }
         }
         

@@ -709,11 +709,11 @@ $page_title = 'User Roles & Permissions Management';
         
         .modal-content {
             background: white;
-            padding: 35px;
-            border-radius: 20px;
-            max-width: 700px;
-            width: 90%;
-            max-height: 85vh;
+            padding: 25px;
+            border-radius: 15px;
+            max-width: 1000px;
+            width: 95%;
+            max-height: 90vh;
             overflow-y: auto;
             box-shadow: 0 20px 60px rgba(0,0,0,0.3);
             animation: modalSlideIn 0.3s ease;
@@ -799,51 +799,52 @@ $page_title = 'User Roles & Permissions Management';
         
         .permissions-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-            gap: 15px;
-            margin-top: 20px;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 10px;
+            margin-top: 15px;
         }
         
         .permission-card {
             background: #f8f9fa;
-            padding: 20px;
-            border-radius: 12px;
-            border: 2px solid #e0e0e0;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
             transition: all 0.3s;
         }
         
         .permission-card:hover {
             border-color: #667eea;
-            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.15);
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.15);
         }
         
         .permission-card label {
             display: flex;
             align-items: flex-start;
-            gap: 12px;
+            gap: 8px;
             cursor: pointer;
         }
         
         .permission-card input[type="checkbox"] {
-            width: 22px;
-            height: 22px;
+            width: 16px;
+            height: 16px;
             margin-top: 2px;
             cursor: pointer;
         }
         
         .permission-info h4 {
-            font-size: 1rem;
+            font-size: 0.9rem;
             color: #2c3e50;
-            margin-bottom: 5px;
+            margin-bottom: 3px;
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
         }
         
         .permission-info p {
-            font-size: 0.85rem;
+            font-size: 0.75rem;
             color: #7f8c8d;
-            line-height: 1.4;
+            line-height: 1.3;
+            margin-bottom: 0;
         }
         
         .permission-category {
@@ -852,7 +853,10 @@ $page_title = 'User Roles & Permissions Management';
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 1px;
-            margin-bottom: 12px;
+            margin-bottom: 5px;
+            margin-top: 10px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 5px;
         }
         
         .modal-footer {
