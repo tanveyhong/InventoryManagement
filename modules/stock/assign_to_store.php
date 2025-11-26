@@ -86,7 +86,7 @@ foreach ($candidates as $cand) {
     // Check 3: Store Name Suffixes
     if (isset($storeMap[$sid])) {
         $storeName = $storeMap[$sid];
-        $sanitized = strtoupper(preg_replace('/[^a-zA-Z0-9]/', '', $storeName));
+        $sanitized = strtoupper(preg_replace('/[^a-zA-Z0-9]/', '', htmlspecialchars_decode($storeName)));
         
         if (!empty($sanitized)) {
             if ($candSku === $mainSku . '-POS-' . $sanitized) {
@@ -137,7 +137,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             // Create store variant SKU (Format: SKU-STORENAME or SKU-POS-STORENAME)
             $storeNameRaw = $store['name'];
-            $storeSuffix = strtoupper(preg_replace('/[^a-zA-Z0-9]/', '', $storeNameRaw));
+            $storeSuffix = strtoupper(preg_replace('/[^a-zA-Z0-9]/', '', htmlspecialchars_decode($storeNameRaw)));
             if (empty($storeSuffix)) $storeSuffix = 'S' . $store_id;
             
             // If store has POS enabled, use POS SKU format

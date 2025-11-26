@@ -58,10 +58,12 @@ try {
         SELECT 
             s.*,
             u.username as cashier_name,
-            COUNT(si.id) as item_count
+            COUNT(si.id) as item_count,
+            GROUP_CONCAT(CONCAT(COALESCE(p.name, 'Unknown Item'), ' (x', si.quantity, ')') SEPARATOR ', ') as item_details
         FROM sales s
         LEFT JOIN users u ON s.user_id = u.id
         LEFT JOIN sale_items si ON s.id = si.sale_id
+        LEFT JOIN products p ON si.product_id = p.id
         GROUP BY s.id
         ORDER BY s.created_at DESC
         LIMIT 20
@@ -432,7 +434,10 @@ try {
                                     <?php echo htmlspecialchars($transaction['cashier_name'] ?? 'N/A'); ?>
                                 </td>
                                 <td>
-                                    <?php echo $transaction['item_count']; ?> items
+                                    <div style="font-size: 13px; max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="<?php echo htmlspecialchars($transaction['item_details'] ?? ''); ?>">
+                                        <?php echo htmlspecialchars($transaction['item_details'] ?? ''); ?>
+                                    </div>
+                                    <small style="color: #95a5a6;"><?php echo $transaction['item_count']; ?> items</small>
                                 </td>
                                 <td>
                                     <?php

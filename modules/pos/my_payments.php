@@ -48,12 +48,15 @@ $where_clause = implode(' AND ', $where_conditions);
 // Get transactions
 $transactions = [];
 try {
+    // Use STRING_AGG for PostgreSQL compatibility instead of GROUP_CONCAT
     $transactions = $db->fetchAll("
         SELECT 
             s.*,
-            COUNT(si.id) as item_count
+            COUNT(si.id) as item_count,
+            STRING_AGG(COALESCE(p.name, 'Unknown Item') || ' (x' || CAST(si.quantity AS TEXT) || ')', ', ') as item_details
         FROM sales s
         LEFT JOIN sale_items si ON s.id = si.sale_id
+        LEFT JOIN products p ON si.product_id = p.id
         WHERE $where_clause
         GROUP BY s.id
         ORDER BY s.created_at DESC
@@ -354,7 +357,22 @@ $page_title = "My Payment Data";
                                 <td><?php echo date('M d, Y h:i A', strtotime($txn['created_at'])); ?></td>
                                 <td><strong><?php echo htmlspecialchars($txn['sale_number']); ?></strong></td>
                                 <td><?php echo htmlspecialchars($txn['customer_name'] ?? 'Walk-in'); ?></td>
-                                <td><?php echo intval($txn['item_count']); ?> items</td>
+                                <td>
+                                    <div style="font-size: 14px; color: #2c3e50; max-width: 250px; line-height: 1.4;">
+                                        <?php 
+                                        $details = $txn['item_details'] ?? '';
+                                        if (strlen($details) > 50) {
+                                            echo htmlspecialchars(substr($details, 0, 50)) . '...';
+                                            echo '<div style="font-size: 11px; color: #3498db; cursor: help;" title="' . htmlspecialchars($details) . '">Hover for full list</div>';
+                                        } else {
+                                            echo htmlspecialchars($details);
+                                        }
+                                        ?>
+                                    </div>
+                                    <div style="font-size: 11px; color: #95a5a6; margin-top: 2px;">
+                                        <?php echo intval($txn['item_count']); ?> items total
+                                    </div>
+                                </td>
                                 <td>
                                     <span class="badge <?php echo $txn['payment_method']; ?>">
                                         <?php 

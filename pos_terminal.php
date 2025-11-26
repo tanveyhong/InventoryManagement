@@ -70,7 +70,7 @@ if (isset($_POST['action'])) {
                 }
                 
                 $discount_amount = ($subtotal * $discount) / 100;
-                $tax_amount = (($subtotal - $discount_amount) * 0.1); // 10% tax
+                $tax_amount = 0; // Tax removed
                 $total_amount = $subtotal - $discount_amount + $tax_amount;
                 
                 // Create transaction
@@ -527,10 +527,12 @@ $recent_transactions = $db->fetchAll("
                     <span>Discount:</span>
                     <span id="discountAmount">$0.00</span>
                 </div>
+                <!-- Tax removed
                 <div class="total-line">
                     <span>Tax (10%):</span>
                     <span id="taxAmount">$0.00</span>
                 </div>
+                -->
                 <div class="total-line grand-total">
                     <span>Total:</span>
                     <span id="grandTotal">$0.00</span>
@@ -699,12 +701,12 @@ $recent_transactions = $db->fetchAll("
             const subtotal = cart.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0);
             const discountAmount = (subtotal * discount) / 100;
             const taxableAmount = subtotal - discountAmount;
-            const taxAmount = taxableAmount * 0.1; // 10% tax
+            const taxAmount = 0; // Tax removed
             const grandTotal = taxableAmount + taxAmount;
             
             document.getElementById('subtotal').textContent = '$' + subtotal.toFixed(2);
             document.getElementById('discountAmount').textContent = '$' + discountAmount.toFixed(2);
-            document.getElementById('taxAmount').textContent = '$' + taxAmount.toFixed(2);
+            // document.getElementById('taxAmount').textContent = '$' + taxAmount.toFixed(2);
             document.getElementById('grandTotal').textContent = '$' + grandTotal.toFixed(2);
         }
         

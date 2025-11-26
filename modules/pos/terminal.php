@@ -65,11 +65,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 error_log("=== LOADING PRODUCTS FOR STORE $user_store_id ===");
                 
                 // Load products assigned to THIS store only
-                $sql = "SELECT id, name, sku, barcode, category, price, selling_price, quantity, store_id
+                // Removed quantity > 0 check to allow seeing out-of-stock items
+                // Removed active = true check to allow seeing all assigned items (user can manage status in backend)
+                $sql = "SELECT id, name, sku, barcode, category, price, selling_price, quantity, store_id, active
                         FROM products 
-                        WHERE active = true
-                        AND quantity > 0
-                        AND store_id = ?
+                        WHERE store_id = ?
+                        AND deleted_at IS NULL
                         ORDER BY name 
                         LIMIT 500";
                 
@@ -95,7 +96,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         'quantity' => intval($p['quantity'] ?? 0),
                         'category' => $p['category'] ?? 'Uncategorized',
                         'barcode' => $p['barcode'] ?? '',
-                        'store_id' => $p['store_id']
+                        'store_id' => $p['store_id'],
+                        'active' => (bool)($p['active'] ?? false)
                     ];
                 }
                 
@@ -194,7 +196,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     ];
                 }
                 
-                $tax = $subtotal * 0.06; // 6% tax
+                $tax = 0; // Tax removed
                 $total = $subtotal + $tax;
                 $change = $amount_paid - $total;
                 
@@ -1084,10 +1086,12 @@ $page_title = 'POS Terminal - Inventory System';
                     <span>Subtotal:</span>
                     <span id="subtotal">RM 0.00</span>
                 </div>
+                <!-- Tax removed
                 <div class="summary-row">
                     <span>Tax (6%):</span>
                     <span id="tax">RM 0.00</span>
                 </div>
+                -->
                 <div class="summary-row total">
                     <span>TOTAL:</span>
                     <span id="total">RM 0.00</span>
@@ -1208,10 +1212,16 @@ $page_title = 'POS Terminal - Inventory System';
             const gridHtml = filteredProducts.length > 0 
                 ? filteredProducts.map(product => `
                     <div class="product-card ${product.quantity <= 0 ? 'out-of-stock' : ''}" 
-                         onclick="addToCart('${product.id}')">
-                        <div class="product-name">${escapeHtml(product.name)}</div>
+                         onclick="addToCart('${product.id}')" 
+                         style="${!product.active ? 'opacity: 0.7; border: 1px dashed #ccc;' : ''}">
+                        <div class="product-name">
+                            ${escapeHtml(product.name)}
+                            ${!product.active ? '<small style="color: #e74c3c;">(Inactive)</small>' : ''}
+                        </div>
                         <div class="product-price">RM ${product.price.toFixed(2)}</div>
-                        <div class="product-stock">Stock: ${product.quantity}</div>
+                        <div class="product-stock" style="${product.quantity <= 0 ? 'color: #e74c3c;' : ''}">
+                            Stock: ${product.quantity}
+                        </div>
                         ${product.sku ? `<div style="font-size: 11px; color: #95a5a6;">SKU: ${escapeHtml(product.sku)}</div>` : ''}
                     </div>
                 `).join('')
@@ -1378,11 +1388,11 @@ $page_title = 'POS Terminal - Inventory System';
         // Update totals
         function updateTotals() {
             const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-            const tax = subtotal * 0.06; // 6% tax
+            const tax = 0; // Tax removed
             const total = subtotal + tax;
             
             document.getElementById('subtotal').textContent = 'RM ' + subtotal.toFixed(2);
-            document.getElementById('tax').textContent = 'RM ' + tax.toFixed(2);
+            // document.getElementById('tax').textContent = 'RM ' + tax.toFixed(2);
             document.getElementById('total').textContent = 'RM ' + total.toFixed(2);
         }
         
@@ -1391,7 +1401,7 @@ $page_title = 'POS Terminal - Inventory System';
             if (cart.length === 0) return;
             
             const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-            const tax = subtotal * 0.06;
+            const tax = 0; // Tax removed
             const total = subtotal + tax;
             
             let modalContent = '';
@@ -1519,7 +1529,7 @@ $page_title = 'POS Terminal - Inventory System';
         }
         
         function calculateChange() {
-            const total = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0) * 1.06;
+            const total = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0); // Tax removed
             const amountPaid = parseFloat(document.getElementById('cashAmount').value) || 0;
             const change = amountPaid - total;
             
@@ -1542,7 +1552,7 @@ $page_title = 'POS Terminal - Inventory System';
             console.log('=== PAYMENT VALIDATION & SALE COMPLETION ===');
             
             const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-            const tax = subtotal * 0.06;
+            const tax = 0; // Tax removed
             const total = subtotal + tax;
             
             let amountPaid = total;
@@ -1624,7 +1634,7 @@ $page_title = 'POS Terminal - Inventory System';
             let confirmMessage = '=== SALE CONFIRMATION ===\n\n';
             confirmMessage += `Items: ${cart.length}\n`;
             confirmMessage += `Subtotal: RM ${subtotal.toFixed(2)}\n`;
-            confirmMessage += `Tax (6%): RM ${tax.toFixed(2)}\n`;
+            // confirmMessage += `Tax (6%): RM ${tax.toFixed(2)}\n`;
             confirmMessage += `Total: RM ${total.toFixed(2)}\n\n`;
             confirmMessage += `Payment: ${paymentDetails.method}\n`;
             
