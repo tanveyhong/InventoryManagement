@@ -66,6 +66,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $notes = $_POST['notes'];
     $batch_ids_str = $_POST['batch_product_ids'] ?? '';
 
+    if (empty($supplier_id)) {
+        die('Error: Supplier is required.');
+    }
+
     // Generate PO Number
     $po_number = 'PO-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -4));
 
@@ -199,7 +203,7 @@ $default_notes .= "\nPlease include packing slip with delivery.";
 
                             <div class="form-group">
                                 <label>Expected Date</label>
-                                <input type="date" name="expected_date" class="form-control" value="<?php echo date('Y-m-d', strtotime('+1 day')); ?>">
+                                <input type="date" name="expected_date" class="form-control" value="<?php echo date('Y-m-d', strtotime('+1 day')); ?>" min="<?php echo date('Y-m-d'); ?>">
                                 <small style="color: #6c757d;">Auto-set to tomorrow</small>
                             </div>
 
@@ -218,5 +222,14 @@ $default_notes .= "\nPlease include packing slip with delivery.";
             </div>
         </main>
     </div>
+    <script>
+        document.querySelector('.product-form').addEventListener('submit', function(e) {
+            const supplier = document.querySelector('select[name="supplier_id"]').value;
+            if (!supplier) {
+                e.preventDefault();
+                alert('Please select a supplier.');
+            }
+        });
+    </script>
 </body>
 </html>

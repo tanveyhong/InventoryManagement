@@ -66,17 +66,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $product_id = $_POST['product_id'];
         $quantity = (int)$_POST['quantity'];
         $unit_cost = (float)$_POST['unit_cost'];
-        $total_cost = $quantity * $unit_cost;
+        
+        if ($quantity <= 0) {
+            $_SESSION['error'] = "Quantity must be greater than 0.";
+        } elseif ($unit_cost < 0) {
+            $_SESSION['error'] = "Unit cost cannot be negative.";
+        } else {
+            $total_cost = $quantity * $unit_cost;
 
-        $sqlDb->execute(
-            "INSERT INTO purchase_order_items (po_id, product_id, quantity, unit_cost, total_cost) VALUES (?, ?, ?, ?, ?)",
-            [$id, $product_id, $quantity, $unit_cost, $total_cost]
-        );
-        
-        // Update PO Total
-        $sqlDb->execute("UPDATE purchase_orders SET total_amount = (SELECT SUM(total_cost) FROM purchase_order_items WHERE po_id = ?) WHERE id = ?", [$id, $id]);
-        
-        logActivity('po_item_added', "Added item to PO #$id", ['po_id' => $id, 'product_id' => $product_id]);
+            $sqlDb->execute(
+                "INSERT INTO purchase_order_items (po_id, product_id, quantity, unit_cost, total_cost) VALUES (?, ?, ?, ?, ?)",
+                [$id, $product_id, $quantity, $unit_cost, $total_cost]
+            );
+            
+            // Update PO Total
+            $sqlDb->execute("UPDATE purchase_orders SET total_amount = (SELECT SUM(total_cost) FROM purchase_order_items WHERE po_id = ?) WHERE id = ?", [$id, $id]);
+            
+            logActivity('po_item_added', "Added item to PO #$id", ['po_id' => $id, 'product_id' => $product_id]);
+        }
+        header("Location: edit.php?id=$id");
+        exit;
     }
     elseif ($action === 'delete_item') {
         $item_id = $_POST['item_id'];
@@ -1328,138 +1337,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </script>
 
     <script>
-        // Toggle rejection details
-        document.addEventListener('DOMContentLoaded', function() {
-            const rejectedInputs = document.querySelectorAll('.rejected-input');
-            
-            rejectedInputs.forEach(input => {
-                input.addEventListener('input', function() {
-                    const itemId = this.dataset.itemId;
-                    const val = parseInt(this.value) || 0;
-                    const detailsDiv = document.getElementById('rejection-details-' + itemId);
-                    
-                    if (detailsDiv) {
-                        detailsDiv.style.display = val > 0 ? 'block' : 'none';
-                        
-                        // If hidden, clear values? Maybe not, in case they toggle back.
-                        // But if they submit 0 rejected, we ignore the details anyway.
-                    }
-                });
-            });
-        });
-    </script>
+        // Validate Add Item Form
+        const addItemForm = document.querySelector('form input[value="add_item"]');
+        if (addItemForm) {
+            addItemForm.closest('form').addEventListener('submit', function(e) {
+                const product = this.querySelector('select[name="product_id"]').value;
+                const qty = this.querySelector('input[name="quantity"]').value;
+                const cost = this.querySelector('input[name="unit_cost"]').value;
 
-    <script>
-        // Auto-calculate rejected quantity based on Receive input
-        document.addEventListener('DOMContentLoaded', function() {
-            const receiveInputs = document.querySelectorAll('.receive-input');
-            
-            receiveInputs.forEach(input => {
-                // Handle empty input on blur -> set to 0
-                input.addEventListener('blur', function() {
-                    if (this.value.trim() === '') {
-                        this.value = 0;
-                        this.dispatchEvent(new Event('input'));
-                    }
-                });
-
-                input.addEventListener('input', function() {
-                    const itemId = this.dataset.itemId;
-                    const max = parseInt(this.getAttribute('max')) || 0;
-                    let receive = parseInt(this.value);
-                    
-                    if (isNaN(receive)) receive = 0;
-                    
-                    // Auto-calculate rejected: Anything not received is considered rejected
-                    let rejected = max - receive;
-                    if (rejected < 0) rejected = 0;
-                    
-                    const rejectedInput = document.querySelector(`.rejected-input[data-item-id="${itemId}"]`);
-                    if (rejectedInput) {
-                        rejectedInput.value = rejected;
-                        // Trigger input event to update details visibility
-                        rejectedInput.dispatchEvent(new Event('input'));
-                    }
-                });
-                
-                // Initialize
-                input.dispatchEvent(new Event('input'));
+                if (!product) {
+                    e.preventDefault();
+                    alert('Please select a product.');
+                    return;
+                }
+                if (qty <= 0) {
+                    e.preventDefault();
+                    alert('Quantity must be greater than 0.');
+                    return;
+                }
+                if (cost < 0) {
+                    e.preventDefault();
+                    alert('Unit cost cannot be negative.');
+                    return;
+                }
             });
-        });
-    </script>
-
-    <script>
-        // Handle File Upload Previews
-        document.addEventListener('DOMContentLoaded', function() {
-            const fileInputs = document.querySelectorAll('.rejection-file-input');
-            
-            fileInputs.forEach(input => {
-                // Initialize DataTransfer for this input to support adding/removing
-                input.dt = new DataTransfer();
-                
-                input.addEventListener('change', function(e) {
-                    const itemId = this.dataset.itemId;
-                    const container = document.getElementById('preview-container-' + itemId);
-                    const newFiles = Array.from(this.files);
-                    
-                    // Add new files to our DataTransfer object
-                    newFiles.forEach(file => {
-                        // Check for duplicates based on name and size
-                        let exists = false;
-                        for (let i = 0; i < this.dt.items.length; i++) {
-                            if (this.dt.items[i].getAsFile().name === file.name && 
-                                this.dt.items[i].getAsFile().size === file.size) {
-                                exists = true;
-                                break;
-                            }
-                        }
-                        
-                        if (!exists) {
-                            this.dt.items.add(file);
-                            
-                            // Create Preview UI
-                            const div = document.createElement('div');
-                            div.className = 'preview-item';
-                            div.style.cssText = 'position: relative; width: 40px; height: 40px; border: 1px solid #ddd; border-radius: 4px; overflow: hidden; background: #f8f9fa;';
-                            
-                            const img = document.createElement('img');
-                            img.style.cssText = 'width: 100%; height: 100%; object-fit: cover;';
-                            
-                            const reader = new FileReader();
-                            reader.onload = function(e) {
-                                img.src = e.target.result;
-                            };
-                            reader.readAsDataURL(file);
-                            
-                            const btn = document.createElement('button');
-                            btn.innerHTML = '&times;';
-                            btn.type = 'button';
-                            btn.style.cssText = 'position: absolute; top: 0; right: 0; background: rgba(220, 53, 69, 0.8); color: white; border: none; width: 14px; height: 14px; font-size: 10px; line-height: 1; cursor: pointer; padding: 0; display: flex; align-items: center; justify-content: center;';
-                            btn.onclick = function() {
-                                // Remove file from DataTransfer
-                                const newDt = new DataTransfer();
-                                for (let i = 0; i < input.dt.items.length; i++) {
-                                    const f = input.dt.items[i].getAsFile();
-                                    if (f !== file) {
-                                        newDt.items.add(f);
-                                    }
-                                }
-                                input.dt = newDt;
-                                input.files = input.dt.files;
-                                div.remove();
-                            };
-                            
-                            div.appendChild(img);
-                            div.appendChild(btn);
-                            container.appendChild(div);
-                        }
-                    });
-                    
-                    // Update the input's files to match our accumulated list
-                    this.files = this.dt.files;
-                });
-            });
-        });
+        }
     </script>
 </body>
 </html>

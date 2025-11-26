@@ -40,6 +40,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (empty($name)) {
         $error = 'Supplier name is required.';
+    } elseif (!empty($email) && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $error = 'Invalid email format.';
     } else {
         try {
             $sqlDb->execute(
@@ -130,5 +132,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
         </main>
     </div>
+
+    <script>
+        document.querySelector('.product-form').addEventListener('submit', function(e) {
+            const name = document.querySelector('input[name="name"]').value.trim();
+            const email = document.querySelector('input[name="email"]').value.trim();
+            
+            if (!name) {
+                e.preventDefault();
+                alert('Supplier name is required.');
+                return;
+            }
+            
+            if (email && !email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
+                e.preventDefault();
+                alert('Please enter a valid email address.');
+                return;
+            }
+        });
+    </script>
 </body>
 </html>
