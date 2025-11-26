@@ -297,6 +297,79 @@ try {
             
             echo json_encode(['success' => true, 'data' => $userData, 'source' => 'postgresql']);
             break;
+
+        case 'restore_user':
+            // Restore a soft-deleted user
+            $input = json_decode(file_get_contents('php://input'), true);
+            $targetUserId = $input['user_id'] ?? null;
+            
+            if (!$targetUserId) {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'error' => 'User ID required']);
+                exit;
+            }
+            
+            // Check permission
+            $currentUser = $sqlDb->fetch("SELECT * FROM users WHERE id = ? OR firebase_id = ?", [$userId, $userId]);
+            $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
+            $canManageUsers = currentUserHasPermission('can_manage_users');
+            
+            if (!$isAdmin && !$canManageUsers) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'error' => 'Permission denied']);
+                exit;
+            }
+            
+            // Update user
+            $result = $sqlDb->execute("UPDATE users SET deleted_at = NULL WHERE id = ? OR firebase_id = ?", [$targetUserId, $targetUserId]);
+            
+            if ($result) {
+                logActivity('user_restored', "Restored user ID: $targetUserId", ['target_user_id' => $targetUserId]);
+                echo json_encode(['success' => true, 'message' => 'User restored successfully']);
+            } else {
+                echo json_encode(['success' => false, 'error' => 'Failed to restore user']);
+            }
+            break;
+
+        case 'soft_delete_user':
+            // Soft delete a user
+            $input = json_decode(file_get_contents('php://input'), true);
+            $targetUserId = $input['user_id'] ?? null;
+            
+            if (!$targetUserId) {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'error' => 'User ID required']);
+                exit;
+            }
+            
+            // Check permission
+            $currentUser = $sqlDb->fetch("SELECT * FROM users WHERE id = ? OR firebase_id = ?", [$userId, $userId]);
+            $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
+            $canManageUsers = currentUserHasPermission('can_manage_users');
+            
+            if (!$isAdmin && !$canManageUsers) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'error' => 'Permission denied']);
+                exit;
+            }
+            
+            // Prevent deleting yourself
+            if ($targetUserId == $userId) {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'error' => 'Cannot delete your own account']);
+                exit;
+            }
+            
+            // Update user
+            $result = $sqlDb->execute("UPDATE users SET deleted_at = NOW() WHERE id = ? OR firebase_id = ?", [$targetUserId, $targetUserId]);
+            
+            if ($result) {
+                logActivity('user_deleted', "Soft deleted user ID: $targetUserId", ['target_user_id' => $targetUserId]);
+                echo json_encode(['success' => true, 'message' => 'User deleted successfully']);
+            } else {
+                echo json_encode(['success' => false, 'error' => 'Failed to delete user']);
+            }
+            break;
             
         case 'export_activities':
             $format = $_GET['format'] ?? 'csv';
