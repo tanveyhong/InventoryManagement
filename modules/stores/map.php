@@ -138,9 +138,10 @@ try {
     }
 }
 
-// If still no data, show error
+// If still no data, show message instead of error
 if (empty($all_stores)) {
-    die('Unable to load store data. Please check your connection and try again.');
+    $message = 'No stores found. You may not have access to any stores.';
+    $messageType = 'info';
 }
 
 // Calculate statistics
@@ -627,9 +628,11 @@ $page_title = 'Interactive Store Map - Inventory System';
                 <a href="../../index.php" class="btn btn-outline">
                     <i class="fas fa-home"></i> Dashboard
                 </a>
+                <?php if (currentUserHasPermission('can_add_stores')): ?>
                 <a href="add.php" class="btn">
                     <i class="fas fa-plus"></i> Add
                 </a>
+                <?php endif; ?>
                 <a href="list.php" class="btn btn-secondary">
                     <i class="fas fa-list"></i> List
                 </a>
@@ -740,6 +743,7 @@ $page_title = 'Interactive Store Map - Inventory System';
         // Store data from PHP
         const storesData = <?php echo json_encode($all_stores); ?>;
         const regionsData = <?php echo json_encode($regions); ?>;
+        const canEditStores = <?php echo currentUserHasPermission('can_edit_stores') ? 'true' : 'false'; ?>;
         
         // Map and layer variables
         let map;
@@ -889,6 +893,7 @@ $page_title = 'Interactive Store Map - Inventory System';
                                 ${store.opening_hours && store.closing_hours ? `<p><i class="fas fa-clock"></i> ${store.opening_hours} - ${store.closing_hours}</p>` : ''}
                                 <div class="popup-actions">
                                     <button onclick="viewStore(${store.id})" class="btn popup-btn"><i class="fas fa-eye"></i> View</button>
+                                    ${canEditStores ? `<button onclick="editStore(${store.id})" class="btn btn-warning popup-btn" style="background: #ffedd5; color: #c2410c;"><i class="fas fa-edit"></i> Edit</button>` : ''}
                                     <button onclick="viewInventory(${store.id})" class="btn btn-secondary popup-btn"><i class="fas fa-boxes"></i> Inventory</button>
                                 </div>
                             </div>
@@ -919,6 +924,11 @@ $page_title = 'Interactive Store Map - Inventory System';
         // View store profile
         function viewStore(storeId) {
             window.location.href = 'profile.php?id=' + storeId;
+        }
+
+        // Edit store
+        function editStore(storeId) {
+            window.location.href = 'edit.php?id=' + storeId;
         }
         
         // View store inventory

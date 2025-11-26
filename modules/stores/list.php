@@ -110,6 +110,22 @@ $pagination = [
     'has_next' => $page < $total_pages
 ];
 
+// Handle AJAX request
+if (isset($_GET['ajax'])) {
+    ob_start();
+    include 'list_content.php';
+    $html = ob_get_clean();
+    
+    header('Content-Type: application/json');
+    echo json_encode([
+        'html' => $html,
+        'total_records' => $total_records,
+        'total_products' => array_sum(array_column($stores, 'product_count')),
+        'total_stock' => array_sum(array_column($stores, 'total_stock'))
+    ]);
+    exit;
+}
+
 // HTTP caching headers
 header('Cache-Control: private, max-age=60'); // Cache for 1 minute
 header('Vary: Cookie');
@@ -407,17 +423,28 @@ $page_title = 'Store Management - Inventory System';
             gap: 10px;
         }
         
+        .btn-view, .btn-edit, .btn-inventory, .btn-delete {
+            text-align: center;
+            padding: 12px 10px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-size: 13px;
+            font-weight: 600;
+            transition: all 0.2s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            height: 100%;
+            border: none;
+            cursor: pointer;
+            width: 100%;
+        }
+
         .btn-view {
             background: var(--primary);
             color: white;
-            text-align: center;
-            padding: 10px;
-            border-radius: 8px;
-            text-decoration: none;
-            font-size: 14px;
-            font-weight: 600;
-            transition: all 0.2s;
-            display: block;
         }
         
         .btn-view:hover {
@@ -427,17 +454,6 @@ $page_title = 'Store Management - Inventory System';
         .btn-delete {
             background: #fee2e2;
             color: #ef4444;
-            text-align: center;
-            padding: 10px;
-            border-radius: 8px;
-            text-decoration: none;
-            font-size: 14px;
-            font-weight: 600;
-            transition: all 0.2s;
-            display: block;
-            border: none;
-            cursor: pointer;
-            width: 100%;
         }
         
         .btn-delete:hover {
@@ -448,30 +464,30 @@ $page_title = 'Store Management - Inventory System';
         .btn-inventory {
             background: #d1fae5;
             color: #059669;
-            text-align: center;
-            padding: 10px;
-            border-radius: 8px;
-            text-decoration: none;
-            font-size: 14px;
-            font-weight: 600;
-            transition: all 0.2s;
-            display: block;
         }
 
         .btn-inventory:hover {
             background: #059669;
             color: white;
         }
+
+        .btn-edit {
+            background: #ffedd5;
+            color: #c2410c;
+        }
+
+        .btn-edit:hover {
+            background: #c2410c;
+            color: white;
+        }
         
         .store-actions {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
             gap: 10px;
         }
 
-        .store-actions.has-delete {
-            grid-template-columns: 1fr 1fr 1fr;
-        }
+        /* .store-actions.has-delete removed as auto-fit handles it */
         
         .pagination {
             background: var(--surface);
@@ -530,57 +546,150 @@ $page_title = 'Store Management - Inventory System';
             box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
         }
 
-        /* List Layout Styles */
-        .stores-grid.layout-list {
-            grid-template-columns: 1fr;
-            gap: 10px;
-        }
-        
-        .stores-grid.layout-list .store-card {
-            flex-direction: row;
-            align-items: center;
-            gap: 20px;
+        /* List Layout Styles - REFACTORED FOR TABLE LOOK */
+        /* List View Headers */
+        .list-headers {
+            display: none; /* Hidden in grid view */
+            grid-template-columns: 1.5fr 2fr 1.5fr 1fr 1fr 0.8fr 1.2fr 260px;
+            gap: 15px;
             padding: 15px 25px;
-        }
-        
-        .stores-grid.layout-list .store-header {
-            border-bottom: none;
+            background: #f8fafc;
+            border-bottom: 1px solid var(--border);
+            border-radius: 12px 12px 0 0;
+            font-weight: 600;
+            color: var(--text-light);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
             margin-bottom: 0;
-            padding-bottom: 0;
-            width: 250px;
-            flex-shrink: 0;
-            flex-direction: column;
-            align-items: flex-start;
-            gap: 5px;
         }
-        
-        .stores-grid.layout-list .store-info {
-            margin-bottom: 0;
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px 30px;
-            flex-grow: 1;
+
+        .list-headers > div {
+            display: flex;
+            align-items: center;
         }
-        
-        .stores-grid.layout-list .store-stats {
-            margin-bottom: 0;
-            width: 200px;
-            flex-shrink: 0;
-            background: transparent;
-            padding: 0;
-            border: none;
-        }
-        
-        .stores-grid.layout-list .store-actions {
-            width: 150px;
-            flex-shrink: 0;
+
+        /* List View Layout Overrides */
+        .stores-grid.layout-list {
             display: flex;
             flex-direction: column;
-            gap: 5px;
+            gap: 0;
+            background: white;
+            border-radius: 0 0 12px 12px;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+            margin-top: 0;
+        }
+
+        .stores-grid.layout-list .store-card {
+            display: grid;
+            grid-template-columns: 1.5fr 2fr 1.5fr 1fr 1fr 0.8fr 1.2fr 260px;
+            gap: 15px;
+            padding: 15px 25px;
+            border-radius: 0;
+            box-shadow: none;
+            border: none;
+            border-bottom: 1px solid var(--border);
+            align-items: center;
+            flex-direction: row; /* Reset flex direction */
+        }
+
+        .stores-grid.layout-list .store-card:last-child {
+            border-bottom: none;
+        }
+
+        .stores-grid.layout-list .store-card:hover {
+            transform: none;
+            background-color: #f9fafb;
+            border-color: var(--border);
+        }
+
+        /* Adjust inner elements for list view */
+        .stores-grid.layout-list .store-header {
+            border: none;
+            margin: 0;
+            padding: 0;
+            width: auto;
+            display: block;
+            flex-shrink: 1;
         }
         
-        .stores-grid.layout-list .store-actions.has-delete {
-            grid-template-columns: 1fr;
+        .stores-grid.layout-list .store-name {
+            font-size: 15px;
+            margin-bottom: 2px;
+        }
+        
+        .stores-grid.layout-list .store-code {
+            font-size: 10px;
+            padding: 2px 6px;
+        }
+
+        .stores-grid.layout-list .store-info {
+            display: contents; /* Flatten children to grid */
+        }
+        
+        .stores-grid.layout-list .info-row {
+            margin: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        .stores-grid.layout-list .info-row i {
+            display: none; /* Hide icons in list view to save space */
+        }
+        
+        .stores-grid.layout-list .empty-cell {
+            color: #d1d5db;
+        }
+
+        .stores-grid.layout-list .store-stats {
+            margin: 0;
+            padding: 0;
+            background: transparent;
+            border: none;
+            display: flex;
+            gap: 15px;
+            width: auto;
+        }
+        
+        .stores-grid.layout-list .stat-item {
+            text-align: left;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .stores-grid.layout-list .stat-item .value {
+            font-size: 14px;
+        }
+        
+        .stores-grid.layout-list .stat-item .label {
+            font-size: 10px;
+        }
+
+        .stores-grid.layout-list .store-actions {
+            width: auto;
+            display: flex;
+            gap: 5px;
+            grid-template-columns: none;
+            justify-content: flex-end;
+        }
+        
+        .stores-grid.layout-list .btn-view,
+        .stores-grid.layout-list .btn-inventory,
+        .stores-grid.layout-list .btn-edit,
+        .stores-grid.layout-list .btn-delete {
+            padding: 6px 10px;
+            font-size: 12px;
+            width: auto;
+            display: inline-flex;
+            flex-direction: row;
+            gap: 5px;
+            height: auto;
+        }
+        
+        .stores-grid.layout-list .btn-delete {
+            padding: 6px 10px; /* Match others */
         }
 
         .layout-toggles {
@@ -663,15 +772,15 @@ $page_title = 'Store Management - Inventory System';
             </div>
             <div class="stats-container">
                 <div class="stat-card">
-                    <div class="value"><?php echo number_format($total_records); ?></div>
+                    <div class="value" id="total-stores-count"><?php echo number_format($total_records); ?></div>
                     <div class="label">Total Stores</div>
                 </div>
                 <div class="stat-card">
-                    <div class="value"><?php echo number_format(array_sum(array_column($stores, 'product_count'))); ?></div>
+                    <div class="value" id="total-products-count"><?php echo number_format(array_sum(array_column($stores, 'product_count'))); ?></div>
                     <div class="label">Total Products</div>
                 </div>
                 <div class="stat-card">
-                    <div class="value"><?php echo number_format(array_sum(array_column($stores, 'total_stock'))); ?></div>
+                    <div class="value" id="total-stock-count"><?php echo number_format(array_sum(array_column($stores, 'total_stock'))); ?></div>
                     <div class="label">Total Stock</div>
                 </div>
             </div>
@@ -679,11 +788,11 @@ $page_title = 'Store Management - Inventory System';
         
         <!-- Controls -->
         <div class="controls">
-            <form class="search-box" method="get" action="">
-                <input type="text" name="search" placeholder="Search stores by name, address, phone, or city..." 
-                       value="<?php echo htmlspecialchars($search); ?>">
-                <button type="submit"><i class="fas fa-search"></i></button>
-            </form>
+            <div class="search-box">
+                <input type="text" id="store-search" name="search" placeholder="Search stores by name, address, phone, or city..." 
+                       value="<?php echo htmlspecialchars($search); ?>" autocomplete="off">
+                <button type="button"><i class="fas fa-search"></i></button>
+            </div>
             
             <div class="layout-toggles">
                 <button class="layout-btn active" onclick="switchLayout('grid')" title="Grid View">
@@ -712,110 +821,21 @@ $page_title = 'Store Management - Inventory System';
         </div>
         <?php endif; ?>
         
-        <!-- Stores Grid -->
-        <?php if (!empty($stores)): ?>
-        <div class="stores-grid">
-            <?php foreach ($stores as $store): ?>
-            <div class="store-card">
-                <div class="store-header">
-                    <h3 class="store-name"><?php echo htmlspecialchars($store['name']); ?></h3>
-                    <?php if (!empty($store['code'])): ?>
-                    <span class="store-code"><?php echo htmlspecialchars($store['code']); ?></span>
-                    <?php endif; ?>
-                </div>
-                
-                <div class="store-info">
-                    <div class="info-row"><i class="fas fa-map-marker-alt"></i> <?php echo htmlspecialchars($store['address'] ?? 'N/A'); ?></div>
-                    <div class="info-row"><i class="fas fa-city"></i> <?php echo htmlspecialchars($store['city'] ?? 'N/A'); ?>, <?php echo htmlspecialchars($store['state'] ?? 'N/A'); ?></div>
-                    <?php if (!empty($store['phone'])): ?>
-                    <div class="info-row"><i class="fas fa-phone"></i> <?php echo htmlspecialchars($store['phone']); ?></div>
-                    <?php endif; ?>
-                    <?php if (!empty($store['manager_name'])): ?>
-                    <div class="info-row"><i class="fas fa-user-tie"></i> <?php echo htmlspecialchars($store['manager_name']); ?></div>
-                    <?php endif; ?>
-                </div>
-                
-                <div class="store-stats">
-                    <div class="stat-item">
-                        <div class="value"><?php echo number_format($store['product_count']); ?></div>
-                        <div class="label">Products</div>
-                    </div>
-                    <div class="stat-item">
-                        <div class="value"><?php echo number_format($store['total_stock']); ?></div>
-                        <div class="label">Total Stock</div>
-                    </div>
-                </div>
-                
-                <div class="store-actions <?php echo currentUserHasPermission('can_delete_stores') ? 'has-delete' : ''; ?>">
-                    <a href="profile.php?id=<?php echo $store['id']; ?>" class="btn-view">
-                        <i class="fas fa-eye"></i> View
-                    </a>
-                    <a href="../stock/list.php?store=<?php echo $store['id']; ?>" class="btn-inventory">
-                        <i class="fas fa-boxes"></i> Stock
-                    </a>
-                    <?php if (currentUserHasPermission('can_delete_stores')): ?>
-                    <button onclick="confirmDeleteStore(<?php echo $store['id']; ?>, '<?php echo htmlspecialchars(addslashes($store['name'])); ?>', <?php echo $store['product_count']; ?>)" class="btn-delete">
-                        <i class="fas fa-trash"></i> Delete
-                    </button>
-                    <?php endif; ?>
-                </div>
-            </div>
-            <?php endforeach; ?>
+        <!-- List Headers (Visible in List View) -->
+        <div class="list-headers" id="list-headers">
+            <div>Name / Code</div>
+            <div>Address</div>
+            <div>City / State</div>
+            <div>Phone</div>
+            <div>Manager</div>
+            <div>POS</div>
+            <div>Stats</div>
+            <div>Actions</div>
         </div>
-        
-        <!-- Pagination -->
-        <?php if ($pagination['total_pages'] > 1): ?>
-        <div class="pagination">
-            <div class="pagination-info">
-                Showing <?php echo ($pagination['offset'] + 1); ?>-<?php echo min($pagination['offset'] + $pagination['per_page'], $pagination['total_records']); ?> 
-                of <?php echo number_format($pagination['total_records']); ?> stores
-            </div>
-            
-            <div class="pagination-links">
-                <?php if ($pagination['has_prev']): ?>
-                <a href="?page=<?php echo ($pagination['current_page'] - 1); ?><?php echo $search ? '&search=' . urlencode($search) : ''; ?>">
-                    <i class="fas fa-chevron-left"></i> Previous
-                </a>
-                <?php endif; ?>
-                
-                <?php
-                // Show page numbers
-                $start_page = max(1, $pagination['current_page'] - 2);
-                $end_page = min($pagination['total_pages'], $pagination['current_page'] + 2);
-                
-                for ($i = $start_page; $i <= $end_page; $i++):
-                ?>
-                    <?php if ($i == $pagination['current_page']): ?>
-                    <span class="current"><?php echo $i; ?></span>
-                    <?php else: ?>
-                    <a href="?page=<?php echo $i; ?><?php echo $search ? '&search=' . urlencode($search) : ''; ?>">
-                        <?php echo $i; ?>
-                    </a>
-                    <?php endif; ?>
-                <?php endfor; ?>
-                
-                <?php if ($pagination['has_next']): ?>
-                <a href="?page=<?php echo ($pagination['current_page'] + 1); ?><?php echo $search ? '&search=' . urlencode($search) : ''; ?>">
-                    Next <i class="fas fa-chevron-right"></i>
-                </a>
-                <?php endif; ?>
-            </div>
+
+        <div id="stores-list-container" style="position: relative; min-height: 200px;">
+            <?php include 'list_content.php'; ?>
         </div>
-        <?php endif; ?>
-        
-        <?php else: ?>
-        <div class="no-stores">
-            <i class="fas fa-store-slash"></i>
-            <h2>No Stores Found</h2>
-            <p><?php echo $search ? 'No stores match your search criteria.' : 'Get started by adding your first store.'; ?></p>
-            <?php if (currentUserHasPermission('can_add_stores')): ?>
-            <br>
-            <a href="add.php" class="btn btn-primary">
-                <i class="fas fa-plus"></i> Add Your First Store
-            </a>
-            <?php endif; ?>
-        </div>
-        <?php endif; ?>
     </div>
     
     <!-- Delete Confirmation Modal -->
@@ -838,6 +858,94 @@ $page_title = 'Store Management - Inventory System';
 
     <!-- Offline Functionality for Stores List -->
     <script>
+        // Real-time Search and AJAX Pagination
+        document.addEventListener('DOMContentLoaded', function() {
+            const searchInput = document.getElementById('store-search');
+            const resultsContainer = document.getElementById('stores-list-container');
+            let searchTimeout;
+            
+            // Debounce function
+            function debounce(func, wait) {
+                let timeout;
+                return function(...args) {
+                    clearTimeout(timeout);
+                    timeout = setTimeout(() => func.apply(this, args), wait);
+                };
+            }
+            
+            // Fetch stores function
+            async function fetchStores(page = 1, search = '') {
+                // Show loading state
+                resultsContainer.style.opacity = '0.5';
+                
+                try {
+                    const params = new URLSearchParams({
+                        ajax: '1',
+                        page: page,
+                        search: search
+                    });
+                    
+                    const response = await fetch(`list.php?${params.toString()}`);
+                    if (!response.ok) throw new Error('Network response was not ok');
+                    
+                    const data = await response.json();
+                    
+                    // Update content
+                    resultsContainer.innerHTML = data.html;
+                    resultsContainer.style.opacity = '1';
+                    
+                    // Update stats
+                    document.getElementById('total-stores-count').textContent = new Intl.NumberFormat().format(data.total_records);
+                    document.getElementById('total-products-count').textContent = new Intl.NumberFormat().format(data.total_products);
+                    document.getElementById('total-stock-count').textContent = new Intl.NumberFormat().format(data.total_stock);
+                    
+                    // Update URL without reload
+                    const url = new URL(window.location);
+                    if (search) {
+                        url.searchParams.set('search', search);
+                    } else {
+                        url.searchParams.delete('search');
+                    }
+                    if (page > 1) {
+                        url.searchParams.set('page', page);
+                    } else {
+                        url.searchParams.delete('page');
+                    }
+                    window.history.pushState({}, '', url);
+                    
+                    // Re-apply layout preference
+                    const savedLayout = localStorage.getItem('store_layout_preference');
+                    if (savedLayout === 'list') {
+                        switchLayout('list');
+                    }
+                    
+                } catch (error) {
+                    console.error('Error fetching stores:', error);
+                    resultsContainer.style.opacity = '1';
+                    // Optional: Show error message
+                }
+            }
+            
+            // Handle search input
+            searchInput.addEventListener('input', debounce(function(e) {
+                fetchStores(1, e.target.value);
+            }, 300));
+            
+            // Handle pagination clicks
+            resultsContainer.addEventListener('click', function(e) {
+                const link = e.target.closest('.ajax-link');
+                if (link) {
+                    e.preventDefault();
+                    const page = link.dataset.page;
+                    const search = searchInput.value;
+                    fetchStores(page, search);
+                    
+                    // Scroll to top of list
+                    resultsContainer.scrollIntoView({ behavior: 'smooth' });
+                }
+            });
+        });
+
         function confirmDeleteStore(id, name, productCount) {
             const modal = document.getElementById('deleteModal');
             const form = document.getElementById('deleteStoreForm');
@@ -870,15 +978,18 @@ $page_title = 'Store Management - Inventory System';
         function switchLayout(layout) {
             const grid = document.querySelector('.stores-grid');
             const btns = document.querySelectorAll('.layout-btn');
+            const headers = document.getElementById('list-headers');
             
             if (layout === 'list') {
                 grid.classList.add('layout-list');
                 btns[0].classList.remove('active');
                 btns[1].classList.add('active');
+                if (headers) headers.style.display = 'grid';
             } else {
                 grid.classList.remove('layout-list');
                 btns[0].classList.add('active');
                 btns[1].classList.remove('active');
+                if (headers) headers.style.display = 'none';
             }
             
             // Save preference
