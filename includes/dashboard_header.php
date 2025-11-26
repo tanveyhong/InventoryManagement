@@ -1178,9 +1178,6 @@ body.compact-view .page-header {
                         <i class="fas fa-chevron-down dropdown-arrow"></i>
                     </a>
                     <div class="dropdown-content">
-                        <a href="<?php echo $baseUrl . 'modules/alerts/expiry_alert.php'; ?>">
-                            <i class="fas fa-calendar-times"></i> Expiry Products
-                        </a>
                         <?php if (currentUserHasPermission('can_manage_alerts')): ?>
                         <a href="<?php echo $baseUrl . 'modules/alerts/alert_history.php'; ?>">
                             <i class="fas fa-exclamation-circle"></i> Alert History
