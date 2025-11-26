@@ -703,6 +703,7 @@ $page_title = 'Dashboard - Inventory Management System';
                 
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-top: 20px;">
                     <!-- User Management Card -->
+                    <?php if (currentUserHasPermission('can_manage_users') || currentUserHasPermission('can_view_users')): ?>
                     <a href="modules/users/management.php" style="text-decoration: none; color: inherit;">
                         <div class="info-card" style="cursor: pointer; transition: transform 0.2s, box-shadow 0.2s;">
                             <div style="display: flex; align-items: center; gap: 15px;">
@@ -716,6 +717,7 @@ $page_title = 'Dashboard - Inventory Management System';
                             </div>
                         </div>
                     </a>
+                    <?php endif; ?>
                     
                     <!-- Stores Manager Card -->
                     <a href="modules/stores/list.php" style="text-decoration: none; color: inherit;">

@@ -337,6 +337,11 @@ try {
             background: #10b981;
             color: white;
         }
+
+        .role-cashier {
+            background: #06b6d4;
+            color: white;
+        }
         
         .user-status {
             display: inline-block;
@@ -2521,8 +2526,8 @@ try {
                 { key: 'can_delete_stores', name: 'Delete Stores', icon: 'trash-alt', category: 'Stores', desc: 'Remove stores from system', color: '#f59e0b' },
                 
                 // POS Module
-                { key: 'can_use_pos', name: 'Use POS', icon: 'cash-register', category: 'POS', desc: 'Access point of sale terminal', color: '#06b6d4' },
                 { key: 'can_manage_pos', name: 'Manage POS', icon: 'cogs', category: 'POS', desc: 'Configure POS settings and integrations', color: '#06b6d4' },
+                { key: 'can_use_pos', name: 'Use POS', icon: 'cash-register', category: 'POS', desc: 'Access point of sale terminal', color: '#06b6d4' },
                 
                 // Supply Chain Module
                 { key: 'can_manage_suppliers', name: 'Manage Suppliers', icon: 'truck', category: 'Supply Chain', desc: 'Add and manage suppliers', color: '#f97316' },
@@ -2555,7 +2560,7 @@ try {
                     color: '#06b6d4',
                     icon: 'cash-register',
                     desc: 'POS and basic inventory',
-                    permissions: ['can_view_reports', 'can_view_inventory', 'can_use_pos']
+                    permissions: ['can_view_reports', 'can_view_inventory', 'can_use_pos', 'can_manage_pos', 'can_view_stores']
                 },
                 'warehouse': {
                     name: 'Warehouse',

@@ -29,9 +29,9 @@ if (!isLoggedIn()) {
     exit;
 }
 
-if (!currentUserHasPermission('can_add_inventory') && !currentUserHasPermission('can_edit_inventory')) {
+if (!currentUserHasPermission('can_add_inventory')) {
     $_SESSION['error'] = 'You do not have permission to add products';
-    header('Location: ../../index.php');
+    header('Location: list.php');
     exit;
 }
 

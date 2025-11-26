@@ -11,6 +11,17 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
+if (!isset($_SESSION['user_id'])) {
+    header('Location: ../users/login.php');
+    exit;
+}
+
+if (!currentUserHasPermission('can_edit_inventory')) {
+    $_SESSION['error'] = 'You do not have permission to edit products';
+    header('Location: list.php');
+    exit;
+}
+
 // --- helpers (lightweight, safe) ---
 function norm_sku(string $raw): string
 {

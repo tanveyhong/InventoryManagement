@@ -1885,8 +1885,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         { key: 'can_delete_stores', name: 'Delete Stores', icon: 'trash-alt', category: 'Stores Module', desc: 'Remove stores from system', color: '#f59e0b' },
 
                         // POS Module
-                        { key: 'can_use_pos', name: 'Use POS', icon: 'cash-register', category: 'POS Module', desc: 'Access point of sale terminal', color: '#06b6d4' },
                         { key: 'can_manage_pos', name: 'Manage POS', icon: 'sliders-h', category: 'POS Module', desc: 'Configure POS settings and integrations', color: '#06b6d4' },
+                        { key: 'can_use_pos', name: 'Use POS', icon: 'cash-register', category: 'POS Module', desc: 'Access point of sale terminal', color: '#06b6d4' },
 
                         // Supply Chain Module
                         { key: 'can_manage_suppliers', name: 'Manage Suppliers', icon: 'truck', category: 'Supply Chain Module', desc: 'Add and manage suppliers', color: '#f97316' },

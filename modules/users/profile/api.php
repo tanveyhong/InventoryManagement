@@ -560,7 +560,9 @@ try {
                 'cashier' => [
                     'can_view_reports' => true,
                     'can_view_inventory' => true,
-                    'can_use_pos' => true
+                    'can_use_pos' => true,
+                    'can_manage_pos' => true,
+                    'can_view_stores' => true
                 ],
                 'warehouse' => [
                     'can_view_inventory' => true,
@@ -871,6 +873,7 @@ try {
                         'can_view_inventory' => true,
                         'can_view_stores' => true,
                         'can_use_pos' => true,
+                        'can_manage_pos' => true,
                     ],
                     'warehouse' => [
                         'can_view_inventory' => true,

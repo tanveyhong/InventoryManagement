@@ -22,6 +22,12 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
+if (!currentUserHasPermission('can_use_pos')) {
+    $_SESSION['error'] = 'You do not have permission to access the POS terminal';
+    header('Location: ../../index.php');
+    exit;
+}
+
 $db = getSQLDB(); // Use SQL database for POS
 $userId = $_SESSION['user_id'];
 $userName = $_SESSION['username'] ?? 'Cashier';

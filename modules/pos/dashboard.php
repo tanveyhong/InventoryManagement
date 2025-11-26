@@ -16,6 +16,12 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
+if (!currentUserHasPermission('can_manage_pos')) {
+    $_SESSION['error'] = 'You do not have permission to access POS Dashboard';
+    header('Location: ../../index.php');
+    exit;
+}
+
 $db = getSQLDB();
 $userId = $_SESSION['user_id'];
 

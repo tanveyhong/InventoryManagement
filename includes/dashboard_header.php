@@ -1092,7 +1092,7 @@ body.compact-view .page-header {
                         <a href="<?php echo $baseUrl . 'modules/stock/stockAuditHis.php'; ?>">
                             <i class="fas fa-edit"></i> Stock Audit History
                         </a>
-                        <?php if (currentUserHasPermission('can_manage_pos') || currentUserHasPermission('can_use_pos')): ?>
+                        <?php if (currentUserHasPermission('can_manage_pos')): ?>
                         <a href="<?php echo $baseUrl . 'modules/pos/stock_pos_integration.php'; ?>">
                             <i class="fas fa-cash-register"></i> POS Integration
                         </a>

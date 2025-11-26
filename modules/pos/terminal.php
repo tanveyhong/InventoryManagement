@@ -15,6 +15,12 @@ if (!isLoggedIn()) {
     exit;
 }
 
+if (!currentUserHasPermission('can_use_pos')) {
+    $_SESSION['error'] = 'You do not have permission to access the POS terminal';
+    header('Location: ../../index.php');
+    exit;
+}
+
 $sqlDb = SQLDatabase::getInstance();
 $errors = [];
 $success_message = '';

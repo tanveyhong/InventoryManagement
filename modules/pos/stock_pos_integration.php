@@ -18,8 +18,8 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 // Check permission
-if (!currentUserHasPermission('can_view_inventory') && !currentUserHasPermission('can_manage_stores')) {
-    $_SESSION['error'] = 'You do not have permission to access this page';
+if (!currentUserHasPermission('can_manage_pos')) {
+    $_SESSION['error'] = 'You do not have permission to configure POS settings';
     header('Location: ../../index.php');
     exit;
 }
@@ -1008,11 +1008,13 @@ $page_title = 'Stock-POS Integration - Inventory System';
 
                             <!-- Actions Column -->
                             <div class="store-actions">
+                                <?php if (currentUserHasPermission('can_use_pos')): ?>
                                 <a href="terminal.php?store_id=<?php echo htmlspecialchars($store['id']); ?>" 
                                    class="btn btn-sm" 
                                    style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 6px 10px; font-size: 11px; white-space: nowrap;">
                                     <i class="fas fa-cash-register"></i> POS
                                 </a>
+                                <?php endif; ?>
                                 <a href="../stock/list.php?store=<?php echo htmlspecialchars($store['id']); ?>" 
                                    class="btn btn-sm btn-secondary" 
                                    style="padding: 6px 10px; font-size: 11px;"

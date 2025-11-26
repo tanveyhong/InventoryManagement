@@ -17,7 +17,7 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
-if (!currentUserHasPermission('can_restock_inventory') && !currentUserHasPermission('can_edit_inventory')) {
+if (!currentUserHasPermission('can_restock_inventory')) {
     $_SESSION['error'] = 'You do not have permission to adjust stock manually';
     header('Location: list.php');
     exit;

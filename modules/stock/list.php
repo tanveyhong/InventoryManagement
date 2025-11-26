@@ -702,7 +702,9 @@ try {
                     ?>
                     <button type="button" id="batchOrderBtn" class="btn btn-success" style="display: none; background-color: #2ecc71; color: white; margin-right: 10px;">Order Selected</button>
                     <button type="submit" form="batchDeleteForm" class="btn btn-danger" id="batchDeleteBtn" style="display: none; background-color: #dc3545; color: white; margin-right: 10px;">Delete Selected</button>
+                    <?php if (currentUserHasPermission('can_add_inventory')): ?>
                     <a href="add.php" class="btn btn-addprod">Add Product</a>
+                    <?php endif; ?>
                 </div>
             </div>
 
@@ -1049,7 +1051,7 @@ try {
                                                     href="view.php?id=<?php echo urlencode($linkId); ?>&return=<?php echo $return; ?>">
                                                     <i class="fas fa-eye"></i>
                                                 </a>
-                                                <?php if (currentUserHasPermission('can_restock_inventory') || currentUserHasPermission('can_manage_purchase_orders') || currentUserHasPermission('can_manage_stock_transfers')): ?>
+                                                <?php if (currentUserHasPermission('can_restock_inventory')): ?>
                                                     <?php
                                                     $whQty = 0;
                                                     // Use the group key (base SKU) to find the warehouse stock

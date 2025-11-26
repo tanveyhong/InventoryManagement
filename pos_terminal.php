@@ -3,6 +3,21 @@ require_once 'hybrid_config.php';
 require_once 'hybrid_db.php';
 require_once 'functions.php';
 
+session_start();
+
+// Check if user is logged in
+if (!isset($_SESSION['user_id'])) {
+    header('Location: modules/users/login.php');
+    exit;
+}
+
+// Check permission
+if (!currentUserHasPermission('can_use_pos')) {
+    $_SESSION['error'] = 'You do not have permission to access the POS terminal';
+    header('Location: index.php');
+    exit;
+}
+
 // Initialize database
 $db = getHybridDB();
 
