@@ -17,14 +17,21 @@ require_once __DIR__ . '/sql_db.php';
  */
 function logActivity($action, $description, $metadata = []) {
     try {
-        // Check if user is logged in
-        if (!isset($_SESSION['user_id']) || empty($_SESSION['user_id'])) {
-            error_log("logActivity failed: No user_id in session");
+        $userId = $_SESSION['user_id'] ?? null;
+        
+        // Allow overriding user_id via metadata (useful for system tasks or when session is not available but user is known)
+        if (is_array($metadata) && isset($metadata['_override_user_id'])) {
+            $userId = $metadata['_override_user_id'];
+            unset($metadata['_override_user_id']);
+        }
+
+        // Check if user is logged in or identified
+        if (empty($userId)) {
+            error_log("logActivity failed: No user_id in session or metadata");
             return false;
         }
         
         $sqlDb = SQLDatabase::getInstance();
-        $userId = $_SESSION['user_id'];
         
         // Convert metadata to JSON string if it's an array
         if (is_array($metadata)) {

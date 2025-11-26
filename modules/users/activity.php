@@ -101,7 +101,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // Get filter parameters
-$filterUser = $_GET['user'] ?? $currentUserId;
+$filterUser = $_GET['user'] ?? ($isAdmin ? 'all' : $currentUserId);
 $filterAction = $_GET['action'] ?? '';
 $filterDateFrom = $_GET['date_from'] ?? '';
 $filterDateTo = $_GET['date_to'] ?? '';
@@ -496,8 +496,8 @@ $page_title = 'Activity Management - Inventory System';
                                 <option value="all" <?php echo $filterUser === 'all' ? 'selected' : ''; ?>>All Users</option>
                                 <?php foreach ($allUsers as $u): ?>
                                     <option value="<?php echo htmlspecialchars($u['id']); ?>" 
-                                            <?php echo $filterUser === $u['id'] ? 'selected' : ''; ?>>
-                                        <?php echo htmlspecialchars(($u['first_name'] ?? '') . ' ' . ($u['last_name'] ?? '')); ?>
+                                            <?php echo $filterUser == $u['id'] ? 'selected' : ''; ?>>
+                                        <?php echo htmlspecialchars(!empty($u['full_name']) ? $u['full_name'] : $u['username']); ?>
                                     </option>
                                 <?php endforeach; ?>
                             </select>

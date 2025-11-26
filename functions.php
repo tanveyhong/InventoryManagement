@@ -4,6 +4,7 @@
 require_once 'config.php';
 require_once 'db.php';
 require_once 'getDB.php';
+require_once 'activity_logger.php';
 
 // Authentication Functions
 function isLoggedIn()
@@ -855,16 +856,45 @@ function log_stock_audit(array $opts): void
         error_log('log_stock_audit SQL failed: ' . $e->getMessage());
     }
 
-    // 2. Also log to main activity log
+    // 2. Write to Activity Log (User Activities)
     if (function_exists('logActivity')) {
-        $action = $opts['action'] ?? 'update';
-        $desc = "Stock Audit: " . $action . " for " . ($opts['product_name'] ?? 'Product');
-        logActivity('stock_' . $action, $desc, $opts);
+        try {
+            $actionMap = [
+                'create'           => 'product_added',
+                'update'           => 'product_updated',
+                'delete_product'   => 'product_deleted',
+                'adjust_stock'     => 'stock_adjusted',
+                'update_min_level' => 'stock_updated',
+                'assign_store'     => 'stock_assigned'
+            ];
+
+            $actAction = $actionMap[$doc['action']] ?? 'stock_audit_' . $doc['action'];
+            
+            $desc = "Stock Action: " . ucfirst(str_replace('_', ' ', $doc['action']));
+            if (!empty($doc['product_name'])) {
+                $desc .= " - {$doc['product_name']}";
+            }
+            if (isset($doc['quantity_delta']) && $doc['quantity_delta'] !== null) {
+                $sign = $doc['quantity_delta'] > 0 ? '+' : '';
+                $desc .= " (Qty: {$sign}{$doc['quantity_delta']})";
+            }
+
+            // Add extra context
+            $meta = $doc;
+            $meta['source'] = 'log_stock_audit';
+            if ($user_id) {
+                $meta['_override_user_id'] = $user_id;
+            }
+
+            logActivity($actAction, $desc, $meta);
+        } catch (Throwable $t) {
+            error_log('log_stock_audit activity log failed: ' . $t->getMessage());
+        }
     }
 
-    // 3. Write to Firestore (Legacy/Backup)
+    // 3. Write to Firestore (Secondary)
     try {
-        $db = getDB();
+        $db = db_obj();
         if ($db) {
             // Firestore prefers ISO 8601
             $doc['created_at'] = date('c'); 
