@@ -1170,7 +1170,7 @@ body.compact-view .page-header {
                 </div>
                 <?php endif; ?>
                 
-                <?php if (currentUserHasPermission('can_view_inventory') || currentUserHasPermission('can_view_reports')): ?>
+                <?php if (currentUserHasPermission('can_manage_alerts')): ?>
                 <div class="nav-dropdown">
                     <a href="#" class="nav-item <?php echo ($activeSection === 'alerts') ? 'active' : ''; ?>">
                         <i class="fas fa-exclamation-triangle"></i>
@@ -1178,11 +1178,9 @@ body.compact-view .page-header {
                         <i class="fas fa-chevron-down dropdown-arrow"></i>
                     </a>
                     <div class="dropdown-content">
-                        <?php if (currentUserHasPermission('can_manage_alerts')): ?>
                         <a href="<?php echo $baseUrl . 'modules/alerts/alert_history.php'; ?>">
                             <i class="fas fa-exclamation-circle"></i> Alert History
                         </a>
-                        <?php endif; ?>
                     </div>
                 </div>
                 <?php endif; ?>

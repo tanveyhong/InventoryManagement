@@ -1852,7 +1852,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         async function loadPermissions() {
             try {
-                const response = await fetch('profile/api.php?action=get_permissions');
+                // Check if we are viewing another user or ourselves
+                const urlParams = new URLSearchParams(window.location.search);
+                const userId = urlParams.get('user_id');
+                const action = userId ? `get_permissions&user_id=${userId}` : 'get_permissions';
+
+                const response = await fetch(`profile/api.php?action=${action}`);
                 const data = await response.json();
                 
                 document.getElementById('permissions-loading').style.display = 'none';
@@ -1863,41 +1868,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     const container = document.getElementById('permissions-content');
                     
                     const permissionsList = [
-                        { 
-                            key: 'can_view_reports', 
-                            name: 'View Reports', 
-                            icon: 'chart-bar', 
-                            desc: 'Access and view system reports',
-                            details: 'View sales reports, inventory reports, and analytics dashboards'
-                        },
-                        { 
-                            key: 'can_manage_inventory', 
-                            name: 'Manage Inventory', 
-                            icon: 'boxes', 
-                            desc: 'Add, edit, and delete inventory items',
-                            details: 'Create new products, update stock levels, adjust inventory, and manage product information'
-                        },
-                        { 
-                            key: 'can_manage_users', 
-                            name: 'Manage Users', 
-                            icon: 'users', 
-                            desc: 'Create and manage user accounts',
-                            details: 'Add new users, modify user roles, view activity logs, and manage user permissions'
-                        },
-                        { 
-                            key: 'can_manage_stores', 
-                            name: 'Manage Stores', 
-                            icon: 'store', 
-                            desc: 'Add and configure store locations',
-                            details: 'Create new stores, edit store details, manage store inventory, and configure POS integration'
-                        },
-                        { 
-                            key: 'can_configure_system', 
-                            name: 'System Configuration', 
-                            icon: 'cog', 
-                            desc: 'Access system settings and configuration',
-                            details: 'Modify system settings, configure integrations, manage API keys, and access admin panel'
-                        }
+                        // Reports Module
+                        { key: 'can_view_reports', name: 'View Reports', icon: 'chart-bar', category: 'Reports Module', desc: 'View all system reports and analytics', color: '#8b5cf6' },
+
+                        // Stock Module
+                        { key: 'can_view_inventory', name: 'View Stock', icon: 'boxes', category: 'Stock Module', desc: 'View product list and stock levels', color: '#10b981' },
+                        { key: 'can_add_inventory', name: 'Add Stock', icon: 'plus-circle', category: 'Stock Module', desc: 'Add new products and stock', color: '#10b981' },
+                        { key: 'can_edit_inventory', name: 'Edit Stock', icon: 'edit', category: 'Stock Module', desc: 'Update product details and adjust stock', color: '#10b981' },
+                        { key: 'can_delete_inventory', name: 'Delete Stock', icon: 'trash', category: 'Stock Module', desc: 'Remove products from system', color: '#10b981' },
+                        { key: 'can_restock_inventory', name: 'Restock Items', icon: 'dolly', category: 'Stock Module', desc: 'Access restock options and manual adjustments', color: '#10b981' },
+
+                        // Stores Module
+                        { key: 'can_view_stores', name: 'View Stores', icon: 'store', category: 'Stores Module', desc: 'View store list and details', color: '#f59e0b' },
+                        { key: 'can_add_stores', name: 'Add Stores', icon: 'plus-square', category: 'Stores Module', desc: 'Create new store locations', color: '#f59e0b' },
+                        { key: 'can_edit_stores', name: 'Edit Stores', icon: 'pen', category: 'Stores Module', desc: 'Modify store information', color: '#f59e0b' },
+                        { key: 'can_delete_stores', name: 'Delete Stores', icon: 'trash-alt', category: 'Stores Module', desc: 'Remove stores from system', color: '#f59e0b' },
+
+                        // POS Module
+                        { key: 'can_use_pos', name: 'Use POS', icon: 'cash-register', category: 'POS Module', desc: 'Access point of sale terminal', color: '#06b6d4' },
+                        { key: 'can_manage_pos', name: 'Manage POS', icon: 'sliders-h', category: 'POS Module', desc: 'Configure POS settings and integrations', color: '#06b6d4' },
+
+                        // Supply Chain Module
+                        { key: 'can_manage_suppliers', name: 'Manage Suppliers', icon: 'truck', category: 'Supply Chain Module', desc: 'Add and manage suppliers', color: '#f97316' },
+                        { key: 'can_manage_purchase_orders', name: 'Purchase Orders', icon: 'file-invoice', category: 'Supply Chain Module', desc: 'Create and manage purchase orders', color: '#f97316' },
+                        { key: 'can_send_purchase_orders', name: 'Send Orders', icon: 'paper-plane', category: 'Supply Chain Module', desc: 'Approve and send purchase orders', color: '#f97316' },
+                        { key: 'can_manage_stock_transfers', name: 'Receive Shipment', icon: 'box-open', category: 'Supply Chain Module', desc: 'Receive shipments and transfer stock', color: '#f97316' },
+
+                        // Analytics Module
+                        { key: 'can_view_forecasting', name: 'View Forecasting', icon: 'chart-line', category: 'Analytics Module', desc: 'Access demand forecasting tools', color: '#ec4899' },
+                        { key: 'can_manage_alerts', name: 'Manage Alerts', icon: 'bell', category: 'Analytics Module', desc: 'Configure low stock and system alerts', color: '#ec4899' },
+
+                        // Users Module
+                        { key: 'can_view_users', name: 'View Users', icon: 'users', category: 'Users Module', desc: 'View user list and profiles', color: '#ec4899' },
+                        { key: 'can_manage_users', name: 'Manage Users', icon: 'user-cog', category: 'Users Module', desc: 'Add, edit, delete users and permissions', color: '#ec4899' },
+
+                        // System Module
+                        { key: 'can_configure_system', name: 'System Configuration', icon: 'cogs', category: 'System Module', desc: 'Access system settings and configuration', color: '#6366f1' }
                     ];
                     
                     // Add role information banner
@@ -1912,7 +1918,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     <p style="margin: 0; opacity: 0.95; font-size: 14px;">Your permissions and access level are displayed below</p>
                                 </div>
                                 ${perms.role === 'Admin' ? `
-                                <a href="../users/roles.php" style="background: white; color: #f5576c; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-weight: 600; display: inline-flex; align-items: center; gap: 8px;">
+                                <a href="../users/management.php" style="background: white; color: #f5576c; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-weight: 600; display: inline-flex; align-items: center; gap: 8px;">
                                     <i class="fas fa-users-cog"></i> Manage All Users
                                 </a>` : ''}
                             </div>
@@ -1921,6 +1927,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     
                     // Add permissions summary
                     const grantedCount = permissionsList.filter(p => perms[p.key]).length;
+                    
                     const summaryHTML = `
                         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 25px;">
                             <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; border-radius: 12px; color: white;">
@@ -1934,30 +1941,58 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </div>
                     `;
                     
-                    container.innerHTML = roleHTML + summaryHTML + '<div class="permission-grid"></div>';
-                    const grid = container.querySelector('.permission-grid');
+                    container.innerHTML = roleHTML + summaryHTML + '<div id="permissions-list-container"></div>';
+                    const listContainer = container.querySelector('#permissions-list-container');
                     
-                    permissionsList.forEach(perm => {
-                        const granted = perms[perm.key] || false;
-                        const card = document.createElement('div');
-                        card.className = `permission-card ${granted ? 'granted' : 'denied'}`;
-                        card.title = perm.details; // Add tooltip
-                        card.innerHTML = `
-                            <div class="permission-icon">
-                                <i class="fas fa-${perm.icon}"></i>
-                            </div>
-                            <div class="permission-info">
-                                <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
-                                    <h4 style="margin: 0;">${perm.name}</h4>
-                                    <span style="padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; ${granted ? 'background: #d4edda; color: #155724;' : 'background: #f8d7da; color: #721c24;'}">
-                                        ${granted ? '<i class="fas fa-check"></i> Granted' : '<i class="fas fa-times"></i> Denied'}
-                                    </span>
+                    // Group permissions by category
+                    const grouped = permissionsList.reduce((acc, perm) => {
+                        if (!acc[perm.category]) acc[perm.category] = [];
+                        acc[perm.category].push(perm);
+                        return acc;
+                    }, {});
+
+                    // Render groups
+                    Object.entries(grouped).forEach(([category, categoryPerms]) => {
+                        const groupDiv = document.createElement('div');
+                        groupDiv.style.marginBottom = '30px';
+                        
+                        const header = document.createElement('h3');
+                        header.style.borderBottom = '2px solid #f3f4f6';
+                        header.style.paddingBottom = '10px';
+                        header.style.marginBottom = '15px';
+                        header.style.color = '#374151';
+                        header.style.fontSize = '18px';
+                        header.innerHTML = `<span style="color: ${categoryPerms[0].color}; margin-right: 10px;"><i class="fas fa-layer-group"></i></span> ${category}`;
+                        groupDiv.appendChild(header);
+                        
+                        const grid = document.createElement('div');
+                        grid.className = 'permission-grid';
+                        
+                        categoryPerms.forEach(perm => {
+                            const granted = perms[perm.key] || false;
+                            
+                            const card = document.createElement('div');
+                            card.className = `permission-card ${granted ? 'granted' : 'denied'}`;
+                            card.title = perm.desc;
+                            card.innerHTML = `
+                                <div class="permission-icon" style="color: ${perm.color}; background: ${perm.color}15;">
+                                    <i class="fas fa-${perm.icon}"></i>
                                 </div>
-                                <p style="margin: 0 0 10px 0; font-size: 14px; color: #6b7280;">${perm.desc}</p>
-                                <small style="font-size: 12px; color: #9ca3af; display: block;">${perm.details}</small>
-                            </div>
-                        `;
-                        grid.appendChild(card);
+                                <div class="permission-info">
+                                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
+                                        <h4 style="margin: 0;">${perm.name}</h4>
+                                        <span style="padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; ${granted ? 'background: #d4edda; color: #155724;' : 'background: #f8d7da; color: #721c24;'}">
+                                            ${granted ? '<i class="fas fa-check"></i> Enabled' : '<i class="far fa-circle"></i> Disabled'}
+                                        </span>
+                                    </div>
+                                    <p style="margin: 0 0 10px 0; font-size: 14px; color: #6b7280;">${perm.desc}</p>
+                                </div>
+                            `;
+                            grid.appendChild(card);
+                        });
+                        
+                        groupDiv.appendChild(grid);
+                        listContainer.appendChild(groupDiv);
                     });
                 }
             } catch (error) {

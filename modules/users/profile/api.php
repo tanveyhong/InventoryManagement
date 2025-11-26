@@ -65,7 +65,7 @@ try {
             }
             
             $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
-            $canManageUsers = ($currentUser['can_manage_users'] ?? false) || ($currentUser['can_view_users'] ?? false);
+            $canManageUsers = currentUserHasPermission('can_manage_users') || currentUserHasPermission('can_view_users');
             
             // Check permissions - allow admin or users with manage_users permission
             if ($targetUserId !== $userId && $targetUserId !== 'all' && !$isAdmin && !$canManageUsers) {
@@ -162,7 +162,7 @@ try {
             }
             
             $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
-            $canManageUsers = ($currentUser['can_manage_users'] ?? false) || ($currentUser['can_view_reports'] ?? false);
+            $canManageUsers = currentUserHasPermission('can_manage_users') || currentUserHasPermission('can_view_users');
             
             if (!$isAdmin && !$canManageUsers) {
                 http_response_code(403);
@@ -260,7 +260,7 @@ try {
             }
             
             $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
-            $canManageUsers = ($currentUser['can_manage_users'] ?? false) || ($currentUser['can_view_users'] ?? false);
+            $canManageUsers = currentUserHasPermission('can_manage_users') || currentUserHasPermission('can_view_users');
             
             // Allow viewing own profile or if admin/manager
             if ($targetUserId !== $userId && !$isAdmin && !$canManageUsers) {
@@ -527,7 +527,7 @@ try {
                 }
             }
             
-            $role = strtolower($user['role'] ?? 'user');
+            $role = strtolower(trim($user['role'] ?? 'user'));
             
             // Get user's permissions from user_permissions table (with values)
             $userPerms = $sqlDb->fetchAll(
@@ -561,6 +561,21 @@ try {
                     'can_view_reports' => true,
                     'can_view_inventory' => true,
                     'can_use_pos' => true
+                ],
+                'warehouse' => [
+                    'can_view_inventory' => true,
+                    'can_edit_inventory' => true,
+                    'can_restock_inventory' => true,
+                    'can_manage_stock_transfers' => true,
+                    'can_manage_suppliers' => true,
+                    'can_manage_purchase_orders' => true,
+                ],
+                'analyst' => [
+                    'can_view_reports' => true,
+                    'can_view_forecasting' => true,
+                    'can_manage_alerts' => true,
+                    'can_view_inventory' => true,
+                    'can_view_stores' => true,
                 ],
                 'manager' => [
                     'can_view_reports' => true,
@@ -628,7 +643,9 @@ try {
                 // Supply Chain
                 'can_manage_suppliers' => $hasPerm('can_manage_suppliers'),
                 'can_manage_purchase_orders' => $hasPerm('can_manage_purchase_orders'),
+                'can_send_purchase_orders' => $hasPerm('can_send_purchase_orders'),
                 'can_manage_stock_transfers' => $hasPerm('can_manage_stock_transfers'),
+                'can_restock_inventory' => $hasPerm('can_restock_inventory'),
                 // Analytics
                 'can_view_forecasting' => $hasPerm('can_view_forecasting'),
                 'can_manage_alerts' => $hasPerm('can_manage_alerts'),
@@ -826,9 +843,9 @@ try {
             }
             
             // Validate role
-            $validRoles = ['user', 'cashier', 'manager', 'admin'];
+            $validRoles = ['user', 'cashier', 'warehouse', 'analyst', 'manager', 'admin'];
             if (!in_array($role, $validRoles)) {
-                echo json_encode(['success' => false, 'error' => 'Invalid role. Must be: user, cashier, manager, or admin']);
+                echo json_encode(['success' => false, 'error' => 'Invalid role. Must be: user, cashier, warehouse, analyst, manager, or admin']);
                 exit;
             }
             
@@ -856,6 +873,21 @@ try {
                         'can_view_inventory' => true,
                         'can_view_stores' => true,
                         'can_use_pos' => true,
+                    ],
+                    'warehouse' => [
+                        'can_view_inventory' => true,
+                        'can_edit_inventory' => true,
+                        'can_restock_inventory' => true,
+                        'can_manage_stock_transfers' => true,
+                        'can_manage_suppliers' => true,
+                        'can_manage_purchase_orders' => true,
+                    ],
+                    'analyst' => [
+                        'can_view_reports' => true,
+                        'can_view_forecasting' => true,
+                        'can_manage_alerts' => true,
+                        'can_view_inventory' => true,
+                        'can_view_stores' => true,
                     ],
                     'manager' => [
                         'can_view_reports' => true,
@@ -892,6 +924,7 @@ try {
                         'can_configure_system' => true,
                         'can_manage_suppliers' => true,
                         'can_manage_purchase_orders' => true,
+                        'can_send_purchase_orders' => true,
                         'can_manage_stock_transfers' => true,
                         'can_view_forecasting' => true,
                         'can_manage_alerts' => true,
@@ -980,24 +1013,32 @@ try {
                 exit;
             }
             
-            // Get target user to find their PostgreSQL ID
-            $targetUser = $sqlDb->fetch("SELECT id FROM users WHERE id = ? OR firebase_id = ?", [$targetUserId, $targetUserId]);
+            // Get target user to find their PostgreSQL ID and Role
+            $targetUser = $sqlDb->fetch("SELECT id, role FROM users WHERE id = ? OR firebase_id = ?", [$targetUserId, $targetUserId]);
             if (!$targetUser) {
                 http_response_code(404);
                 echo json_encode(['success' => false, 'error' => 'Target user not found']);
                 exit;
             }
             
-            // Get user's store access from PostgreSQL user_store_access table
-            $sql = "
-                SELECT s.*, usa.granted_by, usa.created_at as access_granted_at
-                FROM user_store_access usa
-                INNER JOIN stores s ON usa.store_id = s.id
-                WHERE usa.user_id = ?
-                ORDER BY s.name ASC
-            ";
+            // If target user is Admin, they have access to all stores
+            $targetUserRole = strtolower(trim($targetUser['role'] ?? ''));
             
-            $stores = $sqlDb->fetchAll($sql, [$targetUser['id']]);
+            if ($targetUserRole === 'admin') {
+                $stores = $sqlDb->fetchAll("SELECT * FROM stores ORDER BY name ASC");
+            } else {
+                // Get user's store access from PostgreSQL user_store_access table
+                $sql = "
+                    SELECT s.*, usa.granted_by, usa.created_at as access_granted_at
+                    FROM user_store_access usa
+                    INNER JOIN stores s ON usa.store_id = s.id
+                    WHERE usa.user_id = ?
+                    ORDER BY s.name ASC
+                ";
+                
+                $stores = $sqlDb->fetchAll($sql, [$targetUser['id']]);
+            }
+            
             error_log("Found " . count($stores) . " stores from PostgreSQL");
             
             echo json_encode([
@@ -1483,154 +1524,105 @@ try {
                 }
             }
             break;
-            break;
             
-        case 'get_all_stores_for_management':
-            // Only admin can access this
-            $currentUser = $db->read('users', $userId);
+        case 'update_user':
+            // Update user details - Admin or user management permission required
+            $input = json_decode(file_get_contents('php://input'), true);
+            $targetUserId = $input['user_id'] ?? null;
+            
+            if (!$targetUserId) {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'error' => 'User ID required']);
+                exit;
+            }
+            
+            // Check permission
+            $currentUser = $sqlDb->fetch("SELECT * FROM users WHERE id = ? OR firebase_id = ?", [$userId, $userId]);
+            if (!$currentUser) {
+                http_response_code(404);
+                echo json_encode(['success' => false, 'error' => 'Current user not found']);
+                exit;
+            }
+            
             $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
+            $canManageUsers = ($currentUser['can_manage_users'] ?? false) || ($currentUser['can_view_users'] ?? false);
             
-            if (!$isAdmin) {
+            // Allow updating own profile or if admin/manager
+            if ($targetUserId !== $userId && !$isAdmin && !$canManageUsers) {
                 http_response_code(403);
                 echo json_encode(['success' => false, 'error' => 'Permission denied']);
                 exit;
             }
             
-            // Get all stores
-            $allStores = $db->readAll('stores', [['active', '==', true]]);
+            // Validate inputs
+            $username = trim($input['username'] ?? '');
+            $email = trim($input['email'] ?? '');
+            $firstName = trim($input['first_name'] ?? '');
+            $lastName = trim($input['last_name'] ?? '');
+            $role = $input['role'] ?? '';
+            $password = $input['password'] ?? '';
             
-            // Get target user's current store access
-            $targetUserId = $_GET['user_id'] ?? $userId;
-            $userStores = $db->readAll('user_stores', [['user_id', '==', $targetUserId]]);
-            $assignedStoreIds = array_column($userStores, 'store_id');
-            
-            $storesData = [];
-            foreach ($allStores as $storeId => $store) {
-                $storesData[] = [
-                    'id' => $storeId,
-                    'store_name' => $store['store_name'] ?? 'Unknown',
-                    'city' => $store['city'] ?? '',
-                    'state' => $store['state'] ?? '',
-                    'has_access' => in_array($storeId, $assignedStoreIds)
-                ];
-            }
-            
-            echo json_encode([
-                'success' => true,
-                'data' => $storesData
-            ]);
-            break;
-            
-        case 'soft_delete_user':
-            // Only allow admin or users with can_manage_users permission
-            $currentUser = $sqlDb->fetch("SELECT * FROM users WHERE id = ? OR firebase_id = ?", [$userId, $userId]);
-            $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
-            $canManageUsers = ($currentUser['can_manage_users'] ?? false);
-            
-            if (!$isAdmin && !$canManageUsers) {
-                http_response_code(403);
-                echo json_encode(['success' => false, 'message' => 'Permission denied']);
+            if (empty($username)) {
+                echo json_encode(['success' => false, 'error' => 'Username is required']);
                 exit;
             }
             
-            $data = json_decode(file_get_contents('php://input'), true);
-            $targetUserId = $data['user_id'] ?? null;
-            
-            if (!$targetUserId) {
-                http_response_code(400);
-                echo json_encode(['success' => false, 'message' => 'User ID is required']);
+            // Check if username exists for other users
+            $existingUser = $sqlDb->fetch("SELECT id FROM users WHERE username = ? AND id != ? AND id != ?", [$username, $targetUserId, $targetUserId]);
+            if ($existingUser) {
+                echo json_encode(['success' => false, 'error' => 'Username already taken']);
                 exit;
             }
             
-            // Check if user exists and is not already deleted
-            $targetUser = $sqlDb->fetch(
-                "SELECT id, username FROM users WHERE id = ? AND deleted_at IS NULL",
-                [$targetUserId]
-            );
+            // Prepare update data
+            $fullName = trim($firstName . ' ' . $lastName);
+            $updateFields = [
+                'username' => $username,
+                'email' => $email,
+                'full_name' => $fullName,
+                'updated_at' => date('Y-m-d H:i:s')
+            ];
             
-            if (!$targetUser) {
-                http_response_code(404);
-                echo json_encode(['success' => false, 'message' => 'User not found or already deleted']);
-                exit;
+            // Only admin can change roles
+            if ($isAdmin && !empty($role)) {
+                $updateFields['role'] = strtolower($role);
             }
             
-            // Prevent deleting yourself
-            if ($targetUser['id'] == $userId) {
-                http_response_code(400);
-                echo json_encode(['success' => false, 'message' => 'You cannot delete your own account']);
-                exit;
+            // Handle password update if provided
+            if (!empty($password)) {
+                if (strlen($password) < 6) {
+                    echo json_encode(['success' => false, 'error' => 'Password must be at least 6 characters']);
+                    exit;
+                }
+                $updateFields['password_hash'] = hashPassword($password);
             }
             
-            // Soft delete the user
-            $deleted = $sqlDb->execute(
-                "UPDATE users SET deleted_at = NOW(), status = 'inactive' WHERE id = ?",
-                [$targetUserId]
-            );
+            // Construct SQL update
+            $setClause = [];
+            $params = [];
+            foreach ($updateFields as $field => $value) {
+                $setClause[] = "$field = ?";
+                $params[] = $value;
+            }
             
-            if ($deleted) {
-                // Log the activity
-                logActivity('user_deleted', 'Deleted user: ' . $targetUser['username'], $userId);
+            // Add ID to params
+            $params[] = $targetUserId;
+            $params[] = $targetUserId;
+            
+            $sql = "UPDATE users SET " . implode(', ', $setClause) . " WHERE id = ? OR firebase_id = ?";
+            
+            try {
+                $updated = $sqlDb->execute($sql, $params);
                 
-                echo json_encode([
-                    'success' => true,
-                    'message' => 'User deleted successfully'
-                ]);
-            } else {
-                http_response_code(500);
-                echo json_encode(['success' => false, 'message' => 'Failed to delete user']);
-            }
-            break;
-            
-        case 'restore_user':
-            // Only allow admin or users with can_manage_users permission
-            $currentUser = $sqlDb->fetch("SELECT * FROM users WHERE id = ? OR firebase_id = ?", [$userId, $userId]);
-            $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
-            $canManageUsers = ($currentUser['can_manage_users'] ?? false);
-            
-            if (!$isAdmin && !$canManageUsers) {
-                http_response_code(403);
-                echo json_encode(['success' => false, 'message' => 'Permission denied']);
-                exit;
-            }
-            
-            $data = json_decode(file_get_contents('php://input'), true);
-            $targetUserId = $data['user_id'] ?? null;
-            
-            if (!$targetUserId) {
-                http_response_code(400);
-                echo json_encode(['success' => false, 'message' => 'User ID is required']);
-                exit;
-            }
-            
-            // Check if user exists and is deleted
-            $targetUser = $sqlDb->fetch(
-                "SELECT id, username FROM users WHERE id = ? AND deleted_at IS NOT NULL",
-                [$targetUserId]
-            );
-            
-            if (!$targetUser) {
-                http_response_code(404);
-                echo json_encode(['success' => false, 'message' => 'User not found or not deleted']);
-                exit;
-            }
-            
-            // Restore the user
-            $restored = $sqlDb->execute(
-                "UPDATE users SET deleted_at = NULL, status = 'active' WHERE id = ?",
-                [$targetUserId]
-            );
-            
-            if ($restored) {
-                // Log the activity
-                logActivity('user_restored', 'Restored user: ' . $targetUser['username'], $userId);
-                
-                echo json_encode([
-                    'success' => true,
-                    'message' => 'User restored successfully'
-                ]);
-            } else {
-                http_response_code(500);
-                echo json_encode(['success' => false, 'message' => 'Failed to restore user']);
+                if ($updated) {
+                    logActivity('user_updated', "Updated user profile for $username", $userId);
+                    echo json_encode(['success' => true, 'message' => 'User updated successfully']);
+                } else {
+                    echo json_encode(['success' => false, 'error' => 'Failed to update user']);
+                }
+            } catch (Exception $e) {
+                error_log("Update user error: " . $e->getMessage());
+                echo json_encode(['success' => false, 'error' => 'Database error: ' . $e->getMessage()]);
             }
             break;
             

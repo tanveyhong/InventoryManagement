@@ -40,6 +40,7 @@ try {
 }
 
 $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
+$canManageUsers = currentUserHasPermission('can_manage_users');
 
 // Get selected user for viewing (default to showing all)
 $selectedUserId = $_GET['user_id'] ?? 'all';
@@ -263,7 +264,6 @@ try {
             border-radius: 12px;
             padding: 20px;
             transition: all 0.3s;
-            cursor: pointer;
         }
 
         .user-card:hover {
@@ -320,6 +320,16 @@ try {
 
         .role-manager {
             background: #f59e0b;
+            color: white;
+        }
+
+        .role-warehouse {
+            background: #8b5cf6;
+            color: white;
+        }
+
+        .role-analyst {
+            background: #ec4899;
             color: white;
         }
 
@@ -879,9 +889,11 @@ try {
                             <button class="btn btn-sm" onclick="filterUsers('deleted')" id="filter-deleted" style="background: #e5e7eb; color: #374151;">Deleted</button>
                         </div>
                     </div>
+                    <?php if ($canManageUsers): ?>
                     <button class="btn btn-primary" onclick="showCreateUserModal()">
                         <i class="fas fa-user-plus"></i> Create User
                     </button>
+                    <?php endif; ?>
                 </div>
                 
                 <div id="users-loading" class="loading" style="display: <?php echo !empty($usersData) ? 'none' : 'block'; ?>;">
@@ -919,6 +931,7 @@ try {
 
     <script>
         const isAdmin = <?php echo $isAdmin ? 'true' : 'false'; ?>;
+        const canManageUsers = <?php echo $canManageUsers ? 'true' : 'false'; ?>;
         const currentUserId = '<?php echo $currentUserId; ?>';
         let allUsers = <?php echo json_encode($usersData ?? []); ?>;
         let allActivities = <?php echo json_encode($activitiesData ?? []); ?>;
@@ -1018,7 +1031,7 @@ try {
             const html = `
                 <div class="user-grid">
                     ${users.map(user => `
-                        <div class="user-card ${user.deleted_at ? 'deleted' : ''}" onclick="viewUser('${user.id}')">
+                        <div class="user-card ${user.deleted_at ? 'deleted' : ''}">
                             <div class="user-card-header">
                                 <div class="user-avatar">
                                     ${user.profile_picture ? 
@@ -1041,7 +1054,7 @@ try {
                                 <div><i class="fas fa-user-circle"></i> ${escapeHtml(user.username)}</div>
                             </div>
                             <div class="user-actions" onclick="event.stopPropagation();">
-                                ${!user.deleted_at ? `
+                                ${canManageUsers ? (!user.deleted_at ? `
                                     <button class="btn btn-sm btn-primary" onclick="editUser('${user.id}')">
                                         <i class="fas fa-edit"></i> Edit
                                     </button>
@@ -1058,7 +1071,7 @@ try {
                                     <button class="btn btn-sm btn-restore" onclick="restoreUser('${user.id}', '${escapeHtml(user.username)}')">
                                         <i class="fas fa-undo"></i> Restore User
                                     </button>
-                                `}
+                                `) : ''}
                             </div>
                         </div>
                     `).join('')}
@@ -1368,17 +1381,6 @@ try {
                                 </div>
                             </div>
                             
-                            <div style="margin-bottom: 16px;">
-                                <label style="display: block; margin-bottom: 6px; font-weight: 600; color: #374151;">
-                                    <i class="fas fa-user-tag"></i> Role <span style="color: #ef4444;">*</span>
-                                </label>
-                                <select name="role" required style="width: 100%; padding: 10px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px;">
-                                    <option value="Staff" ${user.role === 'Staff' ? 'selected' : ''}>Staff</option>
-                                    <option value="Manager" ${user.role === 'Manager' ? 'selected' : ''}>Manager</option>
-                                    <option value="Admin" ${user.role === 'Admin' ? 'selected' : ''}>Admin</option>
-                                </select>
-                            </div>
-                            
                             <div style="background: #fef3c7; border: 2px solid #fbbf24; border-radius: 8px; padding: 12px; margin-bottom: 16px;">
                                 <div style="font-weight: 600; color: #92400e; margin-bottom: 4px;">
                                     <i class="fas fa-info-circle"></i> Change Password (Optional)
@@ -1390,14 +1392,24 @@ try {
                                 <label style="display: block; margin-bottom: 6px; font-weight: 600; color: #374151;">
                                     <i class="fas fa-lock"></i> New Password
                                 </label>
-                                <input type="password" name="password" style="width: 100%; padding: 10px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px;" placeholder="Leave blank to keep current">
+                                <div style="position: relative;">
+                                    <input type="password" name="password" id="edit-password" style="width: 100%; padding: 10px 40px 10px 10px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px;" placeholder="Leave blank to keep current">
+                                    <button type="button" onclick="togglePasswordField('edit-password', this)" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); border: none; background: none; cursor: pointer; color: #667eea; padding: 5px;" title="Show/Hide Password">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
                             </div>
                             
                             <div style="margin-bottom: 16px;">
                                 <label style="display: block; margin-bottom: 6px; font-weight: 600; color: #374151;">
                                     <i class="fas fa-lock"></i> Confirm New Password
                                 </label>
-                                <input type="password" name="password_confirm" style="width: 100%; padding: 10px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px;" placeholder="Leave blank to keep current">
+                                <div style="position: relative;">
+                                    <input type="password" name="password_confirm" id="edit-password-confirm" style="width: 100%; padding: 10px 40px 10px 10px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px;" placeholder="Leave blank to keep current">
+                                    <button type="button" onclick="togglePasswordField('edit-password-confirm', this)" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); border: none; background: none; cursor: pointer; color: #667eea; padding: 5px;" title="Show/Hide Password">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
                             </div>
                             
                             <div style="display: flex; gap: 12px; margin-top: 24px;">
@@ -1420,6 +1432,17 @@ try {
                     const formData = new FormData(this);
                     const data = Object.fromEntries(formData);
                     
+                    // Validation
+                    if (!data.username || data.username.trim().length < 3) {
+                        alert('Username must be at least 3 characters long');
+                        return;
+                    }
+                    
+                    if (!data.email || !data.email.includes('@')) {
+                        alert('Please enter a valid email address');
+                        return;
+                    }
+
                     // Validate passwords match if changing password
                     if (data.password || data.password_confirm) {
                         if (data.password !== data.password_confirm) {
@@ -2275,8 +2298,8 @@ try {
             container.innerHTML = '<div class="loading"><i class="fas fa-spinner fa-spin"></i><p>Loading permissions...</p></div>';
             
             try {
-                // For admin, show all users and their permissions
-                if (isAdmin) {
+                // For admin or user manager, show all users and their permissions
+                if (isAdmin || canManageUsers) {
                     await loadAllUsersPermissions();
                 } else {
                     // For non-admin, just show their own permissions
@@ -2454,7 +2477,7 @@ try {
             }
         }
         
-        function renderUserPermissions(perms, display, userId) {
+        function renderUserPermissions(perms, display, userId, hideDisabled = false) {
             const permissionsList = [
                 // Reports Module
                 { key: 'can_view_reports', name: 'View Reports', icon: 'chart-line', category: 'Reports', desc: 'View all system reports and analytics', color: '#8b5cf6' },
@@ -2465,6 +2488,9 @@ try {
                 { key: 'can_edit_inventory', name: 'Edit Stock', icon: 'edit', category: 'Stock', desc: 'Update product details and adjust stock', color: '#10b981' },
                 { key: 'can_delete_inventory', name: 'Delete Stock', icon: 'trash-alt', category: 'Stock', desc: 'Remove products from system', color: '#10b981' },
                 { key: 'can_restock_inventory', name: 'Restock Items', icon: 'boxes', category: 'Stock', desc: 'Access restock options and manual adjustments', color: '#10b981' },
+
+                // System (Moved to 3rd position as requested)
+                { key: 'can_configure_system', name: 'System Configuration', icon: 'cog', category: 'System', desc: 'Access system settings and configuration', color: '#6366f1' },
                 
                 // Stores Module
                 { key: 'can_view_stores', name: 'View Stores', icon: 'eye', category: 'Stores', desc: 'View store list and details', color: '#f59e0b' },
@@ -2488,10 +2514,7 @@ try {
 
                 // User Management
                 { key: 'can_view_users', name: 'View Users', icon: 'eye', category: 'Users', desc: 'View user list and profiles', color: '#ec4899' },
-                { key: 'can_manage_users', name: 'Manage Users', icon: 'users-cog', category: 'Users', desc: 'Add, edit, delete users and permissions', color: '#ec4899' },
-                
-                // System
-                { key: 'can_configure_system', name: 'System Configuration', icon: 'cog', category: 'System', desc: 'Access system settings and configuration', color: '#6366f1' }
+                { key: 'can_manage_users', name: 'Manage Users', icon: 'users-cog', category: 'Users', desc: 'Add, edit, delete users and permissions', color: '#ec4899' }
             ];
             
             const grantedCount = permissionsList.filter(p => perms[p.key]).length;
@@ -2511,6 +2534,26 @@ try {
                     icon: 'cash-register',
                     desc: 'POS and basic inventory',
                     permissions: ['can_view_reports', 'can_view_inventory', 'can_use_pos']
+                },
+                'warehouse': {
+                    name: 'Warehouse',
+                    color: '#8b5cf6',
+                    icon: 'boxes',
+                    desc: 'Stock & shipment management',
+                    permissions: [
+                        'can_view_inventory', 'can_edit_inventory', 'can_restock_inventory', 
+                        'can_manage_stock_transfers', 'can_manage_suppliers', 'can_manage_purchase_orders'
+                    ]
+                },
+                'analyst': {
+                    name: 'Analyst',
+                    color: '#ec4899',
+                    icon: 'chart-pie',
+                    desc: 'Reports & forecasting',
+                    permissions: [
+                        'can_view_reports', 'can_view_forecasting', 'can_manage_alerts', 
+                        'can_view_inventory', 'can_view_stores'
+                    ]
                 },
                 'manager': {
                     name: 'Manager',
@@ -2592,14 +2635,22 @@ try {
                     if (!groups[perm.category]) groups[perm.category] = [];
                     groups[perm.category].push(perm);
                     return groups;
-                }, {})).map(([category, categoryPerms]) => `
+                }, {})).map(([category, categoryPerms]) => {
+                    // Filter permissions if hideDisabled is true
+                    const visiblePerms = hideDisabled 
+                        ? categoryPerms.filter(perm => perms[perm.key]) 
+                        : categoryPerms;
+                    
+                    if (visiblePerms.length === 0) return '';
+
+                    return `
                     <div style="background: white; border-radius: 8px; padding: 12px; margin-bottom: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
                         <h5 style="margin: 0 0 8px 0; color: #1f2937; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 6px;">
                             <div style="width: 5px; height: 5px; border-radius: 50%; background: ${categoryPerms[0].color};"></div>
                             ${category} Module
                         </h5>
                         <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px;">
-                            ${categoryPerms.map(perm => {
+                            ${visiblePerms.map(perm => {
                                 const granted = perms[perm.key] || false;
                                 return `
                                     <div data-permission="${perm.key}" data-color="${perm.color}" class="permission-card" style="background: ${granted ? perm.color + '10' : '#f9fafb'}; border: 1px solid ${granted ? perm.color : '#e5e7eb'}; border-radius: 6px; padding: 8px; transition: all 0.2s;">
@@ -2622,12 +2673,12 @@ try {
                                                        data-permission-toggle="${perm.key}">
                                                 <span class="toggle-slider"></span>
                                             </label>
-                                            ` : `
+                                            ` : (hideDisabled ? '' : `
                                             <label class="toggle-switch" style="transform: scale(0.6); margin-right: -8px;">
                                                 <input type="checkbox" ${granted ? 'checked' : ''} disabled>
                                                 <span class="toggle-slider"></span>
                                             </label>
-                                            `}
+                                            `)}
                                         </div>
                                         <p style="margin: 0; font-size: 10px; color: #6b7280; line-height: 1.2;">${perm.desc}</p>
                                     </div>
@@ -2635,7 +2686,8 @@ try {
                             }).join('')}
                         </div>
                     </div>
-                `).join('')}
+                `;
+                }).join('')}
             `;
             
             display.innerHTML = html;
@@ -2643,6 +2695,7 @@ try {
         
         async function loadOwnPermissions() {
             const container = document.getElementById('permissions-container');
+            container.innerHTML = '<div class="loading"><i class="fas fa-spinner fa-spin"></i> Loading permissions...</div>';
             
             try {
                 const response = await fetch('profile/api.php?action=get_permissions');
@@ -2650,64 +2703,7 @@ try {
                 
                 if (!data.success) throw new Error(data.error || 'Failed to load permissions');
                 
-                const perms = data.data;
-                
-                const permissionsList = [
-                    { key: 'can_view_reports', name: 'View Reports', icon: 'chart-bar', desc: 'Access and view system reports', details: 'View sales reports, inventory reports, and analytics dashboards' },
-                    { key: 'can_manage_inventory', name: 'Manage Inventory', icon: 'boxes', desc: 'Add, edit, and delete inventory items', details: 'Create new products, update stock levels, adjust inventory, and manage product information' },
-                    { key: 'can_manage_users', name: 'Manage Users', icon: 'users', desc: 'Create and manage user accounts', details: 'Add new users, modify user roles, view activity logs, and manage user permissions' },
-                    { key: 'can_manage_stores', name: 'Manage Stores', icon: 'store', desc: 'Add and configure store locations', details: 'Create new stores, edit store details, manage store inventory, and configure POS integration' },
-                    { key: 'can_configure_system', name: 'System Configuration', icon: 'cog', desc: 'Access system settings and configuration', details: 'Modify system settings, configure integrations, manage API keys, and access admin panel' }
-                ];
-                
-                const grantedCount = permissionsList.filter(p => perms[p.key]).length;
-                
-                let html = `
-                    <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); padding: 20px; border-radius: 12px; margin-bottom: 25px; color: white;">
-                        <div style="display: flex; align-items: center; gap: 15px;">
-                            <div style="width: 60px; height: 60px; background: rgba(255,255,255,0.2); border-radius: 50%; display: flex; align-items: center; justify-content: center;">
-                                <i class="fas fa-shield-alt" style="font-size: 28px;"></i>
-                            </div>
-                            <div style="flex: 1;">
-                                <h3 style="margin: 0 0 8px 0; font-size: 24px;">Your Role: ${perms.role}</h3>
-                                <p style="margin: 0; opacity: 0.95; font-size: 14px;">Your permissions and access level are displayed below</p>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 25px;">
-                        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; border-radius: 12px; color: white;">
-                            <div style="font-size: 14px; opacity: 0.9; margin-bottom: 5px;">Assigned Stores</div>
-                            <div style="font-size: 32px; font-weight: 700;">${grantedCount}</div>
-                        </div>
-                    </div>
-                    
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px;">
-                        ${permissionsList.map(perm => {
-                            const granted = perms[perm.key] || false;
-                            return `
-                                <div style="background: white; border: 2px solid ${granted ? '#10b981' : '#e5e7eb'}; border-radius: 12px; padding: 20px;">
-                                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px;">
-                                        <h4 style="margin: 0; color: #1f2937; font-size: 16px;">
-                                            <i class="fas fa-${perm.icon}" style="color: ${granted ? '#10b981' : '#9ca3af'}; margin-right: 8px;"></i>
-                                            ${escapeHtml(perm.name)}
-                                        </h4>
-                                        ${granted ? 
-                                            '<span style="padding: 4px 10px; background: #d4edda; color: #155724; border-radius: 12px; font-size: 12px; font-weight: 600;"><i class="fas fa-check-circle"></i> Granted</span>' : 
-                                            '<span style="padding: 4px 10px; background: #f8d7da; color: #721c24; border-radius: 12px; font-size: 12px; font-weight: 600;"><i class="fas fa-times-circle"></i> Denied</span>'
-                                        }
-                                    </div>
-                                    <div style="font-size: 14px; color: #6b7280; margin-bottom: 12px;">
-                                        <p style="margin: 0 0 8px 0;">${escapeHtml(perm.desc)}</p>
-                                        <p style="margin: 0; font-size: 12px; opacity: 0.8;">${escapeHtml(perm.details)}</p>
-                                    </div>
-                                </div>
-                            `;
-                        }).join('')}
-                    </div>
-                `;
-                
-                container.innerHTML = html;
+                renderUserPermissions(data.data, container, currentUserId, true);
                 
             } catch (error) {
                 console.error('Error:', error);
@@ -2867,6 +2863,9 @@ try {
             
             const roleNames = {
                 'user': 'User',
+                'cashier': 'Cashier',
+                'warehouse': 'Warehouse',
+                'analyst': 'Analyst',
                 'manager': 'Manager',
                 'admin': 'Administrator'
             };
@@ -2924,8 +2923,8 @@ try {
             container.innerHTML = '<div class="loading"><i class="fas fa-spinner fa-spin"></i><p>Loading store access...</p></div>';
             
             try {
-                // Show user selector for admin
-                if (isAdmin) {
+                // Show user selector for admin or user manager
+                if (isAdmin || canManageUsers) {
                     await loadAllUsersStoreAccess();
                 } else {
                     await loadOwnStoreAccess();
