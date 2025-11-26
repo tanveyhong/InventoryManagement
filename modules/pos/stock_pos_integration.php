@@ -38,6 +38,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['batch_add_products'])
         try {
             $added_count = 0;
             $skipped_count = 0;
+            $existing_count = 0;
             $skip_reasons = [];
             $sqlDb = SQLDatabase::getInstance();
             
@@ -94,8 +95,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['batch_add_products'])
                 $existing = $sqlDb->fetch("SELECT id FROM products WHERE sku = ? AND active = TRUE LIMIT 1", [$variantSku]);
                 if ($existing) {
                     error_log("✗ Store variant already exists: $variantSku");
-                    $skipped_count++;
-                    $skip_reasons[] = "Product '$productName': Already assigned to this store";
+                    $existing_count++;
                     continue;
                 }
                 
@@ -193,14 +193,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['batch_add_products'])
                 @unlink($cacheFile);
             }
             
-            if ($added_count > 0) {
-                $detailMsg = "Successfully assigned {$added_count} product(s) to store.";
+            if ($added_count > 0 || $existing_count > 0) {
+                $parts = [];
+                if ($added_count > 0) $parts[] = "Successfully assigned {$added_count} new product(s).";
+                if ($existing_count > 0) $parts[] = "{$existing_count} product(s) already assigned.";
+                
+                $detailMsg = implode(' ', $parts);
+                
                 if ($skipped_count > 0) {
-                    $detailMsg .= " {$skipped_count} skipped:<br>" . implode('<br>', array_map(function($r) {
+                    $detailMsg .= "<br>{$skipped_count} skipped:<br>" . implode('<br>', array_map(function($r) {
                         return "• " . htmlspecialchars($r);
                     }, $skip_reasons));
+                    $messages[] = ['type' => 'warning', 'text' => $detailMsg];
+                } else {
+                    $messages[] = ['type' => 'success', 'text' => $detailMsg];
                 }
-                $messages[] = ['type' => 'success', 'text' => $detailMsg];
             } else {
                 $detailMsg = "No products were assigned. {$skipped_count} skipped:<br>" . 
                             implode('<br>', array_map(function($r) {

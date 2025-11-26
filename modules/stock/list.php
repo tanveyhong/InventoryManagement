@@ -235,9 +235,13 @@ try {
     }
 
     // Get all active stores
-    $storeRecords = $sqlDb->fetchAll("SELECT id, name FROM stores WHERE active = TRUE ORDER BY name ASC");
+    $storeRecords = $sqlDb->fetchAll("SELECT id, name, has_pos FROM stores WHERE active = TRUE ORDER BY name ASC");
     foreach ($storeRecords as $s) {
-        $stores[] = ['id' => $s['id'] ?? null, 'name' => $s['name'] ?? null];
+        $stores[] = [
+            'id' => $s['id'] ?? null, 
+            'name' => $s['name'] ?? null,
+            'has_pos' => !empty($s['has_pos'])
+        ];
     }
 
     // Get categories from products (derive unique values)
@@ -2533,6 +2537,9 @@ try {
                 div.className = 'store-option' + (isSelected ? ' selected' : '');
 
                 let html = `<span>${store.name}</span>`;
+                if (store.has_pos) {
+                    html += `<span style="font-size: 10px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 2px 6px; border-radius: 4px; margin-left: 8px; font-weight: bold; box-shadow: 0 1px 2px rgba(0,0,0,0.1);"><i class="fas fa-cash-register" style="font-size: 9px; margin-right: 3px;"></i>POS</span>`;
+                }
 
                 div.onclick = function() {
                     document.getElementById('assign_store_id').value = store.id;
@@ -2597,12 +2604,12 @@ try {
             // Setup Supplier Link
             const supplierLink = document.getElementById('btn_restock_supplier');
             if (supplierLink) {
+                let url = `../purchase_orders/create.php?product_id=${productId}`;
                 if (supplierId) {
-                    supplierLink.href = `../purchase_orders/create.php?supplier_id=${supplierId}&product_id=${productId}`;
-                    supplierLink.style.display = 'block';
-                } else {
-                    supplierLink.style.display = 'none';
+                    url += `&supplier_id=${supplierId}`;
                 }
+                supplierLink.href = url;
+                supplierLink.style.display = 'block';
             }
 
             // Setup Manual Adjust Link

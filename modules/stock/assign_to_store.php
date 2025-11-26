@@ -53,12 +53,60 @@ if (!$mainProduct) {
 // Get all stores
 $stores = $sqlDb->fetchAll("SELECT * FROM stores WHERE active = true ORDER BY name");
 
-// Get already assigned stores
-$assignedStores = $sqlDb->fetchAll(
-    "SELECT store_id FROM products WHERE (sku = ? OR LOWER(sku) LIKE LOWER(?) OR name = ?) AND store_id IS NOT NULL",
+// Get already assigned stores (exclude deleted/inactive products)
+// Use strict logic to avoid false positives
+$candidates = $sqlDb->fetchAll(
+    "SELECT sku, store_id, name FROM products WHERE (sku = ? OR LOWER(sku) LIKE LOWER(?) OR name = ?) AND store_id IS NOT NULL AND active = TRUE AND deleted_at IS NULL",
     [$mainProduct['sku'], $mainProduct['sku'] . '-%', $mainProduct['name']]
 );
-$assignedStoreIds = array_column($assignedStores, 'store_id');
+
+$assignedStoreIds = [];
+$storeMap = [];
+foreach ($stores as $s) {
+    $storeMap[$s['id']] = $s['name'];
+}
+
+foreach ($candidates as $cand) {
+    $candSku = strtoupper($cand['sku']);
+    $mainSku = strtoupper($mainProduct['sku']);
+    $sid = $cand['store_id'];
+    
+    // Check 1: Exact SKU match
+    if ($candSku === $mainSku) {
+        $assignedStoreIds[] = $sid;
+        continue;
+    }
+    
+    // Check 2: Standard Suffix -S{store_id}
+    if ($candSku === $mainSku . '-S' . $sid) {
+        $assignedStoreIds[] = $sid;
+        continue;
+    }
+    
+    // Check 3: Store Name Suffixes
+    if (isset($storeMap[$sid])) {
+        $storeName = $storeMap[$sid];
+        $sanitized = strtoupper(preg_replace('/[^a-zA-Z0-9]/', '', $storeName));
+        
+        if (!empty($sanitized)) {
+            if ($candSku === $mainSku . '-POS-' . $sanitized) {
+                $assignedStoreIds[] = $sid;
+                continue;
+            }
+            if ($candSku === $mainSku . '-' . $sanitized) {
+                $assignedStoreIds[] = $sid;
+                continue;
+            }
+        }
+    }
+    
+    // Check 4: Name Match
+    if (strcasecmp($cand['name'], $mainProduct['name']) === 0) {
+         $assignedStoreIds[] = $sid;
+         continue;
+    }
+}
+$assignedStoreIds = array_unique(array_map('intval', $assignedStoreIds));
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $store_id = (int)($_POST['store_id'] ?? 0);
@@ -87,12 +135,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $store = $sqlDb->fetch("SELECT * FROM stores WHERE id = ?", [$store_id]);
             if (!$store) throw new Exception('Store not found');
 
-            // Create store variant SKU (Format: SKU-STORENAME)
+            // Create store variant SKU (Format: SKU-STORENAME or SKU-POS-STORENAME)
             $storeNameRaw = $store['name'];
             $storeSuffix = strtoupper(preg_replace('/[^a-zA-Z0-9]/', '', $storeNameRaw));
             if (empty($storeSuffix)) $storeSuffix = 'S' . $store_id;
             
-            $variantSku = $mainProduct['sku'] . '-' . $storeSuffix;
+            // If store has POS enabled, use POS SKU format
+            if (!empty($store['has_pos']) && $store['has_pos'] == 1) {
+                $variantSku = $mainProduct['sku'] . '-POS-' . $storeSuffix;
+            } else {
+                $variantSku = $mainProduct['sku'] . '-' . $storeSuffix;
+            }
 
             // Create store variant
             $sql = "
