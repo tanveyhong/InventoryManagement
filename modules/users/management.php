@@ -90,7 +90,8 @@ if ($isAdmin || $canManageUsers) {
 // 2. Pre-fetch Activities
 $activitiesData = [];
 try {
-    $limit = 20;
+    // Increase initial fetch limit to 5000 to match client-side fetch
+    $limit = 5000;
     $sql = "SELECT ua.*, u.username, u.full_name, u.role 
             FROM user_activities ua 
             LEFT JOIN users u ON ua.user_id = u.id 
@@ -704,15 +705,16 @@ try {
             left: 0;
             right: 0;
             bottom: 0;
-            background: rgba(0,0,0,0.6);
+            background: rgba(0,0,0,0.5); /* Reduced opacity slightly */
             display: flex;
             align-items: center;
             justify-content: center;
             z-index: 10000;
-            backdrop-filter: blur(4px);
+            /* backdrop-filter: blur(4px); REMOVED for performance */
             opacity: 0;
             pointer-events: none;
-            transition: opacity 0.3s;
+            transition: opacity 0.2s ease-in-out; /* Faster transition */
+            will-change: opacity;
         }
         
         .user-selector-modal.active {
@@ -722,23 +724,24 @@ try {
         
         .user-selector-content {
             background: white;
-            border-radius: 16px;
+            border-radius: 12px; /* Reduced radius */
             width: 90%;
             max-width: 800px;
             max-height: 85vh;
             display: flex;
             flex-direction: column;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-            transform: translateY(20px);
-            transition: transform 0.3s;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1); /* Simpler shadow */
+            transform: scale(0.98); /* Scale instead of translate for smoother feel */
+            transition: transform 0.2s ease-in-out;
+            will-change: transform;
         }
         
         .user-selector-modal.active .user-selector-content {
-            transform: translateY(0);
+            transform: scale(1);
         }
         
         .user-selector-header {
-            padding: 20px 24px;
+            padding: 16px 20px; /* Reduced padding */
             border-bottom: 1px solid #e5e7eb;
             display: flex;
             justify-content: space-between;
@@ -746,33 +749,37 @@ try {
         }
         
         .user-selector-body {
-            padding: 24px;
+            padding: 20px;
             overflow-y: auto;
             flex: 1;
+            -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
         }
         
         .user-selector-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-            gap: 16px;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); /* Slightly smaller cards */
+            gap: 12px;
         }
         
         .user-selector-card {
-            border: 2px solid #e5e7eb;
-            border-radius: 12px;
-            padding: 16px;
+            border: 1px solid #e5e7eb; /* Thinner border */
+            border-radius: 8px; /* Reduced radius */
+            padding: 12px;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: border-color 0.1s, background-color 0.1s; /* Fast transition, no transform */
             display: flex;
             flex-direction: column;
             align-items: center;
             text-align: center;
+            background-color: #fff;
+            content-visibility: auto; /* Browser optimization */
+            contain: content; /* Browser optimization */
         }
         
         .user-selector-card:hover {
             border-color: #667eea;
-            background: #f8fafc;
-            transform: translateY(-2px);
+            background-color: #f8fafc;
+            /* No transform on hover to prevent repaints */
         }
         
         .user-selector-card.selected {
@@ -913,6 +920,7 @@ try {
         let myStores = <?php echo json_encode($storesData ?? []); ?>;
         let currentPage = 1;
         let itemsPerPage = 20; // Default to 20 for better readability
+        let currentActivityUser = isAdmin ? 'all' : currentUserId;
         
         // Tab Switching
         function switchTab(tabName) {
@@ -1512,19 +1520,20 @@ try {
             
             try {
                 // Fetch from API
-                const userFilter = isAdmin ? (document.getElementById('activity-user-filter')?.value || 'all') : currentUserId;
-                // Always send user_id param, even if 'all', so API doesn't default to current user
+                // For admins, always fetch ALL activities so we can filter client-side (like stock list)
+                const userFilter = isAdmin ? 'all' : currentUserId;
                 const userParam = `&user_id=${userFilter}`;
                 
                 // Try to fetch with specific params first
                 let response;
                 try {
-                    response = await fetch(`profile/api.php?action=get_activities&limit=1000${userParam}`);
+                    // Fetch up to 5000 activities to ensure we have a good history
+                    response = await fetch(`profile/api.php?action=get_activities&limit=5000${userParam}`);
                 } catch (e) {
                     // If offline and specific fetch fails, try to fallback to the generic cached version
                     if (!navigator.onLine && userFilter === 'all') {
                         console.log('Offline: Falling back to cached activities...');
-                        response = await fetch(`profile/api.php?action=get_activities&limit=1000&user_id=all`);
+                        response = await fetch(`profile/api.php?action=get_activities&limit=5000&user_id=all`);
                     } else {
                         throw e;
                     }
@@ -1643,11 +1652,13 @@ try {
                             <option value="20" selected>20 rows</option>
                             <option value="50">50 rows</option>
                             <option value="100">100 rows</option>
+                            <option value="1000">1000 rows</option>
+                            <option value="all">All rows</option>
                         </select>
 
                         <div style="flex: 1;"></div>
                         
-                        <button onclick="loadActivities(false, true)" class="btn" style="background: white; border: 1px solid #cbd5e0; color: #4b5563; padding: 6px 12px; font-size: 12px; height: 34px;">
+                        <button onclick="loadActivities(true, true)" class="btn" style="background: white; border: 1px solid #cbd5e0; color: #4b5563; padding: 6px 12px; font-size: 12px; height: 34px;">
                             <i class="fas fa-sync-alt"></i>
                         </button>
                     </div>
@@ -1673,7 +1684,12 @@ try {
                 const limitFilter = document.getElementById('activity-limit');
                 if (limitFilter) {
                     limitFilter.addEventListener('change', (e) => {
-                        itemsPerPage = parseInt(e.target.value);
+                        const val = e.target.value;
+                        if (val === 'all') {
+                            itemsPerPage = 999999;
+                        } else {
+                            itemsPerPage = parseInt(val);
+                        }
                         currentPage = 1;
                         renderActivities();
                     });
@@ -1697,20 +1713,36 @@ try {
                 hiddenInput = document.createElement('input');
                 hiddenInput.type = 'hidden';
                 hiddenInput.id = 'activity-user-filter';
-                hiddenInput.value = 'all';
+                hiddenInput.value = currentActivityUser;
                 container.appendChild(hiddenInput);
             }
 
             const btn = setupUserSelectionModal('activity-user-filter-container', function(value) {
                 const input = document.getElementById('activity-user-filter');
                 if (input) input.value = value;
+                currentActivityUser = value;
                 loadActivities(false, true);
             }, { includeAllOption: true });
             
             // Set initial text
             if (btn) {
                 const textSpan = btn.querySelector('.selected-user-text');
-                if (textSpan) textSpan.textContent = 'All Users';
+                if (textSpan) {
+                    if (currentActivityUser === 'all') {
+                        textSpan.textContent = 'All Users';
+                    } else {
+                        // Try to find user in allUsers if loaded, otherwise just show ID or wait for user load
+                        // Since we don't want to block, we'll just check what we have
+                        const user = allUsers.find(u => u.id == currentActivityUser);
+                        if (user) {
+                            textSpan.textContent = user.full_name || user.username;
+                        } else if (currentActivityUser == currentUserId) {
+                            textSpan.textContent = 'My Activity';
+                        } else {
+                            textSpan.textContent = 'User #' + currentActivityUser;
+                        }
+                    }
+                }
             }
         }
         
@@ -1720,6 +1752,11 @@ try {
             if (!container) return;
             
             let filtered = [...allActivities];
+
+            // Apply User Filter (Client-side)
+            if (currentActivityUser && currentActivityUser !== 'all') {
+                filtered = filtered.filter(activity => activity.user_id == currentActivityUser);
+            }
             
             // Sort by date descending (newest first)
             filtered.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
@@ -1739,8 +1776,10 @@ try {
             const filterValue = document.getElementById('activity-filter')?.value;
             if (filterValue) {
                 filtered = filtered.filter(activity => {
-                    const type = (activity.action_type || activity.activity_type || '').toLowerCase();
-                    return type.includes(filterValue.toLowerCase());
+                    const type = (activity.action || activity.action_type || activity.activity_type || '').toLowerCase();
+                    // Exact match for specific types to avoid partial matches (e.g. 'product_updated' matching 'product_added')
+                    // But allow partial matches if it's a broad category search if we had one
+                    return type === filterValue.toLowerCase();
                 });
             }
             
@@ -1809,12 +1848,12 @@ try {
                     const date = new Date(activity.created_at);
                     const timeStr = date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
                     const timeAgo = getTimeAgo(date);
-                    const icon = getActivityIcon(activity.action_type || activity.activity_type);
+                    const icon = getActivityIcon(activity.action || activity.action_type || activity.activity_type);
                     
                     // Determine color based on action type
                     let iconColor = '#6b7280';
                     let iconBg = '#f3f4f6';
-                    const type = (activity.action_type || activity.activity_type || '').toLowerCase();
+                    const type = (activity.action || activity.action_type || activity.activity_type || '').toLowerCase();
                     
                     if (type.includes('create') || type.includes('add')) { iconColor = '#10b981'; iconBg = '#d1fae5'; }
                     else if (type.includes('update') || type.includes('edit')) { iconColor = '#f59e0b'; iconBg = '#fef3c7'; }
@@ -1823,7 +1862,7 @@ try {
                     else if (type.includes('logout')) { iconColor = '#6b7280'; iconBg = '#f3f4f6'; }
                     
                     // Format Title
-                    let title = escapeHtml(activity.action_type || activity.activity_type || 'Activity');
+                    let title = escapeHtml(activity.action || activity.action_type || activity.activity_type || 'Activity');
                     title = title.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
                     
                     // Special formatting for Page Visits
@@ -1928,7 +1967,7 @@ try {
                                         ${activity.user_name ? escapeHtml(activity.user_name) : 'User'}
                                     </span>
                                 </div>
-                                ${(activity.action_type !== 'page_visit' && activity.description) ? `
+                                ${((activity.action || activity.action_type) !== 'page_visit' && activity.description) ? `
                                 <div style="font-size: 12px; color: #6b7280; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
                                     ${escapeHtml(activity.description)}
                                 </div>` : ''}
@@ -2010,6 +2049,20 @@ try {
         }
 
         function changePage(page) {
+            // Calculate total pages based on current filtered list
+            let filtered = [...allActivities];
+            if (currentActivityUser && currentActivityUser !== 'all') {
+                filtered = filtered.filter(activity => activity.user_id == currentActivityUser);
+            }
+            // Apply other filters if needed (date, type, search) - logic duplicated from renderActivities
+            // Ideally refactor to getFilteredActivities() but for now just ensure page is valid
+            
+            const totalItems = filtered.length;
+            const totalPages = Math.ceil(totalItems / itemsPerPage);
+
+            if (page < 1) page = 1;
+            if (page > totalPages) page = totalPages;
+            
             currentPage = page;
             renderActivities();
             // Scroll to top of activity list
@@ -2069,7 +2122,7 @@ try {
             
             allActivities.forEach(activity => {
                 const activityDate = new Date(activity.created_at);
-                uniqueTypes.add(activity.action_type || activity.activity_type);
+                uniqueTypes.add(activity.action || activity.action_type || activity.activity_type);
                 
                 if (activityDate.toDateString() === today) todayCount++;
                 if (activityDate >= oneWeekAgo) weekCount++;
@@ -2143,7 +2196,7 @@ try {
             const dayCount = {};
             
             allActivities.forEach(activity => {
-                const type = activity.action_type || activity.activity_type || 'unknown';
+                const type = activity.action || activity.action_type || activity.activity_type || 'unknown';
                 typeCount[type] = (typeCount[type] || 0) + 1;
                 
                 const date = new Date(activity.created_at);
@@ -3088,7 +3141,7 @@ try {
                     `;
                 }
                 
-                container.innerHTML = html;
+                display.innerHTML = html;
                 
             } catch (error) {
                 console.error('✗ Exception in loadUserStores:', error);
@@ -3489,60 +3542,94 @@ try {
             return button;
         }
 
+        // Cache for user selector
+        window.userSelectorCache = null;
+
         async function openUserSelectionModal(onSelectCallback, options = {}, triggerButton) {
-            // Remove existing modal if any
-            const existingModal = document.getElementById('user-selector-modal');
-            if (existingModal) existingModal.remove();
+            let modal = document.getElementById('user-selector-modal');
             
-            // Create modal structure
-            const modal = document.createElement('div');
-            modal.id = 'user-selector-modal';
-            modal.className = 'user-selector-modal';
-            
-            modal.innerHTML = `
-                <div class="user-selector-content">
-                    <div class="user-selector-header">
-                        <h3 style="margin: 0; font-size: 20px; color: #1f2937;">
-                            <i class="fas fa-users" style="color: #667eea; margin-right: 10px;"></i>
-                            Select User
-                        </h3>
-                        <button class="btn btn-secondary" style="padding: 6px 12px; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; min-width: auto; flex: none;" onclick="closeUserSelectionModal()">
-                            <i class="fas fa-times"></i>
-                        </button>
-                    </div>
-                    <div class="user-selector-body">
-                        <div class="user-selector-search">
-                            <i class="fas fa-search"></i>
-                            <input type="text" id="user-selector-input" placeholder="Search by name, email, or role...">
+            if (!modal) {
+                // Create modal structure (only once)
+                modal = document.createElement('div');
+                modal.id = 'user-selector-modal';
+                modal.className = 'user-selector-modal';
+                
+                modal.innerHTML = `
+                    <div class="user-selector-content">
+                        <div class="user-selector-header">
+                            <h3 style="margin: 0; font-size: 20px; color: #1f2937;">
+                                <i class="fas fa-users" style="color: #667eea; margin-right: 10px;"></i>
+                                Select User
+                            </h3>
+                            <button class="btn btn-secondary" style="padding: 6px 12px; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; min-width: auto; flex: none;" onclick="closeUserSelectionModal()">
+                                <i class="fas fa-times"></i>
+                            </button>
                         </div>
-                        <div id="user-selector-grid" class="user-selector-grid">
-                            <div class="loading">
-                                <i class="fas fa-spinner fa-spin"></i> Loading users...
+                        <div class="user-selector-body">
+                            <div class="user-selector-search">
+                                <i class="fas fa-search"></i>
+                                <input type="text" id="user-selector-input" placeholder="Search by name, email, or role...">
+                            </div>
+                            <div id="user-selector-grid" class="user-selector-grid">
+                                <div class="loading">
+                                    <i class="fas fa-spinner fa-spin"></i> Loading users...
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
-            `;
+                `;
+                
+                document.body.appendChild(modal);
+                
+                // Close on click outside
+                modal.addEventListener('click', (e) => {
+                    if (e.target === modal) closeUserSelectionModal();
+                });
+            }
             
-            document.body.appendChild(modal);
+            // Reset search input
+            const searchInput = document.getElementById('user-selector-input');
+            if (searchInput) searchInput.value = '';
             
-            // Trigger reflow
-            modal.offsetHeight;
-            modal.classList.add('active');
-            
-            // Focus search
-            setTimeout(() => document.getElementById('user-selector-input').focus(), 100);
+            // Show modal with animation frame to ensure smooth transition
+            requestAnimationFrame(() => {
+                modal.classList.add('active');
+                if (searchInput) setTimeout(() => searchInput.focus(), 50);
+            });
             
             // Load users
             try {
-                const response = await fetch('profile/api.php?action=get_all_users' + (options.excludeAdmins ? '&exclude_admins=true' : ''));
-                const data = await response.json();
+                let users = [];
                 
-                if (data.success) {
-                    let users = data.data;
+                // Use cache if available
+                if (window.userSelectorCache && window.userSelectorCache.length > 0) {
+                    users = [...window.userSelectorCache];
+                } else if (typeof allUsers !== 'undefined' && allUsers && allUsers.length > 0) {
+                    // Use global allUsers if available
+                    users = [...allUsers];
+                    window.userSelectorCache = users;
+                } else {
+                    // Fetch if no cache
+                    const response = await fetch('profile/api.php?action=get_all_users' + (options.excludeAdmins ? '&exclude_admins=true' : ''));
+                    const data = await response.json();
                     
-                    // Add "All Users" option if requested
-                    if (options.includeAllOption) {
+                    if (data.success) {
+                        users = data.data;
+                        window.userSelectorCache = users;
+                    } else {
+                        throw new Error(data.error || 'Failed to load users');
+                    }
+                }
+                
+                // Filter if needed (e.g. exclude admins option)
+                if (options.excludeAdmins) {
+                    users = users.filter(u => u.role !== 'admin');
+                }
+
+                // Add "All Users" option if requested
+                if (options.includeAllOption) {
+                    // Check if already added to avoid duplicates in cache
+                    if (!users.some(u => u.id === 'all')) {
                         users = [{
                             id: 'all',
                             username: 'All Users',
@@ -3554,34 +3641,31 @@ try {
                             is_all_option: true
                         }, ...users];
                     }
-                    
-                    renderUserGrid(users, onSelectCallback, triggerButton);
-                    
-                    // Setup search with debounce
-                    const handleSearch = debounce((e) => {
-                        const term = e.target.value.toLowerCase();
-                        // Use a small timeout to prevent UI blocking if list is huge
-                        setTimeout(() => {
-                            const filtered = users.filter(u => 
-                                u.username.toLowerCase().includes(term) || 
-                                (u.email && u.email.toLowerCase().includes(term)) ||
-                                (u.first_name && u.first_name.toLowerCase().includes(term)) ||
-                                (u.last_name && u.lastName.toLowerCase().includes(term)) ||
-                                u.role.toLowerCase().includes(term)
-                            );
-                            renderUserGrid(filtered, onSelectCallback, triggerButton);
-                        }, 0);
-                    }, 300);
-                    
-                    document.getElementById('user-selector-input').addEventListener('input', handleSearch);
-                } else {
-                    document.getElementById('user-selector-grid').innerHTML = `
-                        <div class="empty-state">
-                            <i class="fas fa-exclamation-circle"></i>
-                            <p>Failed to load users</p>
-                        </div>
-                    `;
                 }
+                
+                renderUserGrid(users, onSelectCallback, triggerButton);
+                
+                // Setup search with debounce
+                const handleSearch = debounce((e) => {
+                    const term = e.target.value.toLowerCase();
+                    requestAnimationFrame(() => {
+                        const filtered = users.filter(u => 
+                            (u.username && u.username.toLowerCase().includes(term)) || 
+                            (u.email && u.email.toLowerCase().includes(term)) ||
+                            (u.first_name && u.first_name.toLowerCase().includes(term)) ||
+                            (u.last_name && u.last_name && u.last_name.toLowerCase().includes(term)) ||
+                            (u.role && u.role.toLowerCase().includes(term))
+                        );
+                        renderUserGrid(filtered, onSelectCallback, triggerButton);
+                    });
+                }, 150);
+                
+                // Replace input to clear old listeners
+                const oldInput = document.getElementById('user-selector-input');
+                const newInput = oldInput.cloneNode(true);
+                oldInput.parentNode.replaceChild(newInput, oldInput);
+                newInput.addEventListener('input', handleSearch);
+
             } catch (error) {
                 console.error('Error loading users for modal:', error);
                 document.getElementById('user-selector-grid').innerHTML = `
@@ -3591,18 +3675,13 @@ try {
                     </div>
                 `;
             }
-            
-            // Close on click outside
-            modal.addEventListener('click', (e) => {
-                if (e.target === modal) closeUserSelectionModal();
-            });
         }
 
         function closeUserSelectionModal() {
             const modal = document.getElementById('user-selector-modal');
             if (modal) {
                 modal.classList.remove('active');
-                setTimeout(() => modal.remove(), 300);
+                // Keep in DOM for performance
             }
         }
 
@@ -3622,8 +3701,9 @@ try {
             const displayUsers = users.slice(0, 50);
             const hasMore = users.length > 50;
             
-            grid.innerHTML = displayUsers.map(user => `
-                <div class="user-selector-card">
+            // Use a single HTML string update
+            grid.innerHTML = displayUsers.map((user, index) => `
+                <div class="user-selector-card" data-index="${index}">
                     <div class="user-selector-avatar" style="${user.profile_picture ? `background-image: url('../../${user.profile_picture}'); background-size: cover;` : ''}">
                         ${!user.profile_picture ? getInitials(user.first_name || user.username, user.last_name) : ''}
                     </div>
@@ -3643,24 +3723,27 @@ try {
                 </div>
             ` : '');
             
-            // Attach click handlers
-            const cards = grid.querySelectorAll('.user-selector-card');
-            cards.forEach((card, index) => {
-                card.onclick = () => {
+            // Use Event Delegation: Single listener on the grid container
+            grid.onclick = (e) => {
+                const card = e.target.closest('.user-selector-card');
+                if (card) {
+                    const index = parseInt(card.dataset.index);
                     const user = displayUsers[index];
                     
-                    // Update trigger button text
-                    if (triggerButton) {
-                        const textSpan = triggerButton.querySelector('.selected-user-text');
-                        if (textSpan) textSpan.textContent = user.username;
+                    if (user) {
+                        // Update trigger button text
+                        if (triggerButton) {
+                            const textSpan = triggerButton.querySelector('.selected-user-text');
+                            if (textSpan) textSpan.textContent = user.username;
+                        }
+                        
+                        // Call callback
+                        if (onSelectCallback) onSelectCallback(user.id);
+                        
+                        closeUserSelectionModal();
                     }
-                    
-                    // Call callback
-                    if (onSelectCallback) onSelectCallback(user.id);
-                    
-                    closeUserSelectionModal();
-                };
-            });
+                }
+            };
         }
 
         // Debounce helper

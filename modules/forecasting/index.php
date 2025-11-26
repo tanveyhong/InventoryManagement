@@ -734,23 +734,66 @@ $page_title = 'Demand Forecasting';
             font-weight: 500;
         }
 
-        /* Responsive Design */
-        @media (max-width: 1200px) {
-            .filter-grid {
-                grid-template-columns: 1fr;
-            }
-            .stats-grid {
-                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            }
+        /* Plain English Summary Box */
+        .summary-box {
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 25px;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            box-shadow: var(--card-shadow);
+            border: 1px solid transparent;
+        }
+        
+        .summary-box.critical-alert {
+            background: linear-gradient(135deg, #fff5f5 0%, #fed7d7 100%);
+            border-color: #feb2b2;
+            color: #c53030;
+        }
+        
+        .summary-box.warning-alert {
+            background: linear-gradient(135deg, #fffaf0 0%, #feebc8 100%);
+            border-color: #fbd38d;
+            color: #c05621;
+        }
+        
+        .summary-box.success-alert {
+            background: linear-gradient(135deg, #f0fff4 0%, #c6f6d5 100%);
+            border-color: #9ae6b4;
+            color: #2f855a;
         }
 
-        @media (max-width: 768px) {
-            .forecast-container {
-                padding: 10px;
-            }
-            .empty-state-features {
-                grid-template-columns: 1fr;
-            }
+        .summary-icon {
+            font-size: 32px;
+            min-width: 60px;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255,255,255,0.5);
+            border-radius: 50%;
+        }
+
+        .summary-content h2 {
+            margin: 0 0 5px 0;
+            font-size: 18px;
+            font-weight: 700;
+        }
+
+        .summary-content p {
+            margin: 0;
+            font-size: 15px;
+            opacity: 0.9;
+        }
+
+        /* Tooltip helper */
+        .help-tip {
+            display: inline-block;
+            margin-left: 5px;
+            color: #94a3b8;
+            cursor: help;
+            font-size: 12px;
         }
     </style>
 </head>
@@ -760,12 +803,12 @@ $page_title = 'Demand Forecasting';
     <div class="forecast-container">
         <div class="page-header">
             <h1><i class="fas fa-chart-line"></i> Demand Forecasting</h1>
-            <p>Predict future demand and optimize inventory levels</p>
+            <p>Predict future sales and know exactly when to reorder</p>
         </div>
         
         <!-- Filters -->
         <div class="filter-section">
-            <h3><i class="fas fa-sliders-h"></i> Forecast Configuration</h3>
+            <h3><i class="fas fa-sliders-h"></i> Forecast Settings</h3>
             
             <!-- Quick Filters for Forecast Period -->
             <div class="quick-filters">
@@ -886,10 +929,50 @@ $page_title = 'Demand Forecasting';
         </script>
         
         <?php if ($forecast): ?>
+            <!-- Plain English Summary -->
+            <?php
+                $summaryClass = 'success-alert';
+                $summaryIcon = 'fa-check-circle';
+                $summaryTitle = 'Stock Levels Healthy';
+                $summaryText = 'You have enough stock to cover predicted demand for the selected period.';
+                
+                if ($forecast['stock_status']['status'] === 'out_of_stock') {
+                    $summaryClass = 'critical-alert';
+                    $summaryIcon = 'fa-exclamation-triangle';
+                    $summaryTitle = 'Action Needed: Out of Stock';
+                    $summaryText = 'This product is out of stock. You are missing sales opportunities.';
+                } elseif ($forecast['stock_status']['status'] === 'reorder_now') {
+                    $summaryClass = 'critical-alert';
+                    $summaryIcon = 'fa-exclamation-circle';
+                    $summaryTitle = 'Action Needed: Reorder Now';
+                    $summaryText = 'Stock is critically low. Place an order immediately to avoid running out.';
+                } elseif ($forecast['stock_status']['status'] === 'low_stock') {
+                    $summaryClass = 'warning-alert';
+                    $summaryIcon = 'fa-bell';
+                    $summaryTitle = 'Warning: Low Stock';
+                    $summaryText = 'Stock is getting low. You should plan a reorder soon.';
+                } elseif ($forecast['stock_status']['status'] === 'overstock') {
+                    $summaryClass = 'warning-alert'; // Use warning color for overstock too
+                    $summaryIcon = 'fa-boxes';
+                    $summaryTitle = 'Notice: Overstocked';
+                    $summaryText = 'You have significantly more stock than needed. Consider running a promotion.';
+                }
+            ?>
+            
+            <div class="summary-box <?php echo $summaryClass; ?>">
+                <div class="summary-icon">
+                    <i class="fas <?php echo $summaryIcon; ?>"></i>
+                </div>
+                <div class="summary-content">
+                    <h2><?php echo $summaryTitle; ?></h2>
+                    <p><?php echo $summaryText; ?></p>
+                </div>
+            </div>
+
             <!-- Stats Summary -->
             <div class="stats-grid">
                 <div class="stat-card">
-                    <h3><i class="fas fa-box"></i> Current Stock</h3>
+                    <h3><i class="fas fa-box"></i> Current Stock <i class="fas fa-question-circle help-tip" title="The amount of inventory you currently have on hand."></i></h3>
                     <div class="stat-value"><?php echo number_format($forecast['current_stock']); ?></div>
                     <div class="stat-label">
                         <span class="status-badge <?php echo $forecast['stock_status']['class']; ?>">
@@ -899,37 +982,28 @@ $page_title = 'Demand Forecasting';
                 </div>
                 
                 <div class="stat-card">
-                    <h3><i class="fas fa-chart-bar"></i> Predicted Demand</h3>
+                    <h3><i class="fas fa-chart-bar"></i> Predicted Sales <i class="fas fa-question-circle help-tip" title="How many units we expect to sell (or transfer out) in the next <?php echo $forecast_days; ?> days based on past trends."></i></h3>
                     <div class="stat-value"><?php echo number_format($forecast['total_predicted_demand']); ?></div>
                     <div class="stat-label">
                         next <?php echo $forecast_days; ?> days
-                        <?php if (isset($forecast['method_used'])): ?>
-                            <br><small style="opacity: 0.7;">Method: <?php echo ucwords(str_replace('_', ' ', $forecast['method_used'])); ?></small>
-                        <?php endif; ?>
                     </div>
                 </div>
                 
                 <div class="stat-card">
-                    <h3><i class="fas fa-sync"></i> Reorder Point</h3>
+                    <h3><i class="fas fa-sync"></i> Reorder At <i class="fas fa-question-circle help-tip" title="When your stock drops to this number, you should place a new order."></i></h3>
                     <div class="stat-value"><?php echo number_format($forecast['reorder_point']); ?></div>
-                    <div class="stat-label">smart trigger level</div>
+                    <div class="stat-label">units remaining</div>
                 </div>
                 
                 <div class="stat-card">
-                    <h3><i class="fas fa-check-circle"></i> Forecast Quality</h3>
+                    <h3><i class="fas fa-check-circle"></i> Reliability <i class="fas fa-question-circle help-tip" title="How confident the system is in this prediction based on the quality and consistency of your historical data."></i></h3>
                     <div class="stat-value">
                         <span class="status-badge <?php echo $forecast['confidence_level'] >= 70 ? 'success' : ($forecast['confidence_level'] >= 50 ? 'warning' : 'danger'); ?>">
-                            <?php echo $forecast['confidence_level']; ?>%
+                            <?php echo $forecast['confidence_level'] >= 80 ? 'High' : ($forecast['confidence_level'] >= 50 ? 'Medium' : 'Low'); ?>
                         </span>
                     </div>
                     <div class="stat-label">
-                        <?php if (isset($forecast['forecast_accuracy']) && $forecast['forecast_accuracy'] > 0): ?>
-                            Accuracy: <?php echo round($forecast['forecast_accuracy']); ?>% |
-                        <?php endif; ?>
                         Trend: <?php echo ucfirst($forecast['trend']); ?>
-                        <?php if (isset($forecast['seasonality']['detected']) && $forecast['seasonality']['detected']): ?>
-                            <br><small style="opacity: 0.7;">📊 Seasonality: <?php echo $forecast['seasonality']['strength']; ?>%</small>
-                        <?php endif; ?>
                     </div>
                 </div>
             </div>
@@ -939,7 +1013,11 @@ $page_title = 'Demand Forecasting';
                 <div class="forecast-left">
                     <!-- Chart -->
                     <div class="chart-container">
-                        <h2><i class="fas fa-chart-area"></i> Demand Forecast Chart</h2>
+                        <h2><i class="fas fa-chart-area"></i> Stock & Demand Forecast</h2>
+                        <p style="color: #64748b; font-size: 13px; margin-bottom: 15px;">
+                            <strong>Purple Line:</strong> Projected Stock Level (Left Axis). 
+                            <strong>Green/Blue Bars:</strong> Daily Sales/Demand (Right Axis).
+                        </p>
                         <div style="position: relative; height: 450px; width: 100%;">
                             <canvas id="forecastChart"></canvas>
                         </div>
@@ -949,7 +1027,7 @@ $page_title = 'Demand Forecasting';
                 <div class="forecast-right">
                     <!-- Recommendations -->
                     <div class="recommendations">
-                        <h2><i class="fas fa-lightbulb"></i> Recommendations</h2>
+                        <h2><i class="fas fa-lightbulb"></i> Smart Suggestions</h2>
                         <div class="recommendations-list">
                             <?php foreach ($forecast['recommendations'] as $rec): ?>
                                 <div class="recommendation-item <?php echo $rec['type']; ?>">
@@ -957,6 +1035,15 @@ $page_title = 'Demand Forecasting';
                                     <div class="rec-content">
                                         <h4><?php echo htmlspecialchars($rec['title']); ?></h4>
                                         <p><?php echo htmlspecialchars($rec['message']); ?></p>
+                                        <?php if (isset($rec['action']) && $rec['action']): ?>
+                                            <div style="margin-top: 8px;">
+                                                <a href="<?php echo isset($rec['url']) ? $rec['url'] : '#'; ?>" 
+                                                   class="btn-action" 
+                                                   style="display: inline-block; padding: 4px 12px; background: white; border: 1px solid #cbd5e1; border-radius: 4px; color: #475569; font-size: 12px; font-weight: 600; text-decoration: none;">
+                                                    <?php echo htmlspecialchars($rec['action']); ?> <i class="fas fa-arrow-right" style="font-size: 10px;"></i>
+                                                </a>
+                                            </div>
+                                        <?php endif; ?>
                                     </div>
                                 </div>
                             <?php endforeach; ?>
@@ -969,63 +1056,62 @@ $page_title = 'Demand Forecasting';
                 // Render Chart with Confidence Intervals
                 const ctx = document.getElementById('forecastChart').getContext('2d');
                 const chartData = <?php echo json_encode($forecast['chart_data']); ?>;
+                const reorderPoint = <?php echo $forecast['reorder_point']; ?>;
                 
+                // Create Reorder Point Line Data
+                const reorderLine = chartData.labels.map(() => reorderPoint);
+
                 const datasets = [
+                    // 1. Projected Stock Level (Primary Focus)
                     {
-                        label: 'Historical Sales',
-                        data: chartData.historical,
-                        borderColor: '#10b981',
-                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                        borderWidth: 2,
+                        label: 'Projected Stock Level',
+                        data: chartData.projected_stock,
+                        borderColor: '#8b5cf6', // Purple
+                        backgroundColor: 'rgba(139, 92, 246, 0.1)',
+                        borderWidth: 3,
                         tension: 0.4,
                         fill: true,
-                        pointRadius: 3,
-                        pointHoverRadius: 5,
+                        pointRadius: 0,
+                        pointHoverRadius: 6,
+                        yAxisID: 'y',
+                        order: 0
+                    },
+                    // 2. Reorder Point Line
+                    {
+                        label: 'Reorder Point',
+                        data: reorderLine,
+                        borderColor: '#ef4444', // Red
+                        borderWidth: 2,
+                        borderDash: [5, 5],
+                        pointRadius: 0,
+                        fill: false,
+                        yAxisID: 'y',
+                        order: 1
+                    },
+                    // 3. Historical Sales (Bars)
+                    {
+                        label: 'Past Sales',
+                        data: chartData.historical,
+                        backgroundColor: 'rgba(16, 185, 129, 0.6)', // Green
+                        borderColor: '#10b981',
+                        borderWidth: 1,
+                        type: 'bar',
+                        yAxisID: 'y1',
                         order: 2
                     },
+                    // 4. Future Demand (Bars)
                     {
-                        label: 'Predicted Demand',
+                        label: 'Predicted Sales',
                         data: chartData.forecast,
-                        borderColor: '#667eea',
-                        backgroundColor: 'rgba(102, 126, 234, 0.1)',
-                        borderWidth: 3,
-                        borderDash: [5, 5],
-                        tension: 0.4,
-                        fill: true,
-                        pointRadius: 4,
-                        pointHoverRadius: 6,
-                        order: 1
+                        backgroundColor: 'rgba(59, 130, 246, 0.4)', // Blue
+                        borderColor: '#3b82f6',
+                        borderWidth: 1,
+                        borderDash: [2, 2],
+                        type: 'bar',
+                        yAxisID: 'y1',
+                        order: 3
                     }
                 ];
-                
-                // Add confidence interval bands if available
-                if (chartData.upper_bound && chartData.lower_bound) {
-                    datasets.push({
-                        label: 'Upper Bound (95% CI)',
-                        data: chartData.upper_bound,
-                        borderColor: 'rgba(239, 68, 68, 0.3)',
-                        backgroundColor: 'rgba(239, 68, 68, 0.05)',
-                        borderWidth: 1,
-                        borderDash: [2, 2],
-                        tension: 0.4,
-                        fill: false,
-                        pointRadius: 0,
-                        order: 3
-                    });
-                    
-                    datasets.push({
-                        label: 'Lower Bound (95% CI)',
-                        data: chartData.lower_bound,
-                        borderColor: 'rgba(59, 130, 246, 0.3)',
-                        backgroundColor: 'rgba(59, 130, 246, 0.05)',
-                        borderWidth: 1,
-                        borderDash: [2, 2],
-                        tension: 0.4,
-                        fill: false,
-                        pointRadius: 0,
-                        order: 3
-                    });
-                }
                 
                 new Chart(ctx, {
                     type: 'line',
@@ -1036,56 +1122,68 @@ $page_title = 'Demand Forecasting';
                     options: {
                         responsive: true,
                         maintainAspectRatio: false,
+                        interaction: {
+                            mode: 'index',
+                            intersect: false,
+                        },
                         plugins: {
                             legend: {
                                 display: true,
                                 position: 'top',
                                 labels: {
+                                    usePointStyle: true,
                                     padding: 15,
-                                    font: {
-                                        size: 12,
-                                        weight: '600'
-                                    }
+                                    font: { size: 12, weight: '600' }
                                 }
                             },
                             tooltip: {
-                                mode: 'index',
-                                intersect: false,
-                                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                                backgroundColor: 'rgba(15, 23, 42, 0.9)',
                                 padding: 12,
-                                titleFont: {
-                                    size: 14,
-                                    weight: 'bold'
-                                },
-                                bodyFont: {
-                                    size: 13
+                                titleFont: { size: 14, weight: 'bold' },
+                                bodyFont: { size: 13 },
+                                callbacks: {
+                                    label: function(context) {
+                                        let label = context.dataset.label || '';
+                                        if (label) {
+                                            label += ': ';
+                                        }
+                                        if (context.parsed.y !== null) {
+                                            label += context.parsed.y + ' units';
+                                        }
+                                        return label;
+                                    }
                                 }
                             }
                         },
                         scales: {
                             y: {
-                                beginAtZero: true,
+                                type: 'linear',
+                                display: true,
+                                position: 'left',
                                 title: {
                                     display: true,
-                                    text: 'Quantity',
-                                    font: {
-                                        size: 13,
-                                        weight: '600'
-                                    }
+                                    text: 'Stock Level',
+                                    font: { weight: 'bold' }
                                 },
                                 grid: {
                                     color: 'rgba(0, 0, 0, 0.05)'
                                 }
                             },
-                            x: {
+                            y1: {
+                                type: 'linear',
+                                display: true,
+                                position: 'right',
                                 title: {
                                     display: true,
-                                    text: 'Date',
-                                    font: {
-                                        size: 13,
-                                        weight: '600'
-                                    }
+                                    text: 'Daily Sales / Demand',
+                                    font: { weight: 'bold' }
                                 },
+                                grid: {
+                                    drawOnChartArea: false // only want the grid lines for one axis to show up
+                                },
+                                min: 0
+                            },
+                            x: {
                                 grid: {
                                     display: false
                                 }
@@ -1097,29 +1195,29 @@ $page_title = 'Demand Forecasting';
         <?php else: ?>
             <div class="empty-state">
                 <i class="fas fa-chart-line"></i>
-                <h3>Ready to Forecast Demand?</h3>
-                <p>Select a product from the dropdown above to generate an intelligent demand forecast based on historical sales data and advanced algorithms.</p>
+                <h3>Ready to See the Future?</h3>
+                <p>Select a product above to see how much you'll likely sell in the coming weeks. We use your past sales data to make smart predictions.</p>
                 
                 <div class="empty-state-features">
                     <div class="empty-state-feature">
                         <i class="fas fa-robot"></i>
-                        <h4>Smart Algorithms</h4>
-                        <p>5 forecasting methods compete, best one wins automatically</p>
+                        <h4>Smart Predictions</h4>
+                        <p>We analyze your sales history to predict future demand automatically.</p>
                     </div>
                     <div class="empty-state-feature">
                         <i class="fas fa-chart-area"></i>
-                        <h4>Seasonality Detection</h4>
-                        <p>Identifies weekly patterns and adjusts predictions</p>
+                        <h4>Pattern Detection</h4>
+                        <p>We spot weekly trends (like busy weekends) to make forecasts more accurate.</p>
                     </div>
                     <div class="empty-state-feature">
                         <i class="fas fa-bullseye"></i>
-                        <h4>Confidence Intervals</h4>
-                        <p>Shows upper/lower bounds with 95% confidence</p>
+                        <h4>Reliability Score</h4>
+                        <p>We tell you how confident we are in the prediction so you can plan safely.</p>
                     </div>
                     <div class="empty-state-feature">
                         <i class="fas fa-bell"></i>
-                        <h4>Smart Alerts</h4>
-                        <p>Automatic reorder recommendations and warnings</p>
+                        <h4>Actionable Advice</h4>
+                        <p>Get clear "Order Now" or "Overstocked" alerts in plain English.</p>
                     </div>
                 </div>
             </div>

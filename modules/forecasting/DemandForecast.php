@@ -21,8 +21,8 @@ class DemandForecast {
      * @return array Forecast data with predictions and recommendations
      */
     public function forecast($product_id, $store_id = null, $forecast_days = 30) {
-        // Get historical sales data (last 180 days for better pattern detection)
-        $historical = $this->getHistoricalSales($product_id, $store_id, 180);
+        // Get historical demand data (sales + transfers)
+        $historical = $this->getHistoricalDemand($product_id, $store_id, 180);
         
         // Get current stock level
         $current_stock = $this->getCurrentStock($product_id, $store_id);
@@ -81,7 +81,7 @@ class DemandForecast {
         $confidence = $this->calculateAdvancedConfidence($historical, $volatility, $seasonality, $best_method);
         
         // Prepare chart data with confidence intervals
-        $chart_data = $this->prepareAdvancedChartData($historical, $predictions, $confidence_intervals);
+        $chart_data = $this->prepareAdvancedChartData($historical, $predictions, $confidence_intervals, $current_stock);
         
         return [
             'product_id' => $product_id,
@@ -100,6 +100,8 @@ class DemandForecast {
             'method_used' => $best_method,
             'forecast_accuracy' => $methods[$best_method]['accuracy'] ?? 0,
             'recommendations' => $this->generateAdvancedRecommendations(
+                $product_id,
+                $store_id,
                 $current_stock, 
                 $total_demand, 
                 $reorder_point, 
@@ -113,28 +115,55 @@ class DemandForecast {
     }
     
     /**
-     * Get historical sales data
+     * Get historical demand data (Sales + Stock Movements)
      */
-    private function getHistoricalSales($product_id, $store_id, $days) {
+    private function getHistoricalDemand($product_id, $store_id, $days) {
         $start_date = date('Y-m-d', strtotime("-{$days} days"));
+        $params = [];
         
-        $sql = "SELECT DATE(s.created_at) as sale_date, 
-                       COALESCE(SUM(si.quantity), 0) as quantity_sold
+        // 1. Sales Data Query (Primary Source for Sales)
+        $sales_sql = "SELECT DATE(s.created_at) as date, 
+                       COALESCE(SUM(si.quantity), 0) as quantity
                 FROM sales s
                 INNER JOIN sale_items si ON s.id = si.sale_id
                 WHERE si.product_id = ? 
                   AND s.created_at >= ?
                   AND s.payment_status = 'completed'";
         
-        $params = [$product_id, $start_date];
+        $params[] = $product_id;
+        $params[] = $start_date;
         
         if ($store_id) {
-            $sql .= " AND s.store_id = ?";
+            $sales_sql .= " AND s.store_id = ?";
             $params[] = $store_id;
         }
+        $sales_sql .= " GROUP BY DATE(s.created_at)";
+
+        // 2. Stock Movements Query (For Transfers, Adjustments, etc.)
+        // We capture all OUTGOING movements that are NOT sales
+        // (Since we already count sales above, we exclude movement_type = 'sale')
+        // Note: quantity in stock_movements is negative for outflows, so we use ABS()
+        $movements_sql = "SELECT DATE(created_at) as date, 
+                          SUM(ABS(quantity)) as quantity
+                          FROM stock_movements
+                          WHERE product_id = ?
+                          AND created_at >= ?
+                          AND quantity < 0
+                          AND movement_type != 'sale'
+                          GROUP BY DATE(created_at)";
         
-        $sql .= " GROUP BY DATE(s.created_at)
-                  ORDER BY sale_date ASC";
+        $params[] = $product_id;
+        $params[] = $start_date;
+
+        // Combine both sources
+        $sql = "SELECT date as sale_date, SUM(quantity) as quantity_sold 
+                FROM (
+                    ($sales_sql)
+                    UNION ALL
+                    ($movements_sql)
+                ) as combined_demand
+                GROUP BY date
+                ORDER BY date ASC";
         
         return $this->db->fetchAll($sql, $params);
     }
@@ -887,14 +916,15 @@ class DemandForecast {
     }
     
     /**
-     * Prepare advanced chart data with confidence intervals
+     * Prepare advanced chart data with confidence intervals and stock projection
      */
-    private function prepareAdvancedChartData($historical, $predictions, $confidence_intervals) {
+    private function prepareAdvancedChartData($historical, $predictions, $confidence_intervals, $current_stock) {
         $labels = [];
         $historical_data = [];
         $forecast_data = [];
         $lower_bound = [];
         $upper_bound = [];
+        $projected_stock = [];
         
         // Historical data
         foreach ($historical as $data) {
@@ -903,16 +933,26 @@ class DemandForecast {
             $forecast_data[] = null;
             $lower_bound[] = null;
             $upper_bound[] = null;
+            $projected_stock[] = null;
         }
         
         // Future predictions with confidence intervals
+        $running_stock = $current_stock;
         $forecast_days = count($predictions);
+        
         for ($i = 1; $i <= $forecast_days; $i++) {
             $labels[] = date('M j', strtotime("+{$i} days"));
             $historical_data[] = null;
-            $forecast_data[] = $predictions[$i - 1];
+            
+            $daily_demand = $predictions[$i - 1];
+            $forecast_data[] = $daily_demand;
+            
             $lower_bound[] = $confidence_intervals['lower'][$i - 1];
             $upper_bound[] = $confidence_intervals['upper'][$i - 1];
+            
+            // Calculate projected stock
+            $running_stock -= $daily_demand;
+            $projected_stock[] = $running_stock; // Allow negative to show shortage
         }
         
         return [
@@ -920,25 +960,55 @@ class DemandForecast {
             'historical' => $historical_data,
             'forecast' => $forecast_data,
             'lower_bound' => $lower_bound,
-            'upper_bound' => $upper_bound
+            'upper_bound' => $upper_bound,
+            'projected_stock' => $projected_stock
         ];
     }
     
     /**
      * Generate advanced recommendations
      */
-    private function generateAdvancedRecommendations($current_stock, $predicted_demand, $reorder_point, $daily_average, $seasonality, $trend, $confidence_intervals) {
+    private function generateAdvancedRecommendations($product_id, $store_id, $current_stock, $predicted_demand, $reorder_point, $daily_average, $seasonality, $trend, $confidence_intervals) {
         $recommendations = [];
         
+        // Check Warehouse Stock (for Transfer recommendation)
+        $warehouse_stock = 0;
+        if ($store_id) {
+            // If we are forecasting for a specific store, check if warehouse has stock
+            // We need to find the warehouse product ID (same SKU, store_id IS NULL)
+            $product = $this->db->fetch("SELECT sku FROM products WHERE id = ?", [$product_id]);
+            if ($product && $product['sku']) {
+                // Logic to find base SKU (stripping store suffixes if any)
+                $sku = $product['sku'];
+                // Simplified SKU matching logic for warehouse
+                $warehouse_prod = $this->db->fetch("SELECT quantity FROM products WHERE sku = ? AND store_id IS NULL", [$sku]);
+                if ($warehouse_prod) {
+                    $warehouse_stock = (int)$warehouse_prod['quantity'];
+                }
+            }
+        }
+
         // Critical: Out of stock
         if ($current_stock <= 0) {
-            $recommendations[] = [
+            $rec = [
                 'type' => 'critical',
                 'icon' => '🚨',
                 'title' => 'Out of Stock - Immediate Action Required',
-                'message' => 'Product is currently out of stock. Lost sales opportunity! Order immediately.',
-                'action' => 'Order Now'
+                'message' => 'Product is currently out of stock. Lost sales opportunity!',
+                'action' => null
             ];
+
+            // Smart Action Logic
+            if ($store_id && $warehouse_stock > 0) {
+                $rec['message'] .= " Warehouse has {$warehouse_stock} units available.";
+                $rec['action'] = 'Transfer from Warehouse';
+                $rec['url'] = '../stock/transfer_from_warehouse.php?product_id=' . $product_id;
+            } else {
+                $rec['message'] .= " Order immediately.";
+                $rec['action'] = 'Order from Supplier';
+                $rec['url'] = '../purchase_orders/create.php?product_id=' . $product_id;
+            }
+            $recommendations[] = $rec;
         }
         
         // High Priority: At or below reorder point
@@ -946,13 +1016,28 @@ class DemandForecast {
             $order_quantity = ceil(($predicted_demand - $current_stock) * 1.3);
             $max_demand = end($confidence_intervals['upper']);
             
-            $recommendations[] = [
+            $rec = [
                 'type' => 'high',
                 'icon' => '⚠️',
                 'title' => 'Reorder Point Reached',
-                'message' => "Stock is at reorder point. Recommended order: {$order_quantity} units (up to {$max_demand} for worst case). Days of stock remaining: " . ceil($current_stock / max(1, $daily_average)),
-                'action' => 'Create Purchase Order'
+                'message' => "Stock is at reorder point. Recommended: {$order_quantity} units.",
+                'action' => null
             ];
+
+            // Smart Action Logic
+            if ($store_id && $warehouse_stock >= $order_quantity) {
+                $rec['message'] .= " Warehouse has enough stock ({$warehouse_stock}).";
+                $rec['action'] = 'Transfer from Warehouse';
+                $rec['url'] = '../stock/transfer_from_warehouse.php?product_id=' . $product_id;
+            } elseif ($store_id && $warehouse_stock > 0) {
+                $rec['message'] .= " Warehouse has partial stock ({$warehouse_stock}). Transfer what you can, order the rest.";
+                $rec['action'] = 'Transfer & Order';
+                $rec['url'] = '../stock/transfer_from_warehouse.php?product_id=' . $product_id;
+            } else {
+                $rec['action'] = 'Order from Supplier';
+                $rec['url'] = '../purchase_orders/create.php?product_id=' . $product_id;
+            }
+            $recommendations[] = $rec;
         }
         
         // Medium Priority: Below predicted demand
@@ -960,13 +1045,22 @@ class DemandForecast {
             $shortage = $predicted_demand - $current_stock;
             $days_until_stockout = ceil($current_stock / max(1, $daily_average));
             
-            $recommendations[] = [
+            $rec = [
                 'type' => 'medium',
                 'icon' => '📉',
                 'title' => 'Potential Shortage Ahead',
-                'message' => "Current stock may not meet predicted demand. Potential shortage: {$shortage} units. Estimated stockout in {$days_until_stockout} days.",
+                'message' => "Potential shortage: {$shortage} units. Stockout in {$days_until_stockout} days.",
                 'action' => 'Plan Reorder'
             ];
+
+             if ($store_id && $warehouse_stock > 0) {
+                $rec['action'] = 'Check Warehouse';
+                $rec['url'] = '../stock/transfer_from_warehouse.php?product_id=' . $product_id;
+            } else {
+                $rec['action'] = 'Plan Purchase Order';
+                $rec['url'] = '../purchase_orders/create.php?product_id=' . $product_id;
+            }
+            $recommendations[] = $rec;
         }
         
         // Low Priority: Overstock
@@ -978,8 +1072,9 @@ class DemandForecast {
                 'type' => 'low',
                 'icon' => '📦',
                 'title' => 'Overstock Detected',
-                'message' => "Current stock significantly exceeds demand. Excess: {$excess} units ({$days_of_stock} days of stock). Consider promotions or reduce future orders to free up capital.",
-                'action' => 'Review Inventory'
+                'message' => "Excess: {$excess} units ({$days_of_stock} days). Consider promotions.",
+                'action' => 'Manual Adjustment', // If they want to write off or move stock
+                'url' => '../stock/adjust.php?product_id=' . $product_id
             ];
         }
         
@@ -990,7 +1085,7 @@ class DemandForecast {
                 'type' => 'success',
                 'icon' => '✅',
                 'title' => 'Stock Level Optimal',
-                'message' => "Current stock levels are well-balanced. Approximately {$days_of_stock} days of stock available based on demand forecast.",
+                'message' => "Current stock levels are well-balanced. ~{$days_of_stock} days of stock.",
                 'action' => null
             ];
         }
@@ -1001,7 +1096,7 @@ class DemandForecast {
                 'type' => 'info',
                 'icon' => '📊',
                 'title' => 'Seasonal Pattern Detected',
-                'message' => "Sales show {$seasonality['pattern']} seasonality (strength: {$seasonality['strength']}%). Forecast automatically adjusted for day-of-week variations.",
+                'message' => "Sales show {$seasonality['pattern']} seasonality (strength: {$seasonality['strength']}%).",
                 'action' => null
             ];
         }
@@ -1012,7 +1107,7 @@ class DemandForecast {
                 'type' => 'info',
                 'icon' => '📈',
                 'title' => 'Growing Demand Trend',
-                'message' => 'Sales are trending upward. Consider increasing order quantities and safety stock levels to meet growing demand.',
+                'message' => 'Sales are trending upward. Consider increasing order quantities.',
                 'action' => null
             ];
         } elseif ($trend === 'decreasing') {
@@ -1020,7 +1115,7 @@ class DemandForecast {
                 'type' => 'info',
                 'icon' => '📉',
                 'title' => 'Declining Demand Trend',
-                'message' => 'Sales are trending downward. Monitor closely and consider reducing future order quantities to prevent overstock.',
+                'message' => 'Sales are trending downward. Monitor closely.',
                 'action' => null
             ];
         }
