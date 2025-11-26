@@ -161,6 +161,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif (empty($updateData['username'])) {
             $message = 'Username is required.';
             $messageType = 'error';
+        } elseif (empty($updateData['first_name']) || empty($updateData['last_name'])) {
+            $message = 'First name and Last name are required.';
+            $messageType = 'error';
+        } elseif (!empty($updateData['phone']) && !preg_match('/^[0-9+\-\(\)\s]{7,20}$/', $updateData['phone'])) {
+            $message = 'Invalid phone number format.';
+            $messageType = 'error';
         } else {
             // Check if username is already taken by another user
             if ($updateData['username'] !== ($oldData['username'] ?? '')) {
@@ -234,6 +240,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $messageType = 'error';
         } elseif (strlen($newPassword) < 8) {
             $message = 'Password must be at least 8 characters long.';
+            $messageType = 'error';
+        } elseif (!preg_match('/[A-Z]/', $newPassword) || !preg_match('/[a-z]/', $newPassword) || !preg_match('/[0-9]/', $newPassword)) {
+            $message = 'Password must contain at least one uppercase letter, one lowercase letter, and one number.';
             $messageType = 'error';
         } else {
             // Verify current password
@@ -1169,7 +1178,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             <!-- Profile Tab -->
             <div class="tab-content active" id="tab-profile">
-                <form method="POST" action="">
+                <form method="POST" action="" id="profileUpdateForm">
                     <input type="hidden" name="action" value="update_profile">
                     
                     <div class="form-group">
@@ -1969,7 +1978,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                         <i class="fas fa-store" style="font-size: 24px;"></i>
                                     </div>
                                     <div>
-                                        <div style="font-size: 14px; opacity: 0.9;">Assigned Stores</div>
+                                        <div style="font-size: 14px; opacity: 0.9; margin-bottom: 5px;">Assigned Stores</div>
                                         <div style="font-size: 32px; font-weight: 700;">${data.data.length}</div>
                                     </div>
                                 </div>
@@ -1980,7 +1989,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                         <i class="fas fa-boxes" style="font-size: 24px;"></i>
                                     </div>
                                     <div>
-                                        <div style="font-size: 14px; opacity: 0.9;">Total Products</div>
+                                        <div style="font-size: 14px; opacity: 0.9; margin-bottom: 5px;">Total Products</div>
                                         <div style="font-size: 32px; font-weight: 700;" id="total-products-count">
                                             <i class="fas fa-spinner fa-spin"></i>
                                         </div>
@@ -2890,6 +2899,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         const confirmPasswordInput = document.getElementById('confirmPassword');
         if (confirmPasswordInput) {
             confirmPasswordInput.addEventListener('input', checkPasswordMatch);
+        }
+
+        // Profile Update Validation
+        const profileForm = document.getElementById('profileUpdateForm');
+        if (profileForm) {
+            profileForm.addEventListener('submit', function(e) {
+                const phoneInput = this.querySelector('input[name="phone"]');
+                if (phoneInput && phoneInput.value.trim() !== '') {
+                    const phoneRegex = /^[0-9+\-\(\)\s]{7,20}$/;
+                    if (!phoneRegex.test(phoneInput.value.trim())) {
+                        e.preventDefault();
+                        alert('Please enter a valid phone number.');
+                        return;
+                    }
+                }
+            });
+        }
+
+        // Password Change Validation
+        const passwordForm = document.getElementById('passwordChangeForm');
+        if (passwordForm) {
+            passwordForm.addEventListener('submit', function(e) {
+                const newPass = document.getElementById('newPassword').value;
+                const confirmPass = document.getElementById('confirmPassword').value;
+                
+                if (newPass !== confirmPass) {
+                    e.preventDefault();
+                    alert('New passwords do not match.');
+                    return;
+                }
+                
+                // Check complexity
+                const hasUpper = /[A-Z]/.test(newPass);
+                const hasLower = /[a-z]/.test(newPass);
+                const hasNumber = /[0-9]/.test(newPass);
+                const hasLength = newPass.length >= 8;
+                
+                if (!hasUpper || !hasLower || !hasNumber || !hasLength) {
+                    e.preventDefault();
+                    alert('Password must meet all complexity requirements.');
+                    return;
+                }
+            });
         }
         
         // Profile page now only contains personal info - no admin features to load
