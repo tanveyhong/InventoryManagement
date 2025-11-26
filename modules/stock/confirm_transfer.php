@@ -11,7 +11,7 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
-if (!currentUserHasPermission('can_manage_stock_transfers')) {
+if (!currentUserHasPermission('can_manage_stock_transfers') && !currentUserHasPermission('can_manage_purchase_orders')) {
     $_SESSION['error'] = 'You do not have permission to confirm transfers';
     header('Location: list.php');
     exit;

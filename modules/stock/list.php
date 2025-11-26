@@ -1045,22 +1045,7 @@ try {
                                                     href="view.php?id=<?php echo urlencode($linkId); ?>&return=<?php echo $return; ?>">
                                                     <i class="fas fa-eye"></i>
                                                 </a>
-                                                <?php if (currentUserHasPermission('can_edit_inventory')): ?>
-
-                                                    <a href="edit.php?id=<?php echo urlencode($linkId); ?>&return=<?php echo $return; ?>" class="btn btn-sm btn-primary" title="Edit Product Details">
-                                                        <i class="fas fa-edit"></i> Edit Info
-                                                    </a>
-
-                                                    <?php if (!($product['_is_store_variant'] ?? false)): ?>
-                                                        <button type="button"
-                                                            onclick="openAssignModal('<?php echo $product['id']; ?>', '<?php echo htmlspecialchars(addslashes($product['name'])); ?>', <?php echo $product['quantity']; ?>)"
-                                                            class="btn btn-sm btn-info"
-                                                            title="Assign Stock to Store"
-                                                            style="background-color: #17a2b8; border-color: #17a2b8; color: white;">
-                                                            <i class="fas fa-share-alt"></i> Assign
-                                                        </button>
-                                                    <?php endif; ?>
-
+                                                <?php if (currentUserHasPermission('can_restock_inventory') || currentUserHasPermission('can_manage_purchase_orders') || currentUserHasPermission('can_manage_stock_transfers')): ?>
                                                     <?php
                                                     $whQty = 0;
                                                     // Use the group key (base SKU) to find the warehouse stock
@@ -1093,6 +1078,23 @@ try {
                                                         <div style="margin-top: 5px; font-size: 0.85em; color: #0056b3; background-color: #e3f2fd; padding: 2px 5px; border-radius: 4px; border: 1px solid #b3e5fc; display: inline-block;">
                                                             <i class="fas fa-warehouse"></i> WH: <?php echo $whQty; ?>
                                                         </div>
+                                                    <?php endif; ?>
+                                                <?php endif; ?>
+
+                                                <?php if (currentUserHasPermission('can_edit_inventory')): ?>
+
+                                                    <a href="edit.php?id=<?php echo urlencode($linkId); ?>&return=<?php echo $return; ?>" class="btn btn-sm btn-primary" title="Edit Product Details">
+                                                        <i class="fas fa-edit"></i> Edit Info
+                                                    </a>
+
+                                                    <?php if (!($product['_is_store_variant'] ?? false)): ?>
+                                                        <button type="button"
+                                                            onclick="openAssignModal('<?php echo $product['id']; ?>', '<?php echo htmlspecialchars(addslashes($product['name'])); ?>', <?php echo $product['quantity']; ?>)"
+                                                            class="btn btn-sm btn-info"
+                                                            title="Assign Stock to Store"
+                                                            style="background-color: #17a2b8; border-color: #17a2b8; color: white;">
+                                                            <i class="fas fa-share-alt"></i> Assign
+                                                        </button>
                                                     <?php endif; ?>
 
                                                 <?php endif; ?>
@@ -2594,41 +2596,47 @@ try {
 
             // Setup Supplier Link
             const supplierLink = document.getElementById('btn_restock_supplier');
-            if (supplierId) {
-                supplierLink.href = `../purchase_orders/create.php?supplier_id=${supplierId}&product_id=${productId}`;
-                supplierLink.style.display = 'block';
-            } else {
-                supplierLink.style.display = 'none';
+            if (supplierLink) {
+                if (supplierId) {
+                    supplierLink.href = `../purchase_orders/create.php?supplier_id=${supplierId}&product_id=${productId}`;
+                    supplierLink.style.display = 'block';
+                } else {
+                    supplierLink.style.display = 'none';
+                }
             }
 
             // Setup Manual Adjust Link
             const manualLink = document.getElementById('btn_manual_restock');
-            manualLink.href = manualAdjustUrl;
+            if (manualLink) {
+                manualLink.href = manualAdjustUrl;
+            }
 
             // Setup Warehouse Transfer
             const transferSection = document.getElementById('warehouse_transfer_section');
-            const warehouseQtyDisplay = document.getElementById('warehouse_qty_display');
-            const transferBtn = document.getElementById('btn_transfer_warehouse');
-            const transferQtyInput = document.getElementById('transfer_quantity');
-            const transferProductId = document.getElementById('transfer_product_id');
+            if (transferSection) {
+                const warehouseQtyDisplay = document.getElementById('warehouse_qty_display');
+                const transferBtn = document.getElementById('btn_transfer_warehouse');
+                const transferQtyInput = document.getElementById('transfer_quantity');
+                const transferProductId = document.getElementById('transfer_product_id');
 
-            if (isStoreProduct) {
-                transferSection.style.display = 'block';
-                warehouseQtyDisplay.textContent = warehouseQty;
-                transferProductId.value = productId;
+                if (isStoreProduct) {
+                    transferSection.style.display = 'block';
+                    warehouseQtyDisplay.textContent = warehouseQty;
+                    transferProductId.value = productId;
 
-                if (warehouseQty > 0) {
-                    transferBtn.disabled = false;
-                    transferQtyInput.disabled = false;
-                    transferQtyInput.max = warehouseQty;
-                    transferBtn.title = "Transfer stock from warehouse";
+                    if (warehouseQty > 0) {
+                        transferBtn.disabled = false;
+                        transferQtyInput.disabled = false;
+                        transferQtyInput.max = warehouseQty;
+                        transferBtn.title = "Transfer stock from warehouse";
+                    } else {
+                        transferBtn.disabled = true;
+                        transferQtyInput.disabled = true;
+                        transferBtn.title = "No stock available in warehouse";
+                    }
                 } else {
-                    transferBtn.disabled = true;
-                    transferQtyInput.disabled = true;
-                    transferBtn.title = "No stock available in warehouse";
+                    transferSection.style.display = 'none';
                 }
-            } else {
-                transferSection.style.display = 'none';
             }
         }
     </script>
@@ -2641,26 +2649,32 @@ try {
             <p id="restock_product_name" style="font-weight: bold; margin-bottom: 20px;"></p>
 
             <div style="display: flex; flex-direction: column; gap: 10px;">
+                <?php if (currentUserHasPermission('can_manage_purchase_orders')): ?>
                 <a id="btn_restock_supplier" href="#" class="btn btn-success" style="text-align: center; padding: 10px;">
                     <i class="fas fa-truck"></i> Restock from Supplier
                 </a>
+                <?php endif; ?>
 
+                <?php if (currentUserHasPermission('can_restock_inventory')): ?>
                 <a id="btn_manual_restock" href="#" class="btn btn-warning" style="text-align: center; padding: 10px; background-color: #f39c12; border-color: #e67e22; color: white;">
                     <i class="fas fa-boxes"></i> Manual Stock Adjustment
                 </a>
+                <?php endif; ?>
 
+                <?php if (currentUserHasPermission('can_manage_stock_transfers') || currentUserHasPermission('can_manage_purchase_orders')): ?>
                 <div id="warehouse_transfer_section" style="border-top: 1px solid #eee; padding-top: 10px; margin-top: 5px;">
-                    <h4 style="font-size: 14px; margin-bottom: 10px;">Transfer from Warehouse</h4>
+                    <h4 style="font-size: 14px; margin-bottom: 10px;">Receive Shipment</h4>
                     <p style="font-size: 12px; color: #666; margin-bottom: 10px;">Available in Warehouse: <span id="warehouse_qty_display" style="font-weight: bold;">0</span></p>
 
                     <form id="warehouse_transfer_form" action="transfer_from_warehouse.php" method="POST" style="display: flex; gap: 5px;">
                         <input type="hidden" name="product_id" id="transfer_product_id">
                         <input type="number" name="quantity" id="transfer_quantity" placeholder="Qty" min="1" style="width: 80px; padding: 5px; border: 1px solid #ddd; border-radius: 4px;">
                         <button type="submit" id="btn_transfer_warehouse" class="btn btn-info" style="flex: 1;">
-                            <i class="fas fa-exchange-alt"></i> Transfer
+                            <i class="fas fa-truck-loading"></i> Receive
                         </button>
                     </form>
                 </div>
+                <?php endif; ?>
             </div>
         </div>
     </div>

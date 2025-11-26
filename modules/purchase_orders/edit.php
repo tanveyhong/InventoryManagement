@@ -260,12 +260,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             logActivity('po_email_sent', "Sent PO #$id email to " . $po['supplier_email'], ['po_id' => $id]);
         }
         
+        if (!currentUserHasPermission('can_send_purchase_orders')) {
+            header("Location: edit.php?id=$id&error=" . urlencode("You do not have permission to send orders."));
+            exit;
+        }
+
         logActivity('po_status_updated', "Marked PO #$id as Ordered", ['po_id' => $id, 'status' => 'ordered']);
         
         header("Location: edit.php?id=$id");
         exit;
     }
     elseif ($action === 'receive_shipment') {
+        if (!currentUserHasPermission('can_manage_stock_transfers')) {
+            header("Location: edit.php?id=$id&error=" . urlencode("You do not have permission to receive shipments."));
+            exit;
+        }
+
         $received_items = $_POST['receive'] ?? [];
         $rejected_items = $_POST['rejected'] ?? [];
         $shipment_notes = $_POST['shipment_notes'] ?? '';
@@ -670,14 +680,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             </form>
                             <form method="POST" style="display:inline;">
                                 <input type="hidden" name="action" value="mark_ordered">
+                                <?php if (currentUserHasPermission('can_send_purchase_orders')): ?>
                                 <button type="submit" class="btn btn-primary">
                                     <i class="fas fa-paper-plane"></i> Make Order
                                 </button>
+                                <?php endif; ?>
                             </form>
                         <?php elseif ($po['status'] === 'ordered' || $po['status'] === 'partial'): ?>
+                            <?php if (currentUserHasPermission('can_manage_stock_transfers')): ?>
                             <button type="button" class="btn btn-success" onclick="openReceiveModal()">
                                 <i class="fas fa-box-open"></i> Receive Shipment
                             </button>
+                            <?php endif; ?>
                         <?php endif; ?>
                     </div>
                 </div>

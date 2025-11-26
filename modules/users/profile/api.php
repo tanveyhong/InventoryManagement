@@ -706,8 +706,8 @@ try {
                 'can_delete_inventory', 'can_view_stores', 'can_add_stores', 'can_edit_stores',
                 'can_delete_stores', 'can_view_users', 'can_manage_users', 'can_use_pos',
                 'can_configure_system', 'can_view_analytics', 'can_manage_alerts', 'can_manage_inventory',
-                'can_manage_pos', 'can_manage_suppliers', 'can_manage_purchase_orders', 'can_manage_stock_transfers',
-                'can_view_forecasting'
+                'can_manage_pos', 'can_manage_suppliers', 'can_manage_purchase_orders', 'can_send_purchase_orders', 'can_manage_stock_transfers',
+                'can_view_forecasting', 'can_restock_inventory'
             ];
             
             if (!in_array($permission, $allowedPermissions)) {
@@ -869,9 +869,11 @@ try {
                         'can_view_users' => true,
                         'can_manage_suppliers' => true,
                         'can_manage_purchase_orders' => true,
+                        'can_send_purchase_orders' => true,
                         'can_manage_stock_transfers' => true,
                         'can_view_forecasting' => true,
                         'can_manage_alerts' => true,
+                        'can_restock_inventory' => true,
                     ],
                     'admin' => [
                         'can_view_reports' => true,
@@ -893,6 +895,7 @@ try {
                         'can_manage_stock_transfers' => true,
                         'can_view_forecasting' => true,
                         'can_manage_alerts' => true,
+                        'can_restock_inventory' => true,
                     ]
                 ];
                 

@@ -2459,11 +2459,12 @@ try {
                 // Reports Module
                 { key: 'can_view_reports', name: 'View Reports', icon: 'chart-line', category: 'Reports', desc: 'View all system reports and analytics', color: '#8b5cf6' },
                 
-                // Inventory Module
-                { key: 'can_view_inventory', name: 'View Inventory', icon: 'eye', category: 'Inventory', desc: 'View product list and stock levels', color: '#10b981' },
-                { key: 'can_add_inventory', name: 'Add Inventory', icon: 'plus-circle', category: 'Inventory', desc: 'Add new products and stock', color: '#10b981' },
-                { key: 'can_edit_inventory', name: 'Edit Inventory', icon: 'edit', category: 'Inventory', desc: 'Update product details and adjust stock', color: '#10b981' },
-                { key: 'can_delete_inventory', name: 'Delete Inventory', icon: 'trash-alt', category: 'Inventory', desc: 'Remove products from system', color: '#10b981' },
+                // Stock Module
+                { key: 'can_view_inventory', name: 'View Stock', icon: 'eye', category: 'Stock', desc: 'View product list and stock levels', color: '#10b981' },
+                { key: 'can_add_inventory', name: 'Add Stock', icon: 'plus-circle', category: 'Stock', desc: 'Add new products and stock', color: '#10b981' },
+                { key: 'can_edit_inventory', name: 'Edit Stock', icon: 'edit', category: 'Stock', desc: 'Update product details and adjust stock', color: '#10b981' },
+                { key: 'can_delete_inventory', name: 'Delete Stock', icon: 'trash-alt', category: 'Stock', desc: 'Remove products from system', color: '#10b981' },
+                { key: 'can_restock_inventory', name: 'Restock Items', icon: 'boxes', category: 'Stock', desc: 'Access restock options and manual adjustments', color: '#10b981' },
                 
                 // Stores Module
                 { key: 'can_view_stores', name: 'View Stores', icon: 'eye', category: 'Stores', desc: 'View store list and details', color: '#f59e0b' },
@@ -2478,7 +2479,8 @@ try {
                 // Supply Chain Module
                 { key: 'can_manage_suppliers', name: 'Manage Suppliers', icon: 'truck', category: 'Supply Chain', desc: 'Add and manage suppliers', color: '#f97316' },
                 { key: 'can_manage_purchase_orders', name: 'Purchase Orders', icon: 'file-invoice-dollar', category: 'Supply Chain', desc: 'Create and manage purchase orders', color: '#f97316' },
-                { key: 'can_manage_stock_transfers', name: 'Stock Transfers', icon: 'exchange-alt', category: 'Supply Chain', desc: 'Manage stock transfers between stores', color: '#f97316' },
+                { key: 'can_send_purchase_orders', name: 'Send Orders', icon: 'paper-plane', category: 'Supply Chain', desc: 'Approve and send purchase orders', color: '#f97316' },
+                { key: 'can_manage_stock_transfers', name: 'Receive Shipment', icon: 'truck-loading', category: 'Supply Chain', desc: 'Receive shipments and transfer stock', color: '#f97316' },
 
                 // Forecasting & Alerts
                 { key: 'can_view_forecasting', name: 'View Forecasting', icon: 'chart-line', category: 'Analytics', desc: 'Access demand forecasting tools', color: '#8b5cf6' },

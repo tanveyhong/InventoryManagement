@@ -10,6 +10,19 @@ require_once '../../getDB.php';
 if (session_status() === PHP_SESSION_NONE) {
   session_start();
 }
+
+// Auth check
+if (!isset($_SESSION['user_id'])) {
+    header('Location: ../users/login.php');
+    exit;
+}
+
+if (!currentUserHasPermission('can_restock_inventory') && !currentUserHasPermission('can_edit_inventory')) {
+    $_SESSION['error'] = 'You do not have permission to adjust stock manually';
+    header('Location: list.php');
+    exit;
+}
+
 $db = getDB();
 $docId = $_GET['id'] ?? '';
 
