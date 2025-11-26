@@ -120,6 +120,22 @@ $GLOBALS['page_visit_logged'] = true; // Prevent duplicate logging in header
 // Get dashboard statistics - OPTIMIZED: Direct PostgreSQL queries (no caching needed - queries are <5ms)
 $stats = getAllDashboardStats();
 
+// Override total stores for non-admin users to show only assigned stores
+if (isset($_SESSION['role']) && strtolower($_SESSION['role']) !== 'admin') {
+    try {
+        $storeCountQuery = "
+            SELECT COUNT(*) as count 
+            FROM user_store_access usa 
+            JOIN stores s ON usa.store_id = s.id 
+            WHERE usa.user_id = ? AND s.active = TRUE AND s.deleted_at IS NULL
+        ";
+        $storeCountResult = $sqlDb->fetch($storeCountQuery, [$_SESSION['user_id']]);
+        $stats['total_stores'] = intval($storeCountResult['count'] ?? 0);
+    } catch (Exception $e) {
+        error_log("Error counting user stores: " . $e->getMessage());
+    }
+}
+
 // Get weekly sales data for chart
 $weekly_sales = getWeeklySalesData();
 
@@ -690,7 +706,7 @@ $page_title = 'Dashboard - Inventory Management System';
                     <a href="modules/users/management.php" style="text-decoration: none; color: inherit;">
                         <div class="info-card" style="cursor: pointer; transition: transform 0.2s, box-shadow 0.2s;">
                             <div style="display: flex; align-items: center; gap: 15px;">
-                                <div style="width: 50px; height: 50px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                                <div style="width: 50px; height: 50px; background: linear-gradient(135deg, #667eea, #764ba2); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
                                     <i class="fas fa-users-cog" style="font-size: 24px; color: white;"></i>
                                 </div>
                                 <div>
@@ -784,54 +800,7 @@ $page_title = 'Dashboard - Inventory Management System';
 
             <!-- Quick Actions -->
             <div class="quick-actions-grid">
-                <?php if (currentUserHasPermission('can_add_inventory')): ?>
-                <a href="modules/stock/add.php" class="action-card">
-                    <div class="action-icon">
-                        <i class="fas fa-plus-circle"></i>
-                    </div>
-                    <div class="action-title">Add Product</div>
-                    <div class="action-desc">Add new items to inventory</div>
-                </a>
-                <?php endif; ?>
-
-                <?php if (currentUserHasPermission('can_view_stores') || currentUserHasPermission('can_add_stores')): ?>
-                <a href="modules/stores/enhanced_map.php" class="action-card">
-                    <div class="action-icon">
-                        <i class="fas fa-map-marked-alt"></i>
-                    </div>
-                    <div class="action-title">Store Map</div>
-                    <div class="action-desc">View store locations</div>
-                </a>
-                <?php endif; ?>
-
-                <?php if (currentUserHasPermission('can_view_reports')): ?>
-                <a href="modules/reports/dashboard.php" class="action-card">
-                    <div class="action-icon">
-                        <i class="fas fa-chart-bar"></i>
-                    </div>
-                    <div class="action-title">Reports</div>
-                    <div class="action-desc">Generate analytics reports</div>
-                </a>
-                <?php endif; ?>
-
-                <?php if (currentUserHasPermission('can_manage_alerts')): ?>
-                <a href="modules/alerts/low_stock.php" class="action-card">
-                    <div class="action-icon">
-                        <i class="fas fa-bell"></i>
-                    </div>
-                    <div class="action-title">Alerts</div>
-                    <div class="action-desc">View system alerts</div>
-                </a>
-                <?php endif; ?>
-                
-                <!-- Always show profile -->
-                <a href="modules/users/profile.php" class="action-card">
-                    <div class="action-icon">
-                        <i class="fas fa-user-circle"></i>
-                    </div>
-                    <div class="action-title">My Profile</div>
-                    <div class="action-desc">View your account settings</div>
-                </a>
+                <!-- Buttons removed as requested -->
             </div>
         </div>
     </div>
