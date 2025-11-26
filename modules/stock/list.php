@@ -238,7 +238,7 @@ try {
     $storeRecords = $sqlDb->fetchAll("SELECT id, name, has_pos FROM stores WHERE active = TRUE ORDER BY name ASC");
     foreach ($storeRecords as $s) {
         $stores[] = [
-            'id' => $s['id'] ?? null, 
+            'id' => $s['id'] ?? null,
             'name' => $s['name'] ?? null,
             'has_pos' => !empty($s['has_pos'])
         ];
@@ -362,16 +362,16 @@ try {
         $pid = isset($pp['id']) ? (int)$pp['id'] : 0;
         if ($pid <= 0) continue;
 
-    $qty = (int)($pp['quantity'] ?? 0);
-    $min = (int)($pp['min_stock_level'] ?? 0);
+        $qty = (int)($pp['quantity'] ?? 0);
+        $min = (int)($pp['min_stock_level'] ?? 0);
 
-    if ($min > 0 && $qty <= $min) {
-        // low stock → ensure alert is pending (or reopen)
-        pg_put_low_stock_alert($sqlDb, $pp);
-    } else {
-        // not low stock → resolve alert if exists
-        pg_resolve_low_stock_alert($sqlDb, $pid);
-    }
+        if ($min > 0 && $qty <= $min) {
+            // low stock → ensure alert is pending (or reopen)
+            pg_put_low_stock_alert($sqlDb, $pp);
+        } else {
+            // not low stock → resolve alert if exists
+            pg_resolve_low_stock_alert($sqlDb, $pid);
+        }
     }
 } catch (Throwable $e) {
     error_log('prepass failed: ' . $e->getMessage());
@@ -442,22 +442,23 @@ foreach ($filtered_products as $product) {
     // We check both decoded (correct) and raw (legacy) versions to handle cases like "&" vs "&amp;"
     $decodedStoreName = htmlspecialchars_decode($product['store_name']);
     $sanitizedStoreName = $product['store_name'] ? strtoupper(preg_replace('/[^a-zA-Z0-9]/', '', $decodedStoreName)) : '';
-    
+
     // Legacy check: some SKUs might have been generated from encoded names (e.g. "Beauty &amp; Wellness" -> "BEAUTYAMPWELLNESS")
     $sanitizedStoreNameLegacy = $product['store_name'] ? strtoupper(preg_replace('/[^a-zA-Z0-9]/', '', $product['store_name'])) : '';
-    
+
     $meaningfulSuffix = $sanitizedStoreName ? '-' . $sanitizedStoreName : '';
     $posSuffix = $sanitizedStoreName ? '-POS-' . $sanitizedStoreName : '';
-    
+
     $meaningfulSuffixLegacy = ($sanitizedStoreNameLegacy && $sanitizedStoreNameLegacy !== $sanitizedStoreName) ? '-' . $sanitizedStoreNameLegacy : '';
     $posSuffixLegacy = ($sanitizedStoreNameLegacy && $sanitizedStoreNameLegacy !== $sanitizedStoreName) ? '-POS-' . $sanitizedStoreNameLegacy : '';
 
     if (($posSuffix && strlen($sku) > strlen($posSuffix) && substr($sku, -strlen($posSuffix)) === $posSuffix) ||
-        ($posSuffixLegacy && strlen($sku) > strlen($posSuffixLegacy) && substr($sku, -strlen($posSuffixLegacy)) === $posSuffixLegacy)) {
-        
+        ($posSuffixLegacy && strlen($sku) > strlen($posSuffixLegacy) && substr($sku, -strlen($posSuffixLegacy)) === $posSuffixLegacy)
+    ) {
+
         // Determine which suffix matched
         $matchedSuffix = (substr($sku, -strlen($posSuffix)) === $posSuffix) ? $posSuffix : $posSuffixLegacy;
-        
+
         // POS Variant (e.g. PRODUCT-POS-MAINSTORE)
         $baseSku = substr($sku, 0, -strlen($matchedSuffix));
         $isStoreVariant = true;
@@ -472,11 +473,12 @@ foreach ($filtered_products as $product) {
         // Use store name instead of S# suffix
         $product['_store_suffix'] = $product['store_name'] ? $product['store_name'] : 'Store ' . $matches[2];
     } elseif (($meaningfulSuffix && strlen($sku) > strlen($meaningfulSuffix) && substr($sku, -strlen($meaningfulSuffix)) === $meaningfulSuffix) ||
-              ($meaningfulSuffixLegacy && strlen($sku) > strlen($meaningfulSuffixLegacy) && substr($sku, -strlen($meaningfulSuffixLegacy)) === $meaningfulSuffixLegacy)) {
-        
+        ($meaningfulSuffixLegacy && strlen($sku) > strlen($meaningfulSuffixLegacy) && substr($sku, -strlen($meaningfulSuffixLegacy)) === $meaningfulSuffixLegacy)
+    ) {
+
         // Determine which suffix matched
         $matchedSuffix = (substr($sku, -strlen($meaningfulSuffix)) === $meaningfulSuffix) ? $meaningfulSuffix : $meaningfulSuffixLegacy;
-        
+
         // Meaningful suffix found (e.g. PRODUCT-MAINSTORE)
         $baseSku = substr($sku, 0, -strlen($matchedSuffix));
         $isStoreVariant = true;
@@ -722,7 +724,7 @@ try {
                     <button type="button" id="batchOrderBtn" class="btn btn-success" style="display: none; background-color: #2ecc71; color: white; margin-right: 10px;">Order Selected</button>
                     <button type="submit" form="batchDeleteForm" class="btn btn-danger" id="batchDeleteBtn" style="display: none; background-color: #dc3545; color: white; margin-right: 10px;">Delete Selected</button>
                     <?php if (currentUserHasPermission('can_add_inventory')): ?>
-                    <a href="add.php" class="btn btn-addprod">Add Product</a>
+                        <a href="add.php" class="btn btn-addprod">Add Product</a>
                     <?php endif; ?>
                 </div>
             </div>
@@ -1287,9 +1289,14 @@ try {
                                 min,
                                 supplierId // ✅ pass through
                             });
+                            // Only stop AFTER we show one modal
+                            break;
                         }
-                        break; // show one per page load
+
+                        // If already seen today, just continue to next row
+                        continue;
                     }
+
                 }
             });
 
@@ -2678,30 +2685,30 @@ try {
 
             <div style="display: flex; flex-direction: column; gap: 10px;">
                 <?php if (currentUserHasPermission('can_manage_purchase_orders')): ?>
-                <a id="btn_restock_supplier" href="#" class="btn btn-success" style="text-align: center; padding: 10px;">
-                    <i class="fas fa-truck"></i> Restock from Supplier
-                </a>
+                    <a id="btn_restock_supplier" href="#" class="btn btn-success" style="text-align: center; padding: 10px;">
+                        <i class="fas fa-truck"></i> Restock from Supplier
+                    </a>
                 <?php endif; ?>
 
                 <?php if (currentUserHasPermission('can_restock_inventory')): ?>
-                <a id="btn_manual_restock" href="#" class="btn btn-warning" style="text-align: center; padding: 10px; background-color: #f39c12; border-color: #e67e22; color: white;">
-                    <i class="fas fa-boxes"></i> Manual Stock Adjustment
-                </a>
+                    <a id="btn_manual_restock" href="#" class="btn btn-warning" style="text-align: center; padding: 10px; background-color: #f39c12; border-color: #e67e22; color: white;">
+                        <i class="fas fa-boxes"></i> Manual Stock Adjustment
+                    </a>
                 <?php endif; ?>
 
                 <?php if (currentUserHasPermission('can_manage_stock_transfers') || currentUserHasPermission('can_manage_purchase_orders')): ?>
-                <div id="warehouse_transfer_section" style="border-top: 1px solid #eee; padding-top: 10px; margin-top: 5px;">
-                    <h4 style="font-size: 14px; margin-bottom: 10px;">Receive Shipment</h4>
-                    <p style="font-size: 12px; color: #666; margin-bottom: 10px;">Available in Warehouse: <span id="warehouse_qty_display" style="font-weight: bold;">0</span></p>
+                    <div id="warehouse_transfer_section" style="border-top: 1px solid #eee; padding-top: 10px; margin-top: 5px;">
+                        <h4 style="font-size: 14px; margin-bottom: 10px;">Receive Shipment</h4>
+                        <p style="font-size: 12px; color: #666; margin-bottom: 10px;">Available in Warehouse: <span id="warehouse_qty_display" style="font-weight: bold;">0</span></p>
 
-                    <form id="warehouse_transfer_form" action="transfer_from_warehouse.php" method="POST" style="display: flex; gap: 5px;">
-                        <input type="hidden" name="product_id" id="transfer_product_id">
-                        <input type="number" name="quantity" id="transfer_quantity" placeholder="Qty" min="1" style="width: 80px; padding: 5px; border: 1px solid #ddd; border-radius: 4px;">
-                        <button type="submit" id="btn_transfer_warehouse" class="btn btn-info" style="flex: 1;">
-                            <i class="fas fa-truck-loading"></i> Receive
-                        </button>
-                    </form>
-                </div>
+                        <form id="warehouse_transfer_form" action="transfer_from_warehouse.php" method="POST" style="display: flex; gap: 5px;">
+                            <input type="hidden" name="product_id" id="transfer_product_id">
+                            <input type="number" name="quantity" id="transfer_quantity" placeholder="Qty" min="1" style="width: 80px; padding: 5px; border: 1px solid #ddd; border-radius: 4px;">
+                            <button type="submit" id="btn_transfer_warehouse" class="btn btn-info" style="flex: 1;">
+                                <i class="fas fa-truck-loading"></i> Receive
+                            </button>
+                        </form>
+                    </div>
                 <?php endif; ?>
             </div>
         </div>

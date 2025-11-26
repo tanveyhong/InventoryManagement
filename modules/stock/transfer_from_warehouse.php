@@ -75,6 +75,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!$warehouseProduct) {
              $warehouseProduct = $sqlDb->fetch("SELECT * FROM products WHERE sku = ? AND store_id IS NULL", [$sku]);
         }
+
+        // Fallback 2: Try matching by Product Name (if store name changed, SKU derivation fails)
+        if (!$warehouseProduct) {
+            $potentialMatches = $sqlDb->fetchAll("SELECT * FROM products WHERE name = ? AND store_id IS NULL", [$storeProduct['name']]);
+            
+            foreach ($potentialMatches as $match) {
+                // Check if the store SKU starts with the warehouse SKU followed by a hyphen
+                // This handles cases like SKU: "ITEM-001" -> "ITEM-001-STORENAME"
+                if (strpos($sku, $match['sku'] . '-') === 0) {
+                    $warehouseProduct = $match;
+                    break;
+                }
+            }
+            
+            // If still not found but we have exactly one match by name, assume it's the one
+            if (!$warehouseProduct && count($potentialMatches) === 1) {
+                $warehouseProduct = $potentialMatches[0];
+            }
+        }
         
         if (!$warehouseProduct) {
             throw new Exception("Warehouse product not found for SKU: $sku");
