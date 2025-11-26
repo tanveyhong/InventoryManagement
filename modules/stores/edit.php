@@ -137,6 +137,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Log the activity
                 logStoreActivity('updated', $store_id, $name, $changes);
                 
+                // Update Product SKUs if store name changed
+                if ($store['name'] !== $name) {
+                    // Calculate suffixes
+                    $oldSuffix = strtoupper(preg_replace('/[^a-zA-Z0-9]/', '', htmlspecialchars_decode($store['name'])));
+                    $newSuffix = strtoupper(preg_replace('/[^a-zA-Z0-9]/', '', htmlspecialchars_decode($name)));
+                    
+                    // Also calculate legacy suffix for old name (to catch &amp; -> AMP cases)
+                    $oldSuffixLegacy = strtoupper(preg_replace('/[^a-zA-Z0-9]/', '', $store['name']));
+                    
+                    if ($newSuffix && ($oldSuffix || $oldSuffixLegacy)) {
+                        // Fetch all products for this store
+                        $storeProducts = $sqlDb->fetchAll("SELECT id, sku FROM products WHERE store_id = ?", [$store_id]);
+                        
+                        foreach ($storeProducts as $prod) {
+                            $sku = $prod['sku'];
+                            $newSku = $sku;
+                            
+                            // Try replacing standard suffix
+                            if ($oldSuffix && strpos($sku, '-' . $oldSuffix) !== false) {
+                                $newSku = str_replace('-' . $oldSuffix, '-' . $newSuffix, $sku);
+                            } 
+                            // Try replacing legacy suffix if standard didn't match
+                            elseif ($oldSuffixLegacy && strpos($sku, '-' . $oldSuffixLegacy) !== false) {
+                                $newSku = str_replace('-' . $oldSuffixLegacy, '-' . $newSuffix, $sku);
+                            }
+                            
+                            if ($newSku !== $sku) {
+                                $sqlDb->execute("UPDATE products SET sku = ? WHERE id = ?", [$newSku, $prod['id']]);
+                            }
+                        }
+                    }
+                }
+                
                 addNotification('Store updated successfully!', 'success');
                 header('Location: list.php');
                 exit;

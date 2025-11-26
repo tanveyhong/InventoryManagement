@@ -439,13 +439,27 @@ foreach ($filtered_products as $product) {
     $isStoreVariant = false;
 
     // Check for meaningful suffix (e.g. -MAINSTORE) derived from store name
-    $sanitizedStoreName = $product['store_name'] ? strtoupper(preg_replace('/[^a-zA-Z0-9]/', '', $product['store_name'])) : '';
+    // We check both decoded (correct) and raw (legacy) versions to handle cases like "&" vs "&amp;"
+    $decodedStoreName = htmlspecialchars_decode($product['store_name']);
+    $sanitizedStoreName = $product['store_name'] ? strtoupper(preg_replace('/[^a-zA-Z0-9]/', '', $decodedStoreName)) : '';
+    
+    // Legacy check: some SKUs might have been generated from encoded names (e.g. "Beauty &amp; Wellness" -> "BEAUTYAMPWELLNESS")
+    $sanitizedStoreNameLegacy = $product['store_name'] ? strtoupper(preg_replace('/[^a-zA-Z0-9]/', '', $product['store_name'])) : '';
+    
     $meaningfulSuffix = $sanitizedStoreName ? '-' . $sanitizedStoreName : '';
     $posSuffix = $sanitizedStoreName ? '-POS-' . $sanitizedStoreName : '';
+    
+    $meaningfulSuffixLegacy = ($sanitizedStoreNameLegacy && $sanitizedStoreNameLegacy !== $sanitizedStoreName) ? '-' . $sanitizedStoreNameLegacy : '';
+    $posSuffixLegacy = ($sanitizedStoreNameLegacy && $sanitizedStoreNameLegacy !== $sanitizedStoreName) ? '-POS-' . $sanitizedStoreNameLegacy : '';
 
-    if ($posSuffix && strlen($sku) > strlen($posSuffix) && substr($sku, -strlen($posSuffix)) === $posSuffix) {
+    if (($posSuffix && strlen($sku) > strlen($posSuffix) && substr($sku, -strlen($posSuffix)) === $posSuffix) ||
+        ($posSuffixLegacy && strlen($sku) > strlen($posSuffixLegacy) && substr($sku, -strlen($posSuffixLegacy)) === $posSuffixLegacy)) {
+        
+        // Determine which suffix matched
+        $matchedSuffix = (substr($sku, -strlen($posSuffix)) === $posSuffix) ? $posSuffix : $posSuffixLegacy;
+        
         // POS Variant (e.g. PRODUCT-POS-MAINSTORE)
-        $baseSku = substr($sku, 0, -strlen($posSuffix));
+        $baseSku = substr($sku, 0, -strlen($matchedSuffix));
         $isStoreVariant = true;
         $product['_is_store_variant'] = true;
         $product['_store_suffix'] = $product['store_name'];
@@ -457,9 +471,14 @@ foreach ($filtered_products as $product) {
         $product['_is_store_variant'] = true;
         // Use store name instead of S# suffix
         $product['_store_suffix'] = $product['store_name'] ? $product['store_name'] : 'Store ' . $matches[2];
-    } elseif ($meaningfulSuffix && strlen($sku) > strlen($meaningfulSuffix) && substr($sku, -strlen($meaningfulSuffix)) === $meaningfulSuffix) {
+    } elseif (($meaningfulSuffix && strlen($sku) > strlen($meaningfulSuffix) && substr($sku, -strlen($meaningfulSuffix)) === $meaningfulSuffix) ||
+              ($meaningfulSuffixLegacy && strlen($sku) > strlen($meaningfulSuffixLegacy) && substr($sku, -strlen($meaningfulSuffixLegacy)) === $meaningfulSuffixLegacy)) {
+        
+        // Determine which suffix matched
+        $matchedSuffix = (substr($sku, -strlen($meaningfulSuffix)) === $meaningfulSuffix) ? $meaningfulSuffix : $meaningfulSuffixLegacy;
+        
         // Meaningful suffix found (e.g. PRODUCT-MAINSTORE)
-        $baseSku = substr($sku, 0, -strlen($meaningfulSuffix));
+        $baseSku = substr($sku, 0, -strlen($matchedSuffix));
         $isStoreVariant = true;
         $product['_is_store_variant'] = true;
         $product['_store_suffix'] = $product['store_name'];
@@ -803,7 +822,7 @@ try {
                             <option value="">All Stores</option>
                             <?php foreach ($stores as $store): ?>
                                 <option value="<?php echo $store['id']; ?>" <?php echo $store_filter == $store['id'] ? 'selected' : ''; ?>>
-                                    <?php echo htmlspecialchars($store['name']); ?>
+                                    <?php echo htmlspecialchars(htmlspecialchars_decode($store['name'])); ?>
                                 </option>
                             <?php endforeach; ?>
                         </select>
@@ -898,9 +917,9 @@ try {
                                         data-price="<?php echo (float)$product['unit_price']; ?>"
                                         data-updated="<?php echo !empty($product['updated_at']) ? strtotime($product['updated_at']) : 0; ?>"
                                         data-created="<?php echo !empty($product['created_at']) ? strtotime($product['created_at']) : 0; ?>"
-                                        data-store-name="<?php echo htmlspecialchars($product['store_name'] ?? ''); ?>"
+                                        data-store-name="<?php echo htmlspecialchars(htmlspecialchars_decode($product['store_name'] ?? '')); ?>"
                                         data-store-id="<?php echo htmlspecialchars($product['store_id'] ?? ''); ?>"
-                                        data-category="<?php echo htmlspecialchars($product['category_name'] ?? ''); ?>"
+                                        data-category="<?php echo htmlspecialchars(htmlspecialchars_decode($product['category_name'] ?? '')); ?>"
                                         data-supplier-id="<?= htmlspecialchars($product['supplier_id'] ?? '') ?>"
                                         data-status="<?php echo htmlspecialchars($product['status']); ?>">
 
@@ -917,7 +936,7 @@ try {
                                                         <?php echo htmlspecialchars($product['name']); ?>
                                                         <?php if ($product['_is_store_variant'] ?? false): ?>
                                                             <span style="color: #3498db; font-size: 11px; font-weight: 600; background: #e8f4fd; padding: 2px 6px; border-radius: 3px; margin-left: 5px;">
-                                                                <?php echo htmlspecialchars($product['_store_suffix'] ?? ''); ?>
+                                                                <?php echo htmlspecialchars(htmlspecialchars_decode($product['_store_suffix'] ?? '')); ?>
                                                             </span>
                                                             <?php if ($product['_is_pos_variant'] ?? false): ?>
                                                                 <span style="color: #fff; font-size: 10px; font-weight: 600; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 2px 6px; border-radius: 3px; margin-left: 3px; box-shadow: 0 1px 2px rgba(0,0,0,0.1);" title="Linked to POS System">
@@ -1001,7 +1020,7 @@ try {
                                             <div style="display: flex; flex-direction: column; gap: 4px;">
                                                 <?php if ($product['store_name']): ?>
                                                     <span style="background: #f8f9fa; border: 1px solid #e9ecef; color: #495057; padding: 2px 6px; border-radius: 4px; font-size: 0.95em; font-weight: 600; display: inline-block; text-align: center;">
-                                                        <i class="fas fa-store" style="margin-right: 3px; color: #adb5bd;"></i> <?php echo htmlspecialchars($product['store_name']); ?>
+                                                        <i class="fas fa-store" style="margin-right: 3px; color: #adb5bd;"></i> <?php echo htmlspecialchars(htmlspecialchars_decode($product['store_name'])); ?>
                                                     </span>
                                                 <?php endif; ?>
                                                 <?php if ($product['category_name']): ?>
