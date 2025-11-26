@@ -649,8 +649,6 @@ try {
                 // Analytics
                 'can_view_forecasting' => $hasPerm('can_view_forecasting'),
                 'can_manage_alerts' => $hasPerm('can_manage_alerts'),
-                // System
-                'can_configure_system' => $hasPerm('can_configure_system'),
                 // Legacy permissions (for backward compatibility)
                 'can_manage_inventory' => $hasPerm('can_manage_inventory'),
                 'can_manage_stores' => $hasPerm('can_manage_stores')
@@ -722,7 +720,7 @@ try {
                 'can_view_reports', 'can_view_inventory', 'can_add_inventory', 'can_edit_inventory',
                 'can_delete_inventory', 'can_view_stores', 'can_add_stores', 'can_edit_stores',
                 'can_delete_stores', 'can_view_users', 'can_manage_users', 'can_use_pos',
-                'can_configure_system', 'can_view_analytics', 'can_manage_alerts', 'can_manage_inventory',
+                'can_view_analytics', 'can_manage_alerts', 'can_manage_inventory',
                 'can_manage_pos', 'can_manage_suppliers', 'can_manage_purchase_orders', 'can_send_purchase_orders', 'can_manage_stock_transfers',
                 'can_view_forecasting', 'can_restock_inventory'
             ];

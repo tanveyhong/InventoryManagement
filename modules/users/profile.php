@@ -1900,10 +1900,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                         // Users Module
                         { key: 'can_view_users', name: 'View Users', icon: 'users', category: 'Users Module', desc: 'View user list and profiles', color: '#ec4899' },
-                        { key: 'can_manage_users', name: 'Manage Users', icon: 'user-cog', category: 'Users Module', desc: 'Add, edit, delete users and permissions', color: '#ec4899' },
-
-                        // System Module
-                        { key: 'can_configure_system', name: 'System Configuration', icon: 'cogs', category: 'System Module', desc: 'Access system settings and configuration', color: '#6366f1' }
+                        { key: 'can_manage_users', name: 'Manage Users', icon: 'user-cog', category: 'Users Module', desc: 'Add, edit, delete users and permissions', color: '#ec4899' }
                     ];
                     
                     // Add role information banner

@@ -1017,7 +1017,6 @@ function hasPermission($userId, $permission) {
             'manage_inventory' => 'can_manage_inventory',
             'manage_users' => 'can_manage_users',
             'manage_stores' => 'can_manage_stores',
-            'configure_system' => 'can_configure_system',
             'manage_pos' => 'can_manage_pos',
             'view_audit' => 'can_view_audit',
             'view_inventory' => 'can_view_inventory'

@@ -307,8 +307,7 @@ function prewarmDashboardCache($userId) {
         'can_view_inventory', 'can_add_inventory', 'can_edit_inventory', 'can_delete_inventory',
         'can_view_stores', 'can_add_stores', 'can_edit_stores', 'can_delete_stores',
         'can_use_pos', 'can_manage_pos',
-        'can_view_users', 'can_manage_users',
-        'can_configure_system'
+        'can_view_users', 'can_manage_users'
     ];
     
     foreach ($allPermissions as $perm) {

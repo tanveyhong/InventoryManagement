@@ -889,11 +889,31 @@ try {
                             <button class="btn btn-sm" onclick="filterUsers('deleted')" id="filter-deleted" style="background: #e5e7eb; color: #374151;">Deleted</button>
                         </div>
                     </div>
-                    <?php if ($canManageUsers): ?>
-                    <button class="btn btn-primary" onclick="showCreateUserModal()">
-                        <i class="fas fa-user-plus"></i> Create User
-                    </button>
-                    <?php endif; ?>
+                    
+                    <div style="flex: 1; min-width: 300px; display: flex; gap: 10px; justify-content: flex-end; align-items: center;">
+                        <div style="position: relative; width: 300px;">
+                            <i class="fas fa-search" style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: #9ca3af; pointer-events: none;"></i>
+                            <input type="text" id="user-search" placeholder="Search users..." 
+                                   style="width: 100%; padding: 10px 10px 10px 35px; border: 1px solid #e5e7eb; border-radius: 8px; font-size: 14px; transition: all 0.2s; height: 42px;"
+                                   onkeyup="filterUsersRealTime()">
+                        </div>
+                        <select id="role-filter" onchange="filterUsersRealTime()" 
+                                style="padding: 0 10px; border: 1px solid #e5e7eb; border-radius: 8px; font-size: 14px; min-width: 120px; cursor: pointer; height: 42px;">
+                            <option value="all">All Roles</option>
+                            <option value="admin">Admin</option>
+                            <option value="manager">Manager</option>
+                            <option value="user">User</option>
+                            <option value="staff">Staff</option>
+                            <option value="cashier">Cashier</option>
+                            <option value="warehouse">Warehouse</option>
+                            <option value="analyst">Analyst</option>
+                        </select>
+                        <?php if ($canManageUsers): ?>
+                        <button class="btn btn-primary" onclick="showCreateUserModal()" style="white-space: nowrap; height: 42px; display: flex; align-items: center; gap: 8px;">
+                            <i class="fas fa-user-plus"></i> Create
+                        </button>
+                        <?php endif; ?>
+                    </div>
                 </div>
                 
                 <div id="users-loading" class="loading" style="display: <?php echo !empty($usersData) ? 'none' : 'block'; ?>;">
@@ -1081,6 +1101,58 @@ try {
             container.innerHTML = html;
         }
 
+        function updateRoleCounts() {
+            const roleCounts = {
+                'all': 0,
+                'admin': 0,
+                'manager': 0,
+                'user': 0,
+                'staff': 0,
+                'cashier': 0,
+                'warehouse': 0,
+                'analyst': 0
+            };
+
+            // Base set of users to count from (respecting Active/Deleted filter)
+            let baseUsers = allUsers;
+            if (currentFilter === 'active') {
+                baseUsers = allUsers.filter(u => !u.deleted_at);
+            } else if (currentFilter === 'deleted') {
+                baseUsers = allUsers.filter(u => u.deleted_at);
+            }
+
+            roleCounts['all'] = baseUsers.length;
+
+            baseUsers.forEach(user => {
+                const role = (user.role || 'staff').toLowerCase();
+                if (roleCounts.hasOwnProperty(role)) {
+                    roleCounts[role]++;
+                }
+            });
+
+            // Update the select options
+            const select = document.getElementById('role-filter');
+            if (select) {
+                const roleNames = {
+                    'all': 'All Roles',
+                    'admin': 'Admin',
+                    'manager': 'Manager',
+                    'user': 'User',
+                    'staff': 'Staff',
+                    'cashier': 'Cashier',
+                    'warehouse': 'Warehouse',
+                    'analyst': 'Analyst'
+                };
+
+                for (const [role, count] of Object.entries(roleCounts)) {
+                    const option = select.querySelector(`option[value="${role}"]`);
+                    if (option) {
+                        option.textContent = `${roleNames[role]} (${count})`;
+                    }
+                }
+            }
+        }
+
         // Filter Users
         function filterUsers(filter) {
             currentFilter = filter;
@@ -1093,15 +1165,39 @@ try {
             document.getElementById(`filter-${filter}`).style.background = '#667eea';
             document.getElementById(`filter-${filter}`).style.color = 'white';
             
-            // Filter users
-            let filteredUsers = allUsers;
-            if (filter === 'active') {
-                filteredUsers = allUsers.filter(u => !u.deleted_at);
-            } else if (filter === 'deleted') {
-                filteredUsers = allUsers.filter(u => u.deleted_at);
+            updateRoleCounts();
+            filterUsersRealTime();
+        }
+
+        function filterUsersRealTime() {
+            const searchTerm = document.getElementById('user-search').value.toLowerCase();
+            const roleFilter = document.getElementById('role-filter').value;
+            
+            let filtered = allUsers;
+            
+            // Apply Status Filter
+            if (currentFilter === 'active') {
+                filtered = filtered.filter(u => !u.deleted_at);
+            } else if (currentFilter === 'deleted') {
+                filtered = filtered.filter(u => u.deleted_at);
             }
             
-            renderUsers(filteredUsers);
+            // Apply Role Filter
+            if (roleFilter !== 'all') {
+                filtered = filtered.filter(u => (u.role || '').toLowerCase() === roleFilter);
+            }
+            
+            // Apply Search Filter
+            if (searchTerm) {
+                filtered = filtered.filter(u => 
+                    (u.username || '').toLowerCase().includes(searchTerm) ||
+                    (u.email || '').toLowerCase().includes(searchTerm) ||
+                    (u.first_name || '').toLowerCase().includes(searchTerm) ||
+                    (u.last_name || '').toLowerCase().includes(searchTerm)
+                );
+            }
+            
+            renderUsers(filtered);
         }
         
         // Restore User
@@ -1338,99 +1434,37 @@ try {
                     user = data.data;
                 }
                 
-                const modal = document.createElement('div');
-                modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 10000; backdrop-filter: blur(4px);';
-                modal.innerHTML = `
-                    <div style="background: white; border-radius: 16px; max-width: 500px; width: 90%; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
-                        <div style="background: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%); padding: 24px; border-radius: 16px 16px 0 0; color: white;">
-                            <h3 style="margin: 0; font-size: 22px; display: flex; align-items: center; gap: 10px;">
-                                <i class="fas fa-user-edit"></i> Edit User
-                            </h3>
-                            <p style="margin: 8px 0 0 0; opacity: 0.9; font-size: 14px;">Update user information</p>
-                        </div>
-                        
-                        <form id="edit-user-form" style="padding: 24px;">
-                            <input type="hidden" name="user_id" value="${userId}">
-                            
-                            <div style="margin-bottom: 16px;">
-                                <label style="display: block; margin-bottom: 6px; font-weight: 600; color: #374151;">
-                                    <i class="fas fa-user"></i> Username <span style="color: #ef4444;">*</span>
-                                </label>
-                                <input type="text" name="username" required value="${escapeHtml(user.username)}" style="width: 100%; padding: 10px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px;">
-                            </div>
-                            
-                            <div style="margin-bottom: 16px;">
-                                <label style="display: block; margin-bottom: 6px; font-weight: 600; color: #374151;">
-                                    <i class="fas fa-envelope"></i> Email <span style="color: #ef4444;">*</span>
-                                </label>
-                                <input type="email" name="email" required value="${escapeHtml(user.email || '')}" style="width: 100%; padding: 10px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px;">
-                            </div>
-                            
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
-                                <div>
-                                    <label style="display: block; margin-bottom: 6px; font-weight: 600; color: #374151;">
-                                        <i class="fas fa-id-badge"></i> First Name
-                                    </label>
-                                    <input type="text" name="first_name" value="${escapeHtml(user.first_name || '')}" style="width: 100%; padding: 10px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px;">
-                                </div>
-                                <div>
-                                    <label style="display: block; margin-bottom: 6px; font-weight: 600; color: #374151;">
-                                        Last Name
-                                    </label>
-                                    <input type="text" name="last_name" value="${escapeHtml(user.last_name || '')}" style="width: 100%; padding: 10px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px;">
-                                </div>
-                            </div>
-                            
-                            <div style="background: #fef3c7; border: 2px solid #fbbf24; border-radius: 8px; padding: 12px; margin-bottom: 16px;">
-                                <div style="font-weight: 600; color: #92400e; margin-bottom: 4px;">
-                                    <i class="fas fa-info-circle"></i> Change Password (Optional)
-                                </div>
-                                <small style="color: #92400e;">Leave blank to keep current password</small>
-                            </div>
-                            
-                            <div style="margin-bottom: 16px;">
-                                <label style="display: block; margin-bottom: 6px; font-weight: 600; color: #374151;">
-                                    <i class="fas fa-lock"></i> New Password
-                                </label>
-                                <div style="position: relative;">
-                                    <input type="password" name="password" id="edit-password" style="width: 100%; padding: 10px 40px 10px 10px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px;" placeholder="Leave blank to keep current">
-                                    <button type="button" onclick="togglePasswordField('edit-password', this)" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); border: none; background: none; cursor: pointer; color: #667eea; padding: 5px;" title="Show/Hide Password">
-                                        <i class="fas fa-eye"></i>
-                                    </button>
-                                </div>
-                            </div>
-                            
-                            <div style="margin-bottom: 16px;">
-                                <label style="display: block; margin-bottom: 6px; font-weight: 600; color: #374151;">
-                                    <i class="fas fa-lock"></i> Confirm New Password
-                                </label>
-                                <div style="position: relative;">
-                                    <input type="password" name="password_confirm" id="edit-password-confirm" style="width: 100%; padding: 10px 40px 10px 10px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px;" placeholder="Leave blank to keep current">
-                                    <button type="button" onclick="togglePasswordField('edit-password-confirm', this)" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); border: none; background: none; cursor: pointer; color: #667eea; padding: 5px;" title="Show/Hide Password">
-                                        <i class="fas fa-eye"></i>
-                                    </button>
-                                </div>
-                            </div>
-                            
-                            <div style="display: flex; gap: 12px; margin-top: 24px;">
-                                <button type="button" onclick="this.closest('div').parentElement.parentElement.parentElement.remove()" class="btn btn-secondary" style="flex: 1;">
-                                    <i class="fas fa-times"></i> Cancel
-                                </button>
-                                <button type="submit" class="btn btn-warning" style="flex: 1;">
-                                    <i class="fas fa-save"></i> Save Changes
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                `;
-                document.body.appendChild(modal);
+                // Populate form
+                document.getElementById('edit-user-id').value = user.id;
+                document.getElementById('edit-username').value = user.username;
+                document.getElementById('edit-email').value = user.email || '';
+                document.getElementById('edit-first-name').value = user.first_name || '';
+                document.getElementById('edit-last-name').value = user.last_name || '';
+                document.getElementById('edit-password-input').value = '';
                 
-                // Handle form submission
-                document.getElementById('edit-user-form').addEventListener('submit', async function(e) {
+                // Show modal
+                const modal = document.getElementById('static-edit-user-modal');
+                modal.style.display = 'flex';
+                
+            } catch (error) {
+                console.error('Error preparing edit form:', error);
+                alert('Error loading user data');
+            }
+        }
+        
+        function closeStaticEditUserModal() {
+            document.getElementById('static-edit-user-modal').style.display = 'none';
+        }
+
+        // Initialize Edit User Form Listener
+        document.addEventListener('DOMContentLoaded', function() {
+            const editForm = document.getElementById('static-edit-user-form');
+            if (editForm) {
+                editForm.addEventListener('submit', async function(e) {
                     e.preventDefault();
                     
                     const formData = new FormData(this);
-                    const data = Object.fromEntries(formData);
+                    const data = Object.fromEntries(formData.entries());
                     
                     // Validation
                     if (!data.username || data.username.trim().length < 3) {
@@ -1444,11 +1478,7 @@ try {
                     }
 
                     // Validate passwords match if changing password
-                    if (data.password || data.password_confirm) {
-                        if (data.password !== data.password_confirm) {
-                            alert('Passwords do not match!');
-                            return;
-                        }
+                    if (data.password) {
                         if (data.password.length < 6) {
                             alert('Password must be at least 6 characters long!');
                             return;
@@ -1456,10 +1486,10 @@ try {
                     } else {
                         // Remove password fields if not changing
                         delete data.password;
-                        delete data.password_confirm;
                     }
                     
-                    const submitBtn = this.querySelector('button[type="submit"]');
+                    const submitBtn = document.getElementById('static-edit-submit-btn');
+                    const originalBtnContent = submitBtn.innerHTML;
                     submitBtn.disabled = true;
                     submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
                     
@@ -1474,26 +1504,21 @@ try {
                         
                         if (result.success) {
                             alert('User updated successfully!');
-                            modal.remove();
-                            loadUsers();
+                            closeStaticEditUserModal();
+                            await loadUsers();
                         } else {
                             alert('Failed to update user: ' + (result.error || 'Unknown error'));
-                            submitBtn.disabled = false;
-                            submitBtn.innerHTML = '<i class="fas fa-save"></i> Save Changes';
                         }
                     } catch (error) {
-                        console.error('Error:', error);
-                        alert('Failed to update user: ' + error.message);
+                        console.error('Error updating user:', error);
+                        alert('Error updating user: ' + error.message);
+                    } finally {
                         submitBtn.disabled = false;
-                        submitBtn.innerHTML = '<i class="fas fa-save"></i> Save Changes';
+                        submitBtn.innerHTML = originalBtnContent;
                     }
                 });
-                
-            } catch (error) {
-                console.error('Error:', error);
-                alert('Failed to load user data');
             }
-        }
+        });
 
         async function managePermissions(userId) {
             // Switch to permissions tab
@@ -2489,9 +2514,6 @@ try {
                 { key: 'can_delete_inventory', name: 'Delete Stock', icon: 'trash-alt', category: 'Stock', desc: 'Remove products from system', color: '#10b981' },
                 { key: 'can_restock_inventory', name: 'Restock Items', icon: 'boxes', category: 'Stock', desc: 'Access restock options and manual adjustments', color: '#10b981' },
 
-                // System (Moved to 3rd position as requested)
-                { key: 'can_configure_system', name: 'System Configuration', icon: 'cog', category: 'System', desc: 'Access system settings and configuration', color: '#6366f1' },
-                
                 // Stores Module
                 { key: 'can_view_stores', name: 'View Stores', icon: 'eye', category: 'Stores', desc: 'View store list and details', color: '#f59e0b' },
                 { key: 'can_add_stores', name: 'Add Stores', icon: 'plus-circle', category: 'Stores', desc: 'Create new store locations', color: '#f59e0b' },
@@ -4021,5 +4043,77 @@ try {
             }
         });
     </script>
+    <!-- Static Edit User Modal -->
+    <div id="static-edit-user-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); align-items: center; justify-content: center; z-index: 10000;">
+        <div style="background: white; border-radius: 16px; max-width: 500px; width: 90%; max-height: 90vh; overflow-y: auto; box-shadow: 0 10px 25px rgba(0,0,0,0.2);">
+            <div style="background: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%); padding: 24px; border-radius: 16px 16px 0 0; color: white;">
+                <h3 style="margin: 0; font-size: 22px; display: flex; align-items: center; gap: 10px;">
+                    <i class="fas fa-user-edit"></i> Edit User
+                </h3>
+                <p style="margin: 8px 0 0 0; opacity: 0.9; font-size: 14px;">Update user information</p>
+            </div>
+            
+            <form id="static-edit-user-form" style="padding: 24px;">
+                <input type="hidden" name="user_id" id="edit-user-id">
+                
+                <div style="margin-bottom: 16px;">
+                    <label style="display: block; margin-bottom: 6px; font-weight: 600; color: #374151;">
+                        <i class="fas fa-user"></i> Username <span style="color: #ef4444;">*</span>
+                    </label>
+                    <input type="text" name="username" id="edit-username" required style="width: 100%; padding: 10px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px;">
+                </div>
+                
+                <div style="margin-bottom: 16px;">
+                    <label style="display: block; margin-bottom: 6px; font-weight: 600; color: #374151;">
+                        <i class="fas fa-envelope"></i> Email <span style="color: #ef4444;">*</span>
+                    </label>
+                    <input type="email" name="email" id="edit-email" required style="width: 100%; padding: 10px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px;">
+                </div>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
+                    <div>
+                        <label style="display: block; margin-bottom: 6px; font-weight: 600; color: #374151;">
+                            <i class="fas fa-id-badge"></i> First Name
+                        </label>
+                        <input type="text" name="first_name" id="edit-first-name" style="width: 100%; padding: 10px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px;">
+                    </div>
+                    <div>
+                        <label style="display: block; margin-bottom: 6px; font-weight: 600; color: #374151;">
+                            Last Name
+                        </label>
+                        <input type="text" name="last_name" id="edit-last-name" style="width: 100%; padding: 10px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px;">
+                    </div>
+                </div>
+                
+                <div style="background: #fef3c7; border: 2px solid #fbbf24; border-radius: 8px; padding: 12px; margin-bottom: 16px;">
+                    <div style="font-weight: 600; color: #92400e; margin-bottom: 4px;">
+                        <i class="fas fa-info-circle"></i> Change Password (Optional)
+                    </div>
+                    <small style="color: #92400e;">Leave blank to keep current password</small>
+                </div>
+                
+                <div style="margin-bottom: 16px;">
+                    <label style="display: block; margin-bottom: 6px; font-weight: 600; color: #374151;">
+                        <i class="fas fa-lock"></i> New Password
+                    </label>
+                    <div style="position: relative;">
+                        <input type="password" name="password" id="edit-password-input" style="width: 100%; padding: 10px 40px 10px 10px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 14px;" placeholder="Leave blank to keep current">
+                        <button type="button" onclick="togglePasswordField('edit-password-input', this)" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); border: none; background: none; cursor: pointer; color: #667eea; padding: 5px;" title="Show/Hide Password">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px;">
+                    <button type="button" onclick="closeStaticEditUserModal()" style="padding: 10px 20px; border: 1px solid #e5e7eb; background: white; color: #374151; border-radius: 8px; font-weight: 600; cursor: pointer;">
+                        Cancel
+                    </button>
+                    <button type="submit" id="static-edit-submit-btn" style="padding: 10px 20px; background: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%); color: white; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2);">
+                        <i class="fas fa-save"></i> Save Changes
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
 </body>
 </html>

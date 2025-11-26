@@ -32,7 +32,6 @@ function hasPermission($userId, $permission) {
             'manage_inventory' => 'can_manage_inventory',
             'manage_users' => 'can_manage_users',
             'manage_stores' => 'can_manage_stores',
-            'configure_system' => 'can_configure_system',
             'manage_pos' => 'can_manage_pos',
             'view_analytics' => 'can_view_reports',
             'view_inventory' => 'can_view_inventory'
@@ -75,8 +74,7 @@ function hasPermission($userId, $permission) {
                 'can_use_pos' => true,
                 'can_manage_pos' => true,
                 'can_view_users' => true,
-                'can_manage_users' => true,
-                'can_configure_system' => true
+                'can_manage_users' => true
             ],
             'manager' => [
                 'can_view_reports' => true,
@@ -196,8 +194,7 @@ function getUserPermissions($userId) {
             'can_view_inventory', 'can_add_inventory', 'can_edit_inventory', 'can_delete_inventory',
             'can_view_stores', 'can_add_stores', 'can_edit_stores', 'can_delete_stores',
             'can_use_pos', 'can_manage_pos',
-            'can_view_users', 'can_manage_users',
-            'can_configure_system'
+            'can_view_users', 'can_manage_users'
         ];
 
         // Role defaults for granular permissions
@@ -216,8 +213,7 @@ function getUserPermissions($userId) {
                 'can_use_pos' => true,
                 'can_manage_pos' => false,
                 'can_view_users' => true,
-                'can_manage_users' => false,
-                'can_configure_system' => false
+                'can_manage_users' => false
             ],
             'user' => [
                 'can_view_reports' => true,
@@ -368,7 +364,6 @@ function getPermissionLabel($permissionKey) {
         'manage_inventory' => 'Manage Inventory',
         'manage_users' => 'Manage Users',
         'manage_stores' => 'Manage Stores',
-        'configure_system' => 'System Configuration',
         'manage_pos' => 'Manage POS',
         'view_analytics' => 'View Analytics',
         'manage_alerts' => 'Manage Alerts',
@@ -385,8 +380,7 @@ function getPermissionLabel($permissionKey) {
         'can_use_pos' => 'Use POS',
         'can_manage_pos' => 'Manage POS',
         'can_view_users' => 'View Users',
-        'can_manage_users' => 'Manage Users',
-        'can_configure_system' => 'System Configuration'
+        'can_manage_users' => 'Manage Users'
     ];
     
     return $labels[$permissionKey] ?? ucwords(str_replace('_', ' ', $permissionKey));
@@ -422,12 +416,6 @@ function getAllAvailablePermissions() {
             'description' => 'Manage store locations and assignments',
             'icon' => 'store',
             'category' => 'Stores'
-        ],
-        'configure_system' => [
-            'name' => 'System Configuration',
-            'description' => 'Access system settings and configurations',
-            'icon' => 'cog',
-            'category' => 'Administration'
         ],
         'manage_pos' => [
             'name' => 'Manage POS',
@@ -518,12 +506,6 @@ function getAllAvailablePermissions() {
             'name' => 'Manage Users',
             'description' => 'Create and edit user accounts',
             'icon' => 'user-cog',
-            'category' => 'Administration'
-        ],
-        'can_configure_system' => [
-            'name' => 'System Configuration',
-            'description' => 'Access system settings and configurations',
-            'icon' => 'cog',
             'category' => 'Administration'
         ]
     ];

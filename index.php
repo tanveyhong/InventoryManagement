@@ -814,16 +814,6 @@ $page_title = 'Dashboard - Inventory Management System';
                 </a>
                 <?php endif; ?>
 
-                <?php if (currentUserHasPermission('can_configure_system')): ?>
-                <a href="sync_dashboard.php" class="action-card">
-                    <div class="action-icon">
-                        <i class="fas fa-sync-alt"></i>
-                    </div>
-                    <div class="action-title">Sync Manager</div>
-                    <div class="action-desc">Database synchronization</div>
-                </a>
-                <?php endif; ?>
-
                 <?php if (currentUserHasPermission('can_manage_alerts')): ?>
                 <a href="modules/alerts/low_stock.php" class="action-card">
                     <div class="action-icon">
