@@ -11,6 +11,11 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
+if (!currentUserHasPermission('can_manage_suppliers')) {
+    header('Location: ../../index.php');
+    exit;
+}
+
 $error = '';
 $success = '';
 

@@ -25,7 +25,7 @@ if (!currentUserHasPermission('can_manage_users') && !currentUserHasPermission('
     exit;
 }
 
-$db = getDB(); // Firebase fallback
+// $db = getDB(); // Firebase fallback - Disabled for performance
 $sqlDb = SQLDatabase::getInstance(); // PostgreSQL - PRIMARY
 $currentUserId = $_SESSION['user_id'];
 
@@ -47,9 +47,13 @@ $selectedUserId = $_GET['user_id'] ?? 'all';
 $pageTitle = 'User Management';
 
 // --- Server-Side Data Pre-fetching ---
-
-// 1. Pre-fetch Users (including permissions)
+// DISABLED FOR PERFORMANCE - Data will be loaded via AJAX
 $usersData = [];
+$activitiesData = [];
+$storesData = [];
+
+/*
+// 1. Pre-fetch Users (including permissions)
 $canManageUsers = ($currentUser['can_manage_users'] ?? false) || ($currentUser['can_view_users'] ?? false);
 
 if ($isAdmin || $canManageUsers) {
@@ -124,6 +128,7 @@ try {
 } catch (Exception $e) {
     // Fallback
 }
+*/
 
 // 3. Pre-fetch Stores (for current user)
 $storesData = [];
@@ -2388,17 +2393,23 @@ try {
         }
         
         
-        async function loadUserPermissions(userId) {
+        async function loadUserPermissions(userId, forceRefresh = false) {
             console.log('=== loadUserPermissions called ===');
             console.log('userId:', userId);
+            console.log('forceRefresh:', forceRefresh);
             
             const display = document.getElementById('user-permissions-display');
             
-            // Try to use pre-loaded data
-            const user = allUsers.find(u => u.id == userId);
-            if (user) {
-                renderUserPermissions(user, display, userId);
-                return;
+            // Try to use pre-loaded data if not forcing refresh
+            if (!forceRefresh) {
+                const user = allUsers.find(u => u.id == userId);
+                if (user) {
+                    // Check if user object has permissions loaded (look for a key permission)
+                    if (user.hasOwnProperty('can_view_reports')) {
+                        renderUserPermissions(user, display, userId);
+                        return;
+                    }
+                }
             }
 
             display.innerHTML = '<div class="loading"><i class="fas fa-spinner fa-spin"></i> Loading permissions...</div>';
@@ -2407,7 +2418,11 @@ try {
                 console.log('📤 Fetching permissions from API...');
                 let response;
                 try {
-                    response = await fetch(`profile/api.php?action=get_permissions&user_id=${userId}`);
+                    let url = `profile/api.php?action=get_permissions&user_id=${userId}`;
+                    if (forceRefresh) {
+                        url += `&_t=${new Date().getTime()}`;
+                    }
+                    response = await fetch(url);
                 } catch (e) {
                     // Fallback for offline mode
                     if (!navigator.onLine) {
@@ -2460,6 +2475,15 @@ try {
                 { key: 'can_use_pos', name: 'Use POS', icon: 'cash-register', category: 'POS', desc: 'Access point of sale terminal', color: '#06b6d4' },
                 { key: 'can_manage_pos', name: 'Manage POS', icon: 'cogs', category: 'POS', desc: 'Configure POS settings and integrations', color: '#06b6d4' },
                 
+                // Supply Chain Module
+                { key: 'can_manage_suppliers', name: 'Manage Suppliers', icon: 'truck', category: 'Supply Chain', desc: 'Add and manage suppliers', color: '#f97316' },
+                { key: 'can_manage_purchase_orders', name: 'Purchase Orders', icon: 'file-invoice-dollar', category: 'Supply Chain', desc: 'Create and manage purchase orders', color: '#f97316' },
+                { key: 'can_manage_stock_transfers', name: 'Stock Transfers', icon: 'exchange-alt', category: 'Supply Chain', desc: 'Manage stock transfers between stores', color: '#f97316' },
+
+                // Forecasting & Alerts
+                { key: 'can_view_forecasting', name: 'View Forecasting', icon: 'chart-line', category: 'Analytics', desc: 'Access demand forecasting tools', color: '#8b5cf6' },
+                { key: 'can_manage_alerts', name: 'Manage Alerts', icon: 'bell', category: 'Analytics', desc: 'Configure low stock and system alerts', color: '#8b5cf6' },
+
                 // User Management
                 { key: 'can_view_users', name: 'View Users', icon: 'eye', category: 'Users', desc: 'View user list and profiles', color: '#ec4899' },
                 { key: 'can_manage_users', name: 'Manage Users', icon: 'users-cog', category: 'Users', desc: 'Add, edit, delete users and permissions', color: '#ec4899' },
@@ -2491,7 +2515,12 @@ try {
                     color: '#f59e0b',
                     icon: 'user-tie',
                     desc: 'Store and inventory management',
-                    permissions: ['can_view_reports', 'can_view_inventory', 'can_add_inventory', 'can_edit_inventory', 'can_view_stores', 'can_add_stores', 'can_edit_stores', 'can_use_pos', 'can_view_users']
+                    permissions: [
+                        'can_view_reports', 'can_view_inventory', 'can_add_inventory', 'can_edit_inventory', 
+                        'can_view_stores', 'can_add_stores', 'can_edit_stores', 'can_use_pos', 'can_view_users',
+                        'can_manage_suppliers', 'can_manage_purchase_orders', 'can_manage_stock_transfers',
+                        'can_view_forecasting', 'can_manage_alerts'
+                    ]
                 },
                 'admin': {
                     name: 'Administrator',
@@ -2571,15 +2600,15 @@ try {
                             ${categoryPerms.map(perm => {
                                 const granted = perms[perm.key] || false;
                                 return `
-                                    <div data-permission="${perm.key}" style="background: ${granted ? perm.color + '10' : '#f9fafb'}; border: 2px solid ${granted ? perm.color : '#e5e7eb'}; border-radius: 8px; padding: 14px; transition: all 0.2s;">
+                                    <div data-permission="${perm.key}" data-color="${perm.color}" class="permission-card" style="background: ${granted ? perm.color + '10' : '#f9fafb'}; border: 2px solid ${granted ? perm.color : '#e5e7eb'}; border-radius: 8px; padding: 14px; transition: all 0.2s;">
                                         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
                                             <div style="display: flex; align-items: center; gap: 10px;">
-                                                <div style="width: 36px; height: 36px; background: ${granted ? perm.color : '#e5e7eb'}; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; font-size: 16px;">
+                                                <div class="permission-icon-container" style="width: 36px; height: 36px; background: ${granted ? perm.color : '#e5e7eb'}; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; font-size: 16px;">
                                                     <i class="fas fa-${perm.icon}"></i>
                                                 </div>
                                                 <div>
                                                     <div style="font-weight: 600; font-size: 13px; color: #1f2937;">${perm.name}</div>
-                                                    <div style="font-size: 11px; color: ${granted ? perm.color : '#9ca3af'}; font-weight: 500;">
+                                                    <div class="permission-status-text" style="font-size: 11px; color: ${granted ? perm.color : '#9ca3af'}; font-weight: 500;">
                                                         ${granted ? '✓ Enabled' : '○ Disabled'}
                                                     </div>
                                                 </div>
@@ -2749,14 +2778,41 @@ try {
                 
                 if (data.success) {
                     console.log('✅ Permission updated successfully');
-                    // Reload
-                    await loadUserPermissions(userId);
+                    
+                    // Optimistic UI update - don't reload the whole list
+                    if (permCard) {
+                        const color = permCard.getAttribute('data-color') || '#667eea';
+                        const iconContainer = permCard.querySelector('.permission-icon-container');
+                        const statusText = permCard.querySelector('.permission-status-text');
+                        
+                        if (grant) {
+                            // Enabled state
+                            permCard.style.background = color + '10'; // 10% opacity hex
+                            permCard.style.borderColor = color;
+                            if (iconContainer) iconContainer.style.background = color;
+                            if (statusText) {
+                                statusText.style.color = color;
+                                statusText.innerHTML = '✓ Enabled';
+                            }
+                        } else {
+                            // Disabled state
+                            permCard.style.background = '#f9fafb';
+                            permCard.style.borderColor = '#e5e7eb';
+                            if (iconContainer) iconContainer.style.background = '#e5e7eb';
+                            if (statusText) {
+                                statusText.style.color = '#9ca3af';
+                                statusText.innerHTML = '○ Disabled';
+                            }
+                        }
+                    }
                     
                     // Show quick toast
                     showToast(grant ? 'Permission granted ✓' : 'Permission revoked', 'success');
                 } else {
                     console.error('❌ Role assignment failed:', data.error);
                     showToast('Failed to update permission: ' + (data.error || 'Unknown error'), 'error');
+                    // Revert toggle
+                    if (toggle) toggle.checked = !grant;
                 }
             } catch (error) {
                 console.error('❌ Error:', error);
@@ -2764,11 +2820,15 @@ try {
                 // Restore toggle to previous state
                 if (toggle) {
                     toggle.checked = !grant;
-                    toggle.disabled = false;
                 }
-                if (permCard) {
-                    permCard.style.opacity = '1';
-                }
+            }
+            
+            // Re-enable controls
+            if (toggle) {
+                toggle.disabled = false;
+            }
+            if (permCard) {
+                permCard.style.opacity = '1';
             }
         }
         
@@ -2836,13 +2896,14 @@ try {
                     showToast(`${roleName} role assigned successfully!`, 'success');
                     
                     console.log('🔄 Reloading permissions for user:', userId);
-                    await loadUserPermissions(userId);
+                    // Force refresh to get new permissions from server
+                    await loadUserPermissions(userId, true);
                     console.log('✅ Permissions reloaded');
                     
-                    // Also reload users list if on users tab
+                    // Also reload users list if on users tab to update role badge
                     if (document.getElementById('tab-users').style.display !== 'none') {
                         console.log('🔄 Reloading users list...');
-                        loadUsers();
+                        loadUsers(true); // Force refresh users list too
                     }
                 } else {
                     console.error('❌ Role assignment failed:', data.error);

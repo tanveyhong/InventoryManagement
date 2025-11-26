@@ -20,10 +20,15 @@ if (!isLoggedIn()) {
     exit;
 }
 
-$db = getDB(); // Firebase fallback
+// Lazy load Firebase only when needed
+// $db = getDB(); 
 $sqlDb = SQLDatabase::getInstance(); // PostgreSQL - PRIMARY
 $userId = $_SESSION['user_id'];
 $action = $_GET['action'] ?? '';
+
+// Close session early to prevent locking and improve concurrency
+// We only need to read from session, not write (except for the DB cache which is already done in getInstance)
+session_write_close();
 
 // Enable caching for GET requests
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
@@ -136,6 +141,7 @@ try {
                 ['created_at', '>', $since]
             ];
             
+            $db = getDB(); // Initialize Firebase only here
             $newActivities = $db->readAll('user_activities', $conditions, ['created_at', 'DESC'], 1);
             
             echo json_encode([
@@ -170,10 +176,26 @@ try {
             
             // Get all users from PostgreSQL
             $whereClause = $includeDeleted ? "" : "WHERE deleted_at IS NULL";
-            $users = $sqlDb->fetchAll("SELECT id, firebase_id, username, email, full_name, role, created_at, last_login, status, deleted_at, profile_picture FROM users {$whereClause} ORDER BY username ASC");
+            // Fetch all columns to ensure we get permissions
+            $users = $sqlDb->fetchAll("SELECT * FROM users {$whereClause} ORDER BY username ASC");
             
+            // Fetch all user permissions to merge
+            $allPermissions = $sqlDb->fetchAll("SELECT user_id, permission, value FROM user_permissions");
+            $permissionsMap = [];
+            foreach ($allPermissions as $perm) {
+                // PostgreSQL returns 't'/'f' for boolean, or 1/0
+                $val = $perm['value'];
+                $isGranted = ($val === true || $val === 't' || $val === 'true' || $val === 1 || $val === '1');
+                $permissionsMap[$perm['user_id']][$perm['permission']] = $isGranted;
+            }
+
             $userList = [];
             foreach ($users as $user) {
+                // Remove sensitive data
+                unset($user['password_hash']);
+                unset($user['remember_token']);
+                unset($user['reset_token']);
+
                 $userRole = strtolower($user['role'] ?? 'user');
                 
                 // Skip admins and managers if requested (for store access management)
@@ -187,7 +209,8 @@ try {
                 $firstName = $nameParts[0] ?? '';
                 $lastName = $nameParts[1] ?? '';
                 
-                $userList[] = [
+                // Base formatted data
+                $formattedUser = [
                     'id' => $user['id'] ?? $user['firebase_id'] ?? '',
                     'username' => $user['username'] ?? 'Unknown',
                     'email' => $user['email'] ?? '',
@@ -200,6 +223,19 @@ try {
                     'deleted_at' => $user['deleted_at'] ?? null,
                     'profile_picture' => $user['profile_picture'] ?? null
                 ];
+
+                // Merge with original user data
+                $userWithData = array_merge($user, $formattedUser);
+
+                // Apply permissions from user_permissions table
+                // This overrides any stale columns in the users table
+                if (isset($permissionsMap[$user['id']])) {
+                    foreach ($permissionsMap[$user['id']] as $permKey => $permValue) {
+                        $userWithData[$permKey] = $permValue;
+                    }
+                }
+
+                $userList[] = $userWithData;
             }
             
             echo json_encode(['success' => true, 'data' => $userList, 'source' => 'postgresql']);
@@ -363,7 +399,11 @@ try {
                         <tbody>';
                 
                 foreach ($activities as $act) {
-                    $actUser = isset($act['user_id']) ? $db->read('users', $act['user_id']) : null;
+                    $actUser = null;
+                    if (isset($act['user_id'])) {
+                        $db = getDB(); // Initialize Firebase only if needed
+                        $actUser = $db->read('users', $act['user_id']);
+                    }
                     echo '<tr>
                         <td>' . htmlspecialchars($act['created_at'] ?? '') . '</td>
                         <td>' . htmlspecialchars($actUser['username'] ?? 'Unknown') . '</td>
@@ -392,6 +432,7 @@ try {
             
         case 'clear_activities':
             // Admin only for now
+            $db = getDB(); // Initialize Firebase
             $currentUser = $db->read('users', $userId);
             $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
             
@@ -430,6 +471,7 @@ try {
                 if ($targetUserId !== $userId) {
                     $currentUser = $sqlDb->fetch("SELECT * FROM users WHERE id = ? OR firebase_id = ?", [$userId, $userId]);
                     if (!$currentUser) {
+                        $db = getDB(); // Fallback to Firebase
                         $currentUser = $db->read('users', $userId);
                     }
                     $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
@@ -448,6 +490,7 @@ try {
                 // Try to get user from PostgreSQL first - check both id and firebase_id
                 $user = $sqlDb->fetch("SELECT * FROM users WHERE id = ? OR firebase_id = ?", [$targetUserId, $targetUserId]);
                 if (!$user) {
+                    $db = getDB(); // Fallback to Firebase
                     $user = $db->read('users', $targetUserId);
                 }
                 
@@ -462,6 +505,7 @@ try {
                 error_log("PostgreSQL error: " . $e->getMessage());
                 // Fallback to Firebase
                 if ($targetUserId !== $userId) {
+                    $db = getDB(); // Fallback to Firebase
                     $currentUser = $db->read('users', $userId);
                     $isAdmin = (strtolower($currentUser['role'] ?? '') === 'admin');
                     $canManageUsers = currentUserHasPermission('can_manage_users') || currentUserHasPermission('can_view_users');
@@ -473,6 +517,7 @@ try {
                     }
                 }
                 
+                $db = getDB(); // Fallback to Firebase
                 $user = $db->read('users', $targetUserId);
                 error_log("User data: " . json_encode($user));
                 
@@ -494,7 +539,11 @@ try {
             $grantedPerms = [];
             $revokedPerms = [];
             foreach ($userPerms as $p) {
-                if ($p['value']) {
+                // Handle PostgreSQL boolean return values (t/f, true/false, 1/0)
+                $val = $p['value'];
+                $isGranted = ($val === true || $val === 't' || $val === 'true' || $val === 1 || $val === '1');
+                
+                if ($isGranted) {
                     $grantedPerms[] = $p['permission'];
                 } else {
                     $revokedPerms[] = $p['permission'];
@@ -522,7 +571,12 @@ try {
                     'can_add_stores' => true,
                     'can_edit_stores' => true,
                     'can_use_pos' => true,
-                    'can_view_users' => true
+                    'can_view_users' => true,
+                    'can_manage_suppliers' => true,
+                    'can_manage_purchase_orders' => true,
+                    'can_manage_stock_transfers' => true,
+                    'can_view_forecasting' => true,
+                    'can_manage_alerts' => true
                 ],
                 'admin' => [] // Admin gets all permissions
             ];
@@ -571,6 +625,13 @@ try {
                 // Users
                 'can_view_users' => $hasPerm('can_view_users'),
                 'can_manage_users' => $hasPerm('can_manage_users'),
+                // Supply Chain
+                'can_manage_suppliers' => $hasPerm('can_manage_suppliers'),
+                'can_manage_purchase_orders' => $hasPerm('can_manage_purchase_orders'),
+                'can_manage_stock_transfers' => $hasPerm('can_manage_stock_transfers'),
+                // Analytics
+                'can_view_forecasting' => $hasPerm('can_view_forecasting'),
+                'can_manage_alerts' => $hasPerm('can_manage_alerts'),
                 // System
                 'can_configure_system' => $hasPerm('can_configure_system'),
                 // Legacy permissions (for backward compatibility)
@@ -584,8 +645,8 @@ try {
             
         case 'update_permission':
             // Admin or user management permission required
-            error_log("=== UPDATE_PERMISSION CALLED ===");
-            error_log("Current User ID: $userId");
+            // error_log("=== UPDATE_PERMISSION CALLED ===");
+            // error_log("Current User ID: $userId");
             
             // Get current user and check permissions - PostgreSQL only
             $currentUser = $sqlDb->fetch("SELECT * FROM users WHERE id = ? OR firebase_id = ?", [$userId, $userId]);
@@ -607,12 +668,12 @@ try {
                 $canManageUsers = (bool)$permCheck;
             }
             
-            error_log("Current user role: " . ($currentUser['role'] ?? 'unknown'));
-            error_log("Is Admin: " . ($isAdmin ? 'Yes' : 'No'));
-            error_log("Can Manage Users permission: " . ($canManageUsers ? 'Yes' : 'No'));
+            // error_log("Current user role: " . ($currentUser['role'] ?? 'unknown'));
+            // error_log("Is Admin: " . ($isAdmin ? 'Yes' : 'No'));
+            // error_log("Can Manage Users permission: " . ($canManageUsers ? 'Yes' : 'No'));
             
             if (!$isAdmin && !$canManageUsers) {
-                error_log("Permission denied - user is not admin and does not have can_manage_users");
+                // error_log("Permission denied - user is not admin and does not have can_manage_users");
                 http_response_code(403);
                 echo json_encode(['success' => false, 'error' => 'Permission denied. Admin or user management permission required.']);
                 exit;
@@ -630,9 +691,9 @@ try {
                 $value = (bool)$value;
             }
             
-            error_log("Target User: $targetUserId");
-            error_log("Permission: $permission");
-            error_log("Value: " . ($value ? 'true' : 'false'));
+            // error_log("Target User: $targetUserId");
+            // error_log("Permission: $permission");
+            // error_log("Value: " . ($value ? 'true' : 'false'));
             
             if (!$targetUserId || !$permission) {
                 echo json_encode(['success' => false, 'error' => 'Missing user_id or permission']);
@@ -645,7 +706,8 @@ try {
                 'can_delete_inventory', 'can_view_stores', 'can_add_stores', 'can_edit_stores',
                 'can_delete_stores', 'can_view_users', 'can_manage_users', 'can_use_pos',
                 'can_configure_system', 'can_view_analytics', 'can_manage_alerts', 'can_manage_inventory',
-                'can_manage_pos'
+                'can_manage_pos', 'can_manage_suppliers', 'can_manage_purchase_orders', 'can_manage_stock_transfers',
+                'can_view_forecasting'
             ];
             
             if (!in_array($permission, $allowedPermissions)) {
@@ -665,23 +727,30 @@ try {
             // Get the actual PostgreSQL ID
             $pgUserId = $targetUser['id'];
             
-            error_log("Found target user in PostgreSQL, ID: $pgUserId");
+            // error_log("Found target user in PostgreSQL, ID: $pgUserId");
             
             // Update permission in user_permissions table with value column
             // PostgreSQL expects 't'/'f' or 'true'/'false' strings for boolean
             $boolValue = $value ? 't' : 'f';
             
-            error_log("Setting permission value to: $boolValue");
+            // error_log("Setting permission value to: $boolValue");
             
             // Check if permission record already exists
-            $existing = $sqlDb->fetch("SELECT id FROM user_permissions WHERE user_id = ? AND permission = ?", [$pgUserId, $permission]);
+            // Use fetchAll to check for duplicates
+            $existingRecords = $sqlDb->fetchAll("SELECT id FROM user_permissions WHERE user_id = ? AND permission = ?", [$pgUserId, $permission]);
             
-            if ($existing) {
-                // Update existing record
+            if (!empty($existingRecords)) {
+                // Update ALL existing records for this user/permission combo to ensure consistency
+                // This handles cases where duplicates might have been created
                 $updated = $sqlDb->execute(
                     "UPDATE user_permissions SET value = ?::boolean WHERE user_id = ? AND permission = ?",
                     [$boolValue, $pgUserId, $permission]
                 );
+                
+                // If there are duplicates, we should probably clean them up, but updating all is safer for now
+                if (count($existingRecords) > 1) {
+                    // error_log("WARNING: Found " . count($existingRecords) . " duplicate permission records for user $pgUserId, permission $permission");
+                }
             } else {
                 // Insert new record (for both grant and revoke)
                 $updated = $sqlDb->execute(
@@ -690,7 +759,7 @@ try {
                 );
             }
             
-            error_log("PostgreSQL update result: " . ($updated ? 'success' : 'failed'));
+            // error_log("PostgreSQL update result: " . ($updated ? 'success' : 'failed'));
             
             if ($updated) {
                 // Log activity
@@ -698,6 +767,11 @@ try {
                 $permName = str_replace('can_', '', $permission);
                 $permName = str_replace('_', ' ', $permName);
                 $description = ucfirst($action) . " permission: " . ucfirst($permName) . " for user " . ($targetUser['username'] ?? $targetUserId);
+                
+                // Use background logging if possible, or just skip if not critical
+                // logActivity('permission_updated', $description, [ ... ]);
+                // For speed, we'll do a direct insert here instead of loading the full logger if possible, 
+                // or just call it but we know we optimized DB connection already.
                 
                 logActivity('permission_updated', $description, [
                     'target_user_id' => $targetUserId,
@@ -793,6 +867,11 @@ try {
                         'can_edit_stores' => true,
                         'can_use_pos' => true,
                         'can_view_users' => true,
+                        'can_manage_suppliers' => true,
+                        'can_manage_purchase_orders' => true,
+                        'can_manage_stock_transfers' => true,
+                        'can_view_forecasting' => true,
+                        'can_manage_alerts' => true,
                     ],
                     'admin' => [
                         'can_view_reports' => true,
@@ -809,6 +888,11 @@ try {
                         'can_view_users' => true,
                         'can_manage_users' => true,
                         'can_configure_system' => true,
+                        'can_manage_suppliers' => true,
+                        'can_manage_purchase_orders' => true,
+                        'can_manage_stock_transfers' => true,
+                        'can_view_forecasting' => true,
+                        'can_manage_alerts' => true,
                     ]
                 ];
                 

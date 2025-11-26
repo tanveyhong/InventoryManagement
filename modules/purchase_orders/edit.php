@@ -11,6 +11,11 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
+if (!currentUserHasPermission('can_manage_purchase_orders')) {
+    header('Location: ../../index.php');
+    exit;
+}
+
 $id = $_GET['id'] ?? '';
 if (empty($id)) {
     header('Location: list.php');

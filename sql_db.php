@@ -31,19 +31,37 @@ class SQLDatabase {
                 // FORCE IPv4: Resolve hostname to IP before connecting
                 // This fixes "Network is unreachable" errors in Docker containers without IPv6
                 if ($host !== 'localhost' && !filter_var($host, FILTER_VALIDATE_IP)) {
-                    // Try dns_get_record first for explicit A record
-                    $dns = dns_get_record($host, DNS_A);
-                    if ($dns && isset($dns[0]['ip'])) {
-                        $host = $dns[0]['ip'];
-                        error_log("Resolved DB host via DNS_A: " . $host);
+                    // Check session cache first to avoid slow DNS lookups
+                    if (session_status() === PHP_SESSION_ACTIVE && isset($_SESSION['db_host_ip_cache']) && $_SESSION['db_host_ip_cache']['host'] === $host) {
+                        $host = $_SESSION['db_host_ip_cache']['ip'];
+                        // error_log("Using cached DB host IP: " . $host);
                     } else {
-                        // Fallback to gethostbyname
-                        $ipv4 = gethostbyname($host);
-                        if ($ipv4 !== $host) {
-                            $host = $ipv4;
-                            error_log("Resolved DB host via gethostbyname: " . $host);
+                        // Try dns_get_record first for explicit A record
+                        $dns = dns_get_record($host, DNS_A);
+                        if ($dns && isset($dns[0]['ip'])) {
+                            $originalHost = $host;
+                            $host = $dns[0]['ip'];
+                            error_log("Resolved DB host via DNS_A: " . $host);
+                            
+                            // Cache the result if session is active
+                            if (session_status() === PHP_SESSION_ACTIVE) {
+                                $_SESSION['db_host_ip_cache'] = ['host' => $originalHost, 'ip' => $host];
+                            }
                         } else {
-                            error_log("Failed to resolve DB host to IPv4: " . $host);
+                            // Fallback to gethostbyname
+                            $ipv4 = gethostbyname($host);
+                            if ($ipv4 !== $host) {
+                                $originalHost = $host;
+                                $host = $ipv4;
+                                error_log("Resolved DB host via gethostbyname: " . $host);
+                                
+                                // Cache the result if session is active
+                                if (session_status() === PHP_SESSION_ACTIVE) {
+                                    $_SESSION['db_host_ip_cache'] = ['host' => $originalHost, 'ip' => $host];
+                                }
+                            } else {
+                                error_log("Failed to resolve DB host to IPv4: " . $host);
+                            }
                         }
                     }
                 }

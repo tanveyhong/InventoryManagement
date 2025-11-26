@@ -1127,7 +1127,7 @@ body.compact-view .page-header {
                 </div>
                 <?php endif; ?>
 
-                <?php if (currentUserHasPermission('can_edit_inventory')): ?>
+                <?php if (currentUserHasPermission('can_manage_suppliers') || currentUserHasPermission('can_manage_purchase_orders')): ?>
                 <div class="nav-dropdown">
                     <a href="#" class="nav-item <?php echo ($activeSection === 'supply_chain') ? 'active' : ''; ?>">
                         <i class="fas fa-truck"></i>
@@ -1135,12 +1135,16 @@ body.compact-view .page-header {
                         <i class="fas fa-chevron-down dropdown-arrow"></i>
                     </a>
                     <div class="dropdown-content">
+                        <?php if (currentUserHasPermission('can_manage_suppliers')): ?>
                         <a href="<?php echo $baseUrl . 'modules/suppliers/list.php'; ?>">
                             <i class="fas fa-building"></i> Suppliers
                         </a>
+                        <?php endif; ?>
+                        <?php if (currentUserHasPermission('can_manage_purchase_orders')): ?>
                         <a href="<?php echo $baseUrl . 'modules/purchase_orders/list.php'; ?>">
                             <i class="fas fa-file-invoice"></i> Purchase Orders
                         </a>
+                        <?php endif; ?>
                     </div>
                 </div>
                 <?php endif; ?>
@@ -1157,9 +1161,11 @@ body.compact-view .page-header {
                         <a href="<?php echo $baseUrl . 'modules/reports/inventory_report.php'; ?>">
                             <i class="fas fa-boxes"></i> Inventory Reports
                         </a>
+                        <?php if (currentUserHasPermission('can_view_forecasting')): ?>
                         <a href="<?php echo $baseUrl . 'modules/forecasting/index.php'; ?>">
                             <i class="fas fa-chart-area"></i> Demand Forecast
                         </a>
+                        <?php endif; ?>
                     </div>
                 </div>
                 <?php endif; ?>
@@ -1172,10 +1178,14 @@ body.compact-view .page-header {
                         <i class="fas fa-chevron-down dropdown-arrow"></i>
                     </a>
                     <div class="dropdown-content">
-
+                        <a href="<?php echo $baseUrl . 'modules/alerts/expiry_alert.php'; ?>">
+                            <i class="fas fa-calendar-times"></i> Expiry Products
+                        </a>
+                        <?php if (currentUserHasPermission('can_manage_alerts')): ?>
                         <a href="<?php echo $baseUrl . 'modules/alerts/alert_history.php'; ?>">
                             <i class="fas fa-exclamation-circle"></i> Alert History
                         </a>
+                        <?php endif; ?>
                     </div>
                 </div>
                 <?php endif; ?>

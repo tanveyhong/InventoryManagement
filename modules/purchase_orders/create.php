@@ -11,6 +11,11 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
+if (!currentUserHasPermission('can_manage_purchase_orders')) {
+    header('Location: ../../index.php');
+    exit;
+}
+
 $sqlDb = SQLDatabase::getInstance();
 $suppliers = $sqlDb->fetchAll("SELECT id, name FROM suppliers WHERE active = TRUE ORDER BY name");
 $stores = $sqlDb->fetchAll("SELECT id, name FROM stores WHERE active = TRUE ORDER BY name");

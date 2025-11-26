@@ -11,6 +11,11 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
+if (!currentUserHasPermission('can_manage_suppliers')) {
+    header('Location: ../../index.php');
+    exit;
+}
+
 $sqlDb = SQLDatabase::getInstance();
 // Fetch all active suppliers for client-side filtering
 $suppliers = $sqlDb->fetchAll("SELECT * FROM suppliers WHERE active = TRUE ORDER BY name ASC");
