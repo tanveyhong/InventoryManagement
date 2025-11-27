@@ -411,11 +411,32 @@ $filtered_products = array_filter($all_products, function ($p) use ($store_filte
 });
 
 // FILTER: Remove Firebase-generated duplicate products with corrupted SKUs
-$filtered_products = array_filter($filtered_products, function ($p) {
+$filtered_products = array_filter($filtered_products, function ($p) use ($stores) {
     $sku = $p['sku'] ?? '';
 
     // Skip products with Firebase random IDs (20+ chars after dash)
     if (preg_match('/-S[a-zA-Z0-9]{20,}/', $sku)) {
+        // Check if this is actually a valid store suffix (e.g. "Supermarket Location One" -> "-SUPERMARKETLOCATIONONE")
+        $isValidStore = false;
+        foreach ($stores as $s) {
+            $sanitized = strtoupper(preg_replace('/[^a-zA-Z0-9]/', '', htmlspecialchars_decode($s['name'])));
+            if (empty($sanitized)) continue;
+            
+            $suffix = '-' . $sanitized;
+            $posSuffix = '-POS-' . $sanitized;
+            
+            // Check if SKU ends with this valid suffix
+            if ((strlen($sku) > strlen($suffix) && substr($sku, -strlen($suffix)) === $suffix) || 
+                (strlen($sku) > strlen($posSuffix) && substr($sku, -strlen($posSuffix)) === $posSuffix)) {
+                $isValidStore = true;
+                break;
+            }
+        }
+        
+        if ($isValidStore) {
+            return true;
+        }
+
         error_log("Filtering out Firebase duplicate: $sku");
         return false;
     }
