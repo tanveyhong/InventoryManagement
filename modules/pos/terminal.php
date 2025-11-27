@@ -61,6 +61,126 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     
     try {
         switch ($_POST['action']) {
+            case 'verify_payment':
+                $type = $_POST['type']; // 'card' or 'ewallet'
+                $account_number = $_POST['account_number'];
+                $amount = floatval($_POST['amount']);
+                
+                // Ensure table exists (Lazy init)
+                $idType = "SERIAL PRIMARY KEY";
+                if (defined('DB_DRIVER') && DB_DRIVER === 'sqlite') {
+                    $idType = "INTEGER PRIMARY KEY AUTOINCREMENT";
+                }
+                
+                $sqlDb->execute("CREATE TABLE IF NOT EXISTS customer_accounts (
+                    id $idType,
+                    account_number VARCHAR(50) UNIQUE NOT NULL,
+                    account_name VARCHAR(100) NOT NULL,
+                    account_type VARCHAR(20) NOT NULL,
+                    balance DECIMAL(10, 2) DEFAULT 0.00,
+                    pin VARCHAR(255),
+                    email VARCHAR(100),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )");
+                
+                // Check/Insert demo data
+                $check = $sqlDb->fetch("SELECT COUNT(*) as count FROM customer_accounts");
+                $count = is_array($check) ? $check['count'] : $check;
+                
+                if ($count == 0) {
+                    $sqlDb->execute("INSERT INTO customer_accounts (account_number, account_name, account_type, balance, email) 
+                               VALUES ('4000123456789010', 'John Doe Bank', 'bank', 5000.00, 'demo@example.com')");
+                    
+                    $pin = password_hash('123456', PASSWORD_DEFAULT);
+                    $sqlDb->execute("INSERT INTO customer_accounts (account_number, account_name, account_type, balance, pin) 
+                               VALUES ('0123456789', 'Jane Doe Wallet', 'ewallet', 500.00, ?)", [$pin]);
+                }
+                
+                // Check if account exists
+                $account = $sqlDb->fetch("SELECT * FROM customer_accounts WHERE account_number = ?", [$account_number]);
+                
+                if (!$account) {
+                    echo json_encode(['success' => false, 'message' => 'Account not found']);
+                    exit;
+                }
+                
+                if ($account['balance'] < $amount) {
+                    echo json_encode(['success' => false, 'message' => 'Insufficient balance. Available: RM ' . number_format($account['balance'], 2)]);
+                    exit;
+                }
+                
+                if ($type === 'ewallet') {
+                    $pin = $_POST['pin'];
+                    if (!password_verify($pin, $account['pin'])) {
+                        echo json_encode(['success' => false, 'message' => 'Invalid PIN']);
+                        exit;
+                    }
+                    echo json_encode(['success' => true, 'message' => 'Verified', 'balance_after' => $account['balance'] - $amount]);
+                } elseif ($type === 'card') {
+                    // Generate OTP
+                    $otp = rand(100000, 999999);
+                    $_SESSION['payment_otp'] = $otp;
+                    $_SESSION['payment_account'] = $account_number;
+                    
+                    // Send email
+                    $email_sent = false;
+                    $email_error = '';
+                    
+                    if (!empty($account['email'])) {
+                        if (file_exists('../../email_helper.php')) {
+                            require_once '../../email_helper.php';
+                            try {
+                                $subject = "Payment OTP Verification";
+                                $body = "
+                                    <h2>Payment Verification</h2>
+                                    <p>You are attempting to make a payment of <strong>RM " . number_format($amount, 2) . "</strong>.</p>
+                                    <p>Your OTP code is:</p>
+                                    <h1 style='color: #3498db; letter-spacing: 5px;'>$otp</h1>
+                                    <p>If you did not request this, please contact your bank immediately.</p>
+                                ";
+                                
+                                if (sendEmail($account['email'], $subject, $body)) {
+                                    $email_sent = true;
+                                } else {
+                                    $email_error = "Failed to send email.";
+                                }
+                            } catch (Exception $e) {
+                                $email_error = $e->getMessage();
+                            }
+                        } else {
+                            $email_error = "Email system not available.";
+                        }
+                    } else {
+                        $email_error = "No email linked to this account.";
+                    }
+                    
+                    if ($email_sent) {
+                        echo json_encode([
+                            'success' => true, 
+                            'require_otp' => true, 
+                            'message' => 'OTP sent to ' . $account['email']
+                        ]);
+                    } else {
+                        // Fallback for demo if email fails (or just show error)
+                        echo json_encode([
+                            'success' => true, // Still success to allow demo to proceed if email fails
+                            'require_otp' => true,
+                            'message' => 'OTP sent to ' . $account['email'] . ' (Simulated: Email failed)',
+                            'debug_otp' => $otp // Show OTP if email fails so user isn't stuck
+                        ]);
+                    }
+                }
+                exit;
+
+            case 'verify_otp':
+                $otp = $_POST['otp'];
+                if (isset($_SESSION['payment_otp']) && $_SESSION['payment_otp'] == $otp) {
+                    echo json_encode(['success' => true]);
+                } else {
+                    echo json_encode(['success' => false, 'message' => 'Invalid OTP']);
+                }
+                exit;
+
             case 'load_products':
                 error_log("=== LOADING PRODUCTS FOR STORE $user_store_id ===");
                 
@@ -202,6 +322,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 
                 if ($amount_paid < $total) {
                     throw new Exception('Insufficient payment. Total: RM ' . number_format($total, 2));
+                }
+                
+                // Deduct from customer account if applicable
+                if ($payment_method === 'card' || $payment_method === 'ewallet') {
+                    $account_number = $_POST['account_number'] ?? '';
+                    
+                    if (!empty($account_number)) {
+                        // Verify again (security)
+                        $account = $sqlDb->fetch("SELECT * FROM customer_accounts WHERE account_number = ?", [$account_number]);
+                        if ($account) {
+                            if ($account['balance'] < $total) {
+                                throw new Exception('Payment failed: Insufficient funds in account');
+                            }
+                            // Deduct
+                            $sqlDb->execute("UPDATE customer_accounts SET balance = balance - ? WHERE id = ?", [$total, $account['id']]);
+                        }
+                    }
                 }
                 
                 // Create sale record
@@ -598,6 +735,7 @@ $page_title = 'POS Terminal - Inventory System';
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo $page_title; ?></title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="../../assets/css/style.css">
     <style>
         body {
@@ -1397,12 +1535,18 @@ $page_title = 'POS Terminal - Inventory System';
         }
         
         // Show payment modal
+        let paymentVerified = false;
+        let verifiedAccountNumber = '';
+
         function showPaymentModal() {
             if (cart.length === 0) return;
             
             const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
             const tax = 0; // Tax removed
             const total = subtotal + tax;
+            
+            paymentVerified = false;
+            verifiedAccountNumber = '';
             
             let modalContent = '';
             
@@ -1457,26 +1601,26 @@ $page_title = 'POS Terminal - Inventory System';
                         <div style="font-size: 32px; font-weight: bold; color: #3498db;">RM ${total.toFixed(2)}</div>
                     </div>
                     <div style="margin-bottom: 15px;">
-                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #2c3e50;">Card Number (Last 4 digits)</label>
-                        <input type="text" id="cardNumber" maxlength="4" pattern="[0-9]{4}" 
+                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #2c3e50;">Card Number (Account #)</label>
+                        <input type="text" id="cardNumber" 
                                style="width: 100%; padding: 12px; font-size: 16px; border: 2px solid #e0e0e0; border-radius: 8px;" 
-                               placeholder="**** **** **** 1234">
+                               placeholder="Enter card number">
                     </div>
-                    <div style="margin-bottom: 15px;">
-                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #2c3e50;">Card Type</label>
-                        <select id="cardType" style="width: 100%; padding: 12px; font-size: 16px; border: 2px solid #e0e0e0; border-radius: 8px;">
-                            <option value="mastercard" selected>MasterCard</option>
-                            <option value="visa">Visa</option>
-                            <option value="amex">American Express</option>
-                            <option value="debit">Debit Card</option>
-                        </select>
+                    
+                    <div id="otpSection" style="display: none; margin-bottom: 15px; background: #e8f4f8; padding: 10px; border-radius: 8px;">
+                        <p style="font-size: 12px; color: #666; margin-bottom: 5px;">OTP sent to email</p>
+                        <div style="display: flex; gap: 10px;">
+                            <input type="text" id="otpInput" placeholder="Enter OTP" style="flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+                            <button onclick="verifyOtp()" style="padding: 10px 15px; background: #2980b9; color: white; border: none; border-radius: 4px; cursor: pointer;">Verify</button>
+                        </div>
                     </div>
-                    <div style="margin-bottom: 20px;">
-                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #2c3e50;">Approval Code (Optional)</label>
-                        <input type="text" id="approvalCode" 
-                               style="width: 100%; padding: 12px; font-size: 16px; border: 2px solid #e0e0e0; border-radius: 8px;" 
-                               placeholder="Enter approval code">
-                    </div>`;
+                    
+                    <button id="sendOtpBtn" onclick="initiateCardPayment(${total})" style="width: 100%; padding: 12px; background: #3498db; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; margin-bottom: 15px;">
+                        Send OTP
+                    </button>
+                    
+                    <div id="paymentStatus" style="margin-bottom: 15px; font-weight: bold; text-align: center;"></div>
+                    `;
             } else if (selectedPaymentMethod === 'ewallet') {
                 modalContent = `
                     <h3 style="margin-top: 0; color: #2c3e50;"><i class="fas fa-mobile-alt"></i> E-Wallet Payment</h3>
@@ -1485,21 +1629,28 @@ $page_title = 'POS Terminal - Inventory System';
                         <div style="font-size: 32px; font-weight: bold; color: #9b59b6;">RM ${total.toFixed(2)}</div>
                     </div>
                     <div style="margin-bottom: 15px;">
-                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #2c3e50;">E-Wallet Provider</label>
-                        <select id="ewalletProvider" style="width: 100%; padding: 12px; font-size: 16px; border: 2px solid #e0e0e0; border-radius: 8px;">
-                            <option value="tng">Touch 'n Go</option>
-                            <option value="grabpay">GrabPay</option>
-                            <option value="boost">Boost</option>
-                            <option value="shopeepay">ShopeePay</option>
-                            <option value="other">Other</option>
-                        </select>
-                    </div>
-                    <div style="margin-bottom: 20px;">
-                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #2c3e50;">Transaction Reference (Optional)</label>
-                        <input type="text" id="ewalletRef" 
+                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #2c3e50;">Wallet ID (Account #)</label>
+                        <input type="text" id="walletNumber" 
                                style="width: 100%; padding: 12px; font-size: 16px; border: 2px solid #e0e0e0; border-radius: 8px;" 
-                               placeholder="Enter reference number">
-                    </div>`;
+                               placeholder="Enter wallet ID">
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #2c3e50;">6-Digit PIN</label>
+                        <div style="position: relative;">
+                            <input type="password" id="walletPin" maxlength="6"
+                                   style="width: 100%; padding: 12px; padding-right: 40px; font-size: 16px; border: 2px solid #e0e0e0; border-radius: 8px;" 
+                                   placeholder="Enter PIN">
+                            <i class="fas fa-eye" id="togglePinBtn" onclick="togglePinVisibility()" 
+                               style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); cursor: pointer; color: #7f8c8d;"></i>
+                        </div>
+                    </div>
+                    
+                    <button onclick="verifyWallet(${total})" style="width: 100%; padding: 12px; background: #9b59b6; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; margin-bottom: 15px;">
+                        Verify Wallet
+                    </button>
+                    
+                    <div id="paymentStatus" style="margin-bottom: 15px; font-weight: bold; text-align: center;"></div>
+                    `;
             }
             
             const modal = document.createElement('div');
@@ -1512,7 +1663,7 @@ $page_title = 'POS Terminal - Inventory System';
                             <button onclick="closePaymentModal()" style="flex: 1; padding: 14px; background: #95a5a6; color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer;">
                                 <i class="fas fa-times"></i> Cancel
                             </button>
-                            <button onclick="confirmAndCompleteSale()" style="flex: 2; padding: 14px; background: #27ae60; color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer;">
+                            <button id="completeSaleBtn" onclick="confirmAndCompleteSale()" style="flex: 2; padding: 14px; background: #27ae60; color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer;" ${selectedPaymentMethod !== 'cash' ? 'disabled' : ''}>
                                 <i class="fas fa-check-circle"></i> Complete Sale
                             </button>
                         </div>
@@ -1528,6 +1679,109 @@ $page_title = 'POS Terminal - Inventory System';
             }
         }
         
+        function initiateCardPayment(amount) {
+            const accountNum = document.getElementById('cardNumber').value;
+            if (!accountNum) {
+                alert('Please enter card number');
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('action', 'verify_payment');
+            formData.append('type', 'card');
+            formData.append('account_number', accountNum);
+            formData.append('amount', amount);
+            
+            fetch('', { method: 'POST', body: formData })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    document.getElementById('otpSection').style.display = 'block';
+                    document.getElementById('sendOtpBtn').style.display = 'none';
+                    document.getElementById('paymentStatus').textContent = data.message;
+                    document.getElementById('paymentStatus').style.color = 'blue';
+                    if (data.debug_otp) {
+                        // Only show alert if email failed and we fell back to debug mode
+                        alert('Email failed. Demo OTP: ' + data.debug_otp);
+                    } else {
+                        alert('OTP has been sent to your email.');
+                    }
+                } else {
+                    alert(data.message);
+                }
+            });
+        }
+
+        function verifyOtp() {
+            const otp = document.getElementById('otpInput').value;
+            
+            const formData = new FormData();
+            formData.append('action', 'verify_otp');
+            formData.append('otp', otp);
+            
+            fetch('', { method: 'POST', body: formData })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    paymentVerified = true;
+                    verifiedAccountNumber = document.getElementById('cardNumber').value;
+                    document.getElementById('paymentStatus').textContent = 'Payment Verified';
+                    document.getElementById('paymentStatus').style.color = 'green';
+                    document.getElementById('completeSaleBtn').disabled = false;
+                    document.getElementById('otpSection').style.display = 'none';
+                } else {
+                    alert(data.message);
+                }
+            });
+        }
+
+        function verifyWallet(amount) {
+            const accountNum = document.getElementById('walletNumber').value;
+            const pin = document.getElementById('walletPin').value;
+            
+            if (!accountNum || !pin) {
+                alert('Please enter wallet ID and PIN');
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('action', 'verify_payment');
+            formData.append('type', 'ewallet');
+            formData.append('account_number', accountNum);
+            formData.append('pin', pin);
+            formData.append('amount', amount);
+            
+            fetch('', { method: 'POST', body: formData })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    paymentVerified = true;
+                    verifiedAccountNumber = accountNum;
+                    document.getElementById('paymentStatus').textContent = 'Wallet Verified. Balance after: RM ' + data.balance_after.toFixed(2);
+                    document.getElementById('paymentStatus').style.color = 'green';
+                    document.getElementById('completeSaleBtn').disabled = false;
+                } else {
+                    alert(data.message);
+                }
+            });
+        }
+        
+        function togglePinVisibility() {
+            const pinInput = document.getElementById('walletPin');
+            const icon = document.getElementById('togglePinBtn');
+            
+            if (pinInput.type === 'password') {
+                pinInput.type = 'text';
+                icon.classList.remove('fa-eye');
+                icon.classList.add('fa-eye-slash');
+           
+            } else {
+                pinInput.type = 'password';
+                icon.classList.remove('fa-eye-slash');
+                icon.classList.add('fa-eye');
+            }
+        }
+
         function calculateChange() {
             const total = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0); // Tax removed
             const amountPaid = parseFloat(document.getElementById('cashAmount').value) || 0;
@@ -1580,44 +1834,30 @@ $page_title = 'POS Terminal - Inventory System';
                     };
                 }
             } else if (selectedPaymentMethod === 'card') {
-                const cardNumber = document.getElementById('cardNumber').value.trim();
-                const cardType = document.getElementById('cardType').value;
-                const approvalCode = document.getElementById('approvalCode').value.trim();
-                
-                // Card validation
-                if (!cardNumber) {
-                    validationErrors.push('Please enter card number (last 4 digits)');
-                } else if (!/^\d{4}$/.test(cardNumber)) {
-                    validationErrors.push('Card number must be 4 digits');
+                if (!paymentVerified) {
+                    validationErrors.push('Please verify payment first');
                 }
                 
                 if (validationErrors.length === 0) {
                     paymentDetails = {
-                        cardLast4: cardNumber,
-                        cardType: cardType.toUpperCase(),
-                        approvalCode: approvalCode || 'N/A',
-                        method: `${cardType.toUpperCase()} Card Payment`
+                        cardLast4: verifiedAccountNumber.slice(-4),
+                        cardType: 'CARD',
+                        approvalCode: 'VERIFIED',
+                        method: `Card Payment`
                     };
                     // For card, amount paid is exact
                     amountPaid = total;
                 }
             } else if (selectedPaymentMethod === 'ewallet') {
-                const provider = document.getElementById('ewalletProvider').value;
-                const reference = document.getElementById('ewalletRef').value.trim();
+                if (!paymentVerified) {
+                    validationErrors.push('Please verify payment first');
+                }
                 
                 if (validationErrors.length === 0) {
-                    const providerNames = {
-                        'tng': "Touch 'n Go",
-                        'grabpay': 'GrabPay',
-                        'boost': 'Boost',
-                        'shopeepay': 'ShopeePay',
-                        'other': 'E-Wallet'
-                    };
-                    
                     paymentDetails = {
-                        provider: providerNames[provider] || provider,
-                        reference: reference || 'N/A',
-                        method: `${providerNames[provider] || 'E-Wallet'} Payment`
+                        provider: 'E-Wallet',
+                        reference: 'VERIFIED',
+                        method: `E-Wallet Payment`
                     };
                     // For e-wallet, amount paid is exact
                     amountPaid = total;
@@ -1642,15 +1882,11 @@ $page_title = 'POS Terminal - Inventory System';
                 confirmMessage += `Received: RM ${paymentDetails.amountReceived}\n`;
                 confirmMessage += `Change: RM ${paymentDetails.change}\n`;
             } else if (selectedPaymentMethod === 'card') {
-                confirmMessage += `Card: ${paymentDetails.cardType} ****${paymentDetails.cardLast4}\n`;
-                if (paymentDetails.approvalCode !== 'N/A') {
-                    confirmMessage += `Approval: ${paymentDetails.approvalCode}\n`;
-                }
+                confirmMessage += `Card: ****${paymentDetails.cardLast4}\n`;
+                confirmMessage += `Status: Verified\n`;
             } else if (selectedPaymentMethod === 'ewallet') {
-                confirmMessage += `Provider: ${paymentDetails.provider}\n`;
-                if (paymentDetails.reference !== 'N/A') {
-                    confirmMessage += `Reference: ${paymentDetails.reference}\n`;
-                }
+                confirmMessage += `Wallet: ${verifiedAccountNumber}\n`;
+                confirmMessage += `Status: Verified\n`;
             }
             
             confirmMessage += '\n\nProceed with this sale?';
@@ -1677,6 +1913,9 @@ $page_title = 'POS Terminal - Inventory System';
                 formData.append('payment_method', selectedPaymentMethod);
                 formData.append('amount_paid', amountPaid);
                 formData.append('payment_details', JSON.stringify(paymentDetails));
+                if (selectedPaymentMethod !== 'cash') {
+                    formData.append('account_number', verifiedAccountNumber);
+                }
                 
                 console.log('Sending sale data...');
                 console.log('Cart items:', cart);

@@ -21,6 +21,37 @@ if (!currentUserHasPermission('can_use_pos')) {
 // Initialize database
 $db = getHybridDB();
 
+// Ensure customer_accounts table exists (for demo)
+try {
+    // Try SQLite syntax first (most likely for POS terminal)
+    $db->execute("CREATE TABLE IF NOT EXISTS customer_accounts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        account_number VARCHAR(50) UNIQUE NOT NULL,
+        account_name VARCHAR(100) NOT NULL,
+        account_type VARCHAR(20) NOT NULL,
+        balance DECIMAL(10, 2) DEFAULT 0.00,
+        pin VARCHAR(255),
+        email VARCHAR(100),
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )");
+    
+    // Check if demo data exists
+    $check = $db->fetch("SELECT COUNT(*) as count FROM customer_accounts");
+    $count = is_array($check) ? $check['count'] : $check; // Handle different fetch return types
+    
+    if ($count == 0) {
+        $db->execute("INSERT INTO customer_accounts (account_number, account_name, account_type, balance, email) 
+                   VALUES ('4000123456789010', 'John Doe Bank', 'bank', 5000.00, 'demo@example.com')");
+        
+        $pin = password_hash('123456', PASSWORD_DEFAULT);
+        $db->execute("INSERT INTO customer_accounts (account_number, account_name, account_type, balance, pin) 
+                   VALUES ('0123456789', 'Jane Doe Wallet', 'ewallet', 500.00, ?)", [$pin]);
+    }
+} catch (Exception $e) {
+    // If SQLite syntax fails, it might be Postgres (though unlikely given datetime('now') usage elsewhere)
+    // We could try Postgres syntax here if needed, but let's assume SQLite for POS local DB.
+}
+
 // Get sync status for header display
 $syncStatus = $db->getSyncStatus();
 
@@ -44,6 +75,68 @@ if (isset($_POST['action'])) {
                 echo json_encode(['success' => true, 'products' => $products]);
             } else {
                 echo json_encode(['success' => false, 'message' => 'Query too short']);
+            }
+            exit;
+
+        case 'verify_payment':
+            $type = $_POST['type']; // 'card' or 'ewallet'
+            $account_number = $_POST['account_number'];
+            $amount = floatval($_POST['amount']);
+            
+            // Check if account exists
+            $account = $db->fetch("SELECT * FROM customer_accounts WHERE account_number = ?", [$account_number]);
+            
+            if (!$account) {
+                echo json_encode(['success' => false, 'message' => 'Account not found']);
+                exit;
+            }
+            
+            if ($account['balance'] < $amount) {
+                echo json_encode(['success' => false, 'message' => 'Insufficient balance. Available: $' . number_format($account['balance'], 2)]);
+                exit;
+            }
+            
+            if ($type === 'ewallet') {
+                $pin = $_POST['pin'];
+                if (!password_verify($pin, $account['pin'])) {
+                    echo json_encode(['success' => false, 'message' => 'Invalid PIN']);
+                    exit;
+                }
+                echo json_encode(['success' => true, 'message' => 'Verified', 'balance_after' => $account['balance'] - $amount]);
+            } elseif ($type === 'card') {
+                // Simulate OTP
+                $otp = rand(100000, 999999);
+                $_SESSION['payment_otp'] = $otp;
+                $_SESSION['payment_account'] = $account_number;
+                
+                // Try to send email
+                $email_sent = false;
+                if (!empty($account['email']) && file_exists('email_helper.php')) {
+                    require_once 'email_helper.php';
+                    // sendEmail($to, $subject, $body)
+                    try {
+                        sendEmail($account['email'], "Payment OTP", "Your OTP for payment of $" . number_format($amount, 2) . " is: <b>$otp</b>");
+                        $email_sent = true;
+                    } catch (Exception $e) {
+                        // Ignore email error for demo
+                    }
+                }
+                
+                echo json_encode([
+                    'success' => true, 
+                    'require_otp' => true, 
+                    'message' => 'OTP sent to ' . $account['email'],
+                    'debug_otp' => $otp // For demo convenience
+                ]);
+            }
+            exit;
+
+        case 'verify_otp':
+            $otp = $_POST['otp'];
+            if (isset($_SESSION['payment_otp']) && $_SESSION['payment_otp'] == $otp) {
+                echo json_encode(['success' => true]);
+            } else {
+                echo json_encode(['success' => false, 'message' => 'Invalid OTP']);
             }
             exit;
             
@@ -72,6 +165,23 @@ if (isset($_POST['action'])) {
                 $discount_amount = ($subtotal * $discount) / 100;
                 $tax_amount = 0; // Tax removed
                 $total_amount = $subtotal - $discount_amount + $tax_amount;
+                
+                // Deduct from customer account if applicable
+                if ($payment_method === 'card' || $payment_method === 'mobile') {
+                    $account_number = $_POST['account_number'] ?? '';
+                    
+                    // Verify again (security)
+                    $account = $db->fetch("SELECT * FROM customer_accounts WHERE account_number = ?", [$account_number]);
+                    if (!$account) {
+                         throw new Exception('Payment failed: Account not found');
+                    }
+                    if ($account['balance'] < $total_amount) {
+                        throw new Exception('Payment failed: Insufficient funds');
+                    }
+                    
+                    // Deduct
+                    $db->execute("UPDATE customer_accounts SET balance = balance - ? WHERE id = ?", [$total_amount, $account['id']]);
+                }
                 
                 // Create transaction
                 $db->execute("
@@ -541,11 +651,32 @@ $recent_transactions = $db->fetchAll("
             
             <div class="checkout-area" id="checkoutArea" style="display: none;">
                 <input type="text" class="customer-input" id="customerName" placeholder="Customer name (optional)">
-                <select class="payment-select" id="paymentMethod">
+                <select class="payment-select" id="paymentMethod" onchange="togglePaymentFields()">
                     <option value="cash">Cash</option>
                     <option value="card">Card</option>
-                    <option value="mobile">Mobile Payment</option>
+                    <option value="mobile">Mobile Payment (E-Wallet)</option>
                 </select>
+                
+                <!-- Payment Details Section -->
+                <div id="paymentDetails" style="display: none; border: 1px solid #ddd; padding: 10px; margin: 10px 0; border-radius: 4px; background: #f9f9f9;">
+                    <div id="cardFields" style="display: none;">
+                        <input type="text" class="customer-input" id="cardNumber" placeholder="Card Number (Account #)">
+                        <div id="otpSection" style="display: none;">
+                            <p style="font-size: 12px; color: #666; margin-bottom: 5px;">OTP sent to email</p>
+                            <input type="text" class="customer-input" id="otpInput" placeholder="Enter OTP">
+                            <button class="sync-btn" onclick="verifyOtp()" style="width: 100%; margin-top: 5px; background: #2980b9;">Verify OTP</button>
+                        </div>
+                        <button class="sync-btn" id="sendOtpBtn" onclick="initiateCardPayment()" style="width: 100%; margin-top: 5px; background: #2980b9;">Send OTP</button>
+                    </div>
+                    
+                    <div id="walletFields" style="display: none;">
+                        <input type="text" class="customer-input" id="walletNumber" placeholder="Wallet ID (Account #)">
+                        <input type="password" class="customer-input" id="walletPin" placeholder="6-Digit PIN" maxlength="6">
+                        <button class="sync-btn" onclick="verifyWallet()" style="width: 100%; margin-top: 5px; background: #8e44ad;">Verify Wallet</button>
+                    </div>
+                    <div id="paymentStatus" style="margin-top: 10px; font-weight: bold; font-size: 14px;"></div>
+                </div>
+
                 <input type="number" class="discount-input" id="discountPercent" placeholder="Discount %" 
                        min="0" max="100" step="0.1" value="0">
                 <button class="checkout-btn" id="checkoutBtn" onclick="processCheckout()">
@@ -713,8 +844,134 @@ $recent_transactions = $db->fetchAll("
         // Update totals when discount changes
         document.getElementById('discountPercent').addEventListener('input', updateTotals);
         
+        let paymentVerified = false;
+        let verifiedAccountNumber = '';
+
+        function togglePaymentFields() {
+            const method = document.getElementById('paymentMethod').value;
+            const detailsDiv = document.getElementById('paymentDetails');
+            const cardFields = document.getElementById('cardFields');
+            const walletFields = document.getElementById('walletFields');
+            const checkoutBtn = document.getElementById('checkoutBtn');
+            
+            document.getElementById('paymentStatus').textContent = '';
+            document.getElementById('paymentStatus').className = '';
+            paymentVerified = false;
+            verifiedAccountNumber = '';
+            
+            if (method === 'cash') {
+                detailsDiv.style.display = 'none';
+                checkoutBtn.disabled = false;
+            } else {
+                detailsDiv.style.display = 'block';
+                checkoutBtn.disabled = true; // Require verification
+                
+                if (method === 'card') {
+                    cardFields.style.display = 'block';
+                    walletFields.style.display = 'none';
+                } else {
+                    cardFields.style.display = 'none';
+                    walletFields.style.display = 'block';
+                }
+            }
+        }
+
+        function initiateCardPayment() {
+            const accountNum = document.getElementById('cardNumber').value;
+            const amount = parseFloat(document.getElementById('grandTotal').textContent.replace('$', ''));
+            
+            if (!accountNum) {
+                alert('Please enter card number');
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('action', 'verify_payment');
+            formData.append('type', 'card');
+            formData.append('account_number', accountNum);
+            formData.append('amount', amount);
+            
+            fetch('', { method: 'POST', body: formData })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    document.getElementById('otpSection').style.display = 'block';
+                    document.getElementById('sendOtpBtn').style.display = 'none';
+                    document.getElementById('paymentStatus').textContent = data.message;
+                    document.getElementById('paymentStatus').style.color = 'blue';
+                    if (data.debug_otp) {
+                        console.log('Debug OTP:', data.debug_otp);
+                        alert('Demo OTP: ' + data.debug_otp);
+                    }
+                } else {
+                    alert(data.message);
+                }
+            });
+        }
+
+        function verifyOtp() {
+            const otp = document.getElementById('otpInput').value;
+            
+            const formData = new FormData();
+            formData.append('action', 'verify_otp');
+            formData.append('otp', otp);
+            
+            fetch('', { method: 'POST', body: formData })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    paymentVerified = true;
+                    verifiedAccountNumber = document.getElementById('cardNumber').value;
+                    document.getElementById('paymentStatus').textContent = 'Payment Verified';
+                    document.getElementById('paymentStatus').style.color = 'green';
+                    document.getElementById('checkoutBtn').disabled = false;
+                    document.getElementById('otpSection').style.display = 'none';
+                } else {
+                    alert(data.message);
+                }
+            });
+        }
+
+        function verifyWallet() {
+            const accountNum = document.getElementById('walletNumber').value;
+            const pin = document.getElementById('walletPin').value;
+            const amount = parseFloat(document.getElementById('grandTotal').textContent.replace('$', ''));
+            
+            if (!accountNum || !pin) {
+                alert('Please enter wallet ID and PIN');
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('action', 'verify_payment');
+            formData.append('type', 'ewallet');
+            formData.append('account_number', accountNum);
+            formData.append('pin', pin);
+            formData.append('amount', amount);
+            
+            fetch('', { method: 'POST', body: formData })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    paymentVerified = true;
+                    verifiedAccountNumber = accountNum;
+                    document.getElementById('paymentStatus').textContent = 'Wallet Verified. Balance after: $' + data.balance_after.toFixed(2);
+                    document.getElementById('paymentStatus').style.color = 'green';
+                    document.getElementById('checkoutBtn').disabled = false;
+                } else {
+                    alert(data.message);
+                }
+            });
+        }
+
         function processCheckout() {
             if (cart.length === 0) return;
+            
+            const method = document.getElementById('paymentMethod').value;
+            if (method !== 'cash' && !paymentVerified) {
+                alert('Please verify payment first');
+                return;
+            }
             
             const checkoutBtn = document.getElementById('checkoutBtn');
             checkoutBtn.disabled = true;
@@ -724,8 +981,11 @@ $recent_transactions = $db->fetchAll("
             formData.append('action', 'process_sale');
             formData.append('items', JSON.stringify(cart));
             formData.append('customer_name', document.getElementById('customerName').value);
-            formData.append('payment_method', document.getElementById('paymentMethod').value);
+            formData.append('payment_method', method);
             formData.append('discount', document.getElementById('discountPercent').value);
+            if (method !== 'cash') {
+                formData.append('account_number', verifiedAccountNumber);
+            }
             
             fetch('', {
                 method: 'POST',
