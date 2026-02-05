@@ -10,22 +10,22 @@ define('DB_DRIVER', 'pgsql');
 
 // Supabase PostgreSQL Connection
 // Use port 6543 (Transaction Pooler) to support IPv4 environments (like Render/Docker)
-define('PG_HOST', getenv('PG_HOST') ?: 'db.fbuzapvujmjecrnhbzuc.supabase.co');
-define('PG_PORT', getenv('PG_PORT') ?: '6543');
-define('PG_DATABASE', getenv('PG_DATABASE') ?: 'postgres');
-define('PG_USERNAME', getenv('PG_USERNAME') ?: 'postgres.fbuzapvujmjecrnhbzuc'); // Pooler often requires [user].[project]
-define('PG_PASSWORD', getenv('PG_PASSWORD') ?: 'admin123');
+define('PG_HOST', getenv('PG_HOST') ?: '');
+define('PG_PORT', getenv('PG_PORT') ?: '');
+define('PG_DATABASE', getenv('PG_DATABASE') ?: '');
+define('PG_USERNAME', getenv('PG_USERNAME') ?: ''); // Pooler often requires [user].[project]
+define('PG_PASSWORD', getenv('PG_PASSWORD') ?: '');
 
 // SSL is REQUIRED for Supabase
 define('PG_SSL_MODE', 'require');
 
 // Supabase Project Details
-define('SUPABASE_URL', getenv('SUPABASE_URL') ?: 'https://fbuzapvujmjecrnhbzuc.supabase.co');
+define('SUPABASE_URL', getenv('SUPABASE_URL') ?: '');
 
 // Firebase Configuration
-define('FIREBASE_DATABASE_URL', getenv('FIREBASE_DATABASE_URL') ?: 'https://senpai-ef088-default-rtdb.asia-southeast1.firebasedatabase.app/');
-define('FIREBASE_API_KEY', getenv('FIREBASE_API_KEY') ?: 'AIzaSyAI4sBJIxzMPbbNsNwp9d1fq-Nzp42iu_k');
-define('FIREBASE_PROJECT_ID', getenv('FIREBASE_PROJECT_ID') ?: 'senpai-ef088');
+define('FIREBASE_DATABASE_URL', getenv('FIREBASE_DATABASE_URL') ?: '');
+define('FIREBASE_API_KEY', getenv('FIREBASE_API_KEY') ?: '');
+define('FIREBASE_PROJECT_ID', getenv('FIREBASE_PROJECT_ID') ?: '');
 
 // Session Configuration
 ini_set('session.cookie_httponly', 1);
